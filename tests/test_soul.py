@@ -151,3 +151,79 @@ class TestWhisper:
 
         result = whisper(agent)
         assert result is None
+
+
+import threading
+import time
+
+
+def make_mock_service():
+    svc = MagicMock()
+    svc.model = "test-model"
+    svc.make_tool_result.return_value = {"role": "tool", "content": "ok"}
+    return svc
+
+
+class TestSoulTimer:
+
+    def test_soul_attributes_initialized(self, tmp_path):
+        """BaseAgent initializes soul state."""
+        from stoai_kernel import BaseAgent
+        agent = BaseAgent(
+            agent_name="test",
+            service=make_mock_service(),
+            base_dir=tmp_path,
+        )
+        assert agent._soul_active is False
+        assert agent._soul_delay == 120.0
+        assert agent._soul_prompt == ""
+        assert agent._soul_timer is None
+
+    def test_soul_timer_starts_on_idle(self, tmp_path):
+        """When soul is active and agent goes SLEEPING, timer starts."""
+        from stoai_kernel import BaseAgent, AgentState
+        agent = BaseAgent(
+            agent_name="test",
+            service=make_mock_service(),
+            base_dir=tmp_path,
+        )
+        agent._soul_active = True
+        agent._soul_delay = 1.0
+        agent._soul_prompt = "reflect"
+        agent._set_state(AgentState.ACTIVE, reason="test")
+        agent._set_state(AgentState.SLEEPING, reason="done")
+        assert agent._soul_timer is not None
+        assert agent._soul_timer.is_alive()
+        # Cleanup
+        agent._soul_timer.cancel()
+
+    def test_soul_timer_does_not_start_when_inactive(self, tmp_path):
+        """When soul is off, no timer on idle."""
+        from stoai_kernel import BaseAgent, AgentState
+        agent = BaseAgent(
+            agent_name="test",
+            service=make_mock_service(),
+            base_dir=tmp_path,
+        )
+        agent._soul_active = False
+        agent._set_state(AgentState.ACTIVE, reason="test")
+        agent._set_state(AgentState.SLEEPING, reason="done")
+        assert agent._soul_timer is None
+
+    def test_soul_timer_cancelled_on_wake(self, tmp_path):
+        """When agent wakes (ACTIVE), pending soul timer is cancelled."""
+        from stoai_kernel import BaseAgent, AgentState
+        agent = BaseAgent(
+            agent_name="test",
+            service=make_mock_service(),
+            base_dir=tmp_path,
+        )
+        agent._soul_active = True
+        agent._soul_delay = 300.0  # long delay — won't fire
+        agent._soul_prompt = "reflect"
+        agent._set_state(AgentState.ACTIVE, reason="test")
+        agent._set_state(AgentState.SLEEPING, reason="done")
+        assert agent._soul_timer is not None
+        # Wake up — timer should be cancelled
+        agent._set_state(AgentState.ACTIVE, reason="new mail")
+        assert agent._soul_timer is None

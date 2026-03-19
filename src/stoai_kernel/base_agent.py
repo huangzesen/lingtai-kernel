@@ -223,6 +223,12 @@ class BaseAgent:
         self._state = AgentState.SLEEPING
         self._sealed = False
 
+        # Soul — inner voice
+        self._soul_active = False
+        self._soul_delay = 120.0
+        self._soul_prompt = ""
+        self._soul_timer: threading.Timer | None = None
+
         # Session manager — LLM session, token tracking, compaction
         self._session = SessionManager(
             llm_service=service,
@@ -502,16 +508,49 @@ class BaseAgent:
         self.inbox.put(msg)
 
     def _set_state(self, new_state: AgentState, reason: str = "") -> None:
-        """Transition to a new state, keeping _idle in sync."""
+        """Transition to a new state, keeping _idle and soul timer in sync."""
         old = self._state
         if old == new_state:
             return
         self._state = new_state
         if new_state == AgentState.SLEEPING:
             self._idle.set()
+            self._start_soul_timer()
         else:
             self._idle.clear()
+            self._cancel_soul_timer()
         self._log("agent_state", old=old.value, new=new_state.value, reason=reason)
+
+    def _start_soul_timer(self) -> None:
+        """Start the soul delay timer if soul is active."""
+        if not self._soul_active:
+            return
+        if self._shutdown.is_set():
+            return
+        self._cancel_soul_timer()
+        self._soul_timer = threading.Timer(self._soul_delay, self._soul_whisper)
+        self._soul_timer.daemon = True
+        self._soul_timer.name = f"soul-{self.agent_name}"
+        self._soul_timer.start()
+
+    def _cancel_soul_timer(self) -> None:
+        """Cancel any pending soul timer."""
+        if self._soul_timer is not None:
+            self._soul_timer.cancel()
+            self._soul_timer = None
+
+    def _soul_whisper(self) -> None:
+        """Called by soul timer — clone session, whisper, inject into inbox."""
+        self._soul_timer = None
+        try:
+            from .intrinsics.soul import whisper
+            text = whisper(self)
+            if text:
+                self._log("soul_whisper", length=len(text))
+                msg = _make_message(MSG_REQUEST, "soul", f"[inner voice] {text}")
+                self.inbox.put(msg)
+        except Exception as e:
+            self._log("soul_whisper_error", error=str(e))
 
     def _log(self, event_type: str, **fields) -> None:
         """Write a structured event to the logging service, if configured."""
