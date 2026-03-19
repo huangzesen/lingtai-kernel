@@ -22,3 +22,4 @@ class AgentConfig:
     data_dir: str | None = None  # for cache files (e.g., model context windows)
     flow: bool = True  # enable inner voice (flow mode) — cannot be changed at runtime
     flow_delay: float = 120.0  # seconds idle before soul whispers; large value = effectively off
+    language: str = "en"  # agent language ("en", "zh"); controls all kernel-injected strings

@@ -66,27 +66,31 @@ class SystemPromptManager:
         return "\n\n".join(ordered)
 
 
-def _load_manifesto() -> str:
-    """Load the kernel manifesto from manifesto.md (shipped with the package)."""
+def _load_manifesto(lang: str = "en") -> str:
+    """Load the kernel manifesto for the given language."""
     from pathlib import Path
-    path = Path(__file__).parent / "manifesto.md"
-    return path.read_text().strip()
+    base = Path(__file__).parent
+    if lang != "en":
+        path = base / f"manifesto_{lang}.md"
+        if path.is_file():
+            return path.read_text().strip()
+    return (base / "manifesto.md").read_text().strip()
 
 
-_MANIFESTO: str | None = None
+_MANIFESTO_CACHE: dict[str, str] = {}
 
 
-def get_manifesto() -> str:
-    """Return the cached manifesto text."""
-    global _MANIFESTO
-    if _MANIFESTO is None:
-        _MANIFESTO = _load_manifesto()
-    return _MANIFESTO
+def get_manifesto(lang: str = "en") -> str:
+    """Return the cached manifesto text for the given language."""
+    if lang not in _MANIFESTO_CACHE:
+        _MANIFESTO_CACHE[lang] = _load_manifesto(lang)
+    return _MANIFESTO_CACHE[lang]
 
 
 def build_system_prompt(
     prompt_manager: SystemPromptManager,
     base_prompt: str = "",
+    language: str = "en",
 ) -> str:
     """Build the full system prompt from components.
 
@@ -94,7 +98,7 @@ def build_system_prompt(
     The manifesto is the agent's foundational truth — it comes first, always.
     base_prompt is framework-level guidance injected by the wrapper package (stoai).
     """
-    parts = [get_manifesto()]
+    parts = [get_manifesto(language)]
     if base_prompt:
         parts.append(base_prompt)
 
