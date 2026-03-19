@@ -31,6 +31,7 @@ from .llm import (
     LLMService,
     ToolCall,
 )
+from .i18n import t as _t
 from .logging import get_logger
 from .loop_guard import LoopGuard
 from .prompt import build_system_prompt
@@ -506,13 +507,10 @@ class BaseAgent:
         self._mail_arrived.set()
 
         preview = message[:100].replace("\n", " ")
-        notification = (
-            f'[system] New message in {self._mailbox_name}.\n'
-            f'  From: {sender}\n'
-            f'  Subject: {subject}\n'
-            f'  Sent at: {sent_at}\n'
-            f'  {preview}...\n'
-            f'Use {self._mailbox_tool}(action="check") to see your inbox.'
+        notification = _t(
+            self._config.language, "system.new_mail",
+            box=self._mailbox_name, sender=sender, subject=subject,
+            sent_at=sent_at, preview=preview, tool=self._mailbox_tool,
         )
 
         self._log("mail_received", sender=sender, subject=subject, message=message)
@@ -561,7 +559,7 @@ class BaseAgent:
             if text:
                 self._log("soul_whisper", length=len(text))
                 self._persist_soul_entry(self._soul_prompt, text)
-                msg = _make_message(MSG_REQUEST, "soul", f"[inner voice] {text}")
+                msg = _make_message(MSG_REQUEST, "soul", _t(self._config.language, "system.inner_voice", text=text))
                 self.inbox.put(msg)
             # One-shot inquiry: clear after firing
             if self._soul_oneshot:
@@ -646,7 +644,7 @@ class BaseAgent:
         self._log("heartbeat_aed", beats=self._heartbeat)
 
         # Inject revive message
-        revive_msg = f"[system] You were in error at {ts}, reviving..."
+        revive_msg = _t(self._config.language, "system.error_revive", ts=ts)
         msg = _make_message(MSG_REQUEST, "system", revive_msg)
         self.inbox.put(msg)
 
@@ -818,41 +816,24 @@ class BaseAgent:
                 _eigen.context_forget(self)
                 self._session._compaction_warnings = 0
                 content = (
-                    f"[system] Your conversation history was wiped because you ignored "
-                    f"5 molt warnings. Check your email inbox and library for context. "
-                    f"Start fresh.\n\n{content}"
+                    f"{_t(self._config.language, 'system.molt_wiped')}\n\n{content}"
                 )
             elif warnings == 5:
                 content = (
-                    f"[system] FINAL — countdown 0. Context {pressure:.0%} full. "
-                    f"Molt NOW or lose everything next turn. "
-                    f"Write your briefing: what you're doing, what's done, what's pending, "
-                    f"which library entries to load. "
-                    f"{tool_name}(object=context, action=molt, summary=<briefing>).\n\n{content}"
+                    f"{_t(self._config.language, 'system.molt_final', pressure=f'{pressure:.0%}', tool=tool_name)}\n\n{content}"
                 )
             elif warnings >= 3:
                 remaining = 5 - warnings
                 content = (
-                    f"[system] Context pressure: {pressure:.0%} full — "
-                    f"countdown {remaining} {'turn' if remaining == 1 else 'turns'} until auto-wipe. "
-                    f"Deposit important data to library NOW ({tool_name} submit), then molt. "
-                    f"Your molt summary is a briefing to your future self — "
-                    f"the ONLY context you will have.\n\n{content}"
+                    f"{_t(self._config.language, 'system.molt_urgent', pressure=f'{pressure:.0%}', remaining=remaining, turns='turn' if remaining == 1 else 'turns', tool=tool_name)}\n\n{content}"
                 )
             else:
                 remaining = 5 - warnings
                 content = (
-                    f"[system] Context pressure: {pressure:.0%} full — "
-                    f"countdown {remaining} turns until auto-wipe. "
-                    f"Start tidying up: save important findings to library ({tool_name} submit). "
-                    f"When ready, molt with a briefing to your future self: "
-                    f"{tool_name}(object=context, action=molt, summary=<briefing>). "
-                    f"Your summary is the ONLY thing you will see after molt — "
-                    f"include what you're doing, what's done, what's pending, "
-                    f"and which library entries to load.\n\n{content}"
+                    f"{_t(self._config.language, 'system.molt_warning', pressure=f'{pressure:.0%}', remaining=remaining, tool=tool_name)}\n\n{content}"
                 )
 
-        content = f"[Current time: {current_time}]\n\n{content}"
+        content = f"{_t(self._config.language, 'system.current_time', time=current_time)}\n\n{content}"
         self._log("text_input", text=content)
         response = self._session.send(content)
         result = self._process_response(response)
@@ -987,7 +968,7 @@ class BaseAgent:
             self._prompt_manager.write_section(
                 "tools", "\n\n".join(lines), protected=True
             )
-        return build_system_prompt(prompt_manager=self._prompt_manager)
+        return build_system_prompt(prompt_manager=self._prompt_manager, language=self._config.language)
 
     def _build_tool_schemas(self) -> list[FunctionSchema]:
         """Build the complete tool schema list for the LLM.
@@ -999,7 +980,7 @@ class BaseAgent:
         reasoning_prop = {
             "reasoning": {
                 "type": "string",
-                "description": "Brief explanation of why you are calling this tool (recorded in your diary).",
+                "description": _t(self._config.language, "tool.reasoning_description"),
             },
         }
 
