@@ -75,11 +75,33 @@ Your memory section below may be updated mid-session.
 Automatic context compaction triggers at 80% of your context window — earlier conversation will be summarized to free space."""
 
 
+def _load_manifesto() -> str:
+    """Load the kernel manifesto from manifesto.md (shipped with the package)."""
+    from pathlib import Path
+    path = Path(__file__).parent / "manifesto.md"
+    return path.read_text().strip()
+
+
+_MANIFESTO: str | None = None
+
+
+def get_manifesto() -> str:
+    """Return the cached manifesto text."""
+    global _MANIFESTO
+    if _MANIFESTO is None:
+        _MANIFESTO = _load_manifesto()
+    return _MANIFESTO
+
+
 def build_system_prompt(
     prompt_manager: SystemPromptManager,
 ) -> str:
-    """Build the full system prompt from components."""
-    parts = [BASE_PROMPT]
+    """Build the full system prompt from components.
+
+    Order: manifesto → base prompt → sections.
+    The manifesto is the agent's foundational truth — it comes first, always.
+    """
+    parts = [get_manifesto(), BASE_PROMPT]
 
     sections_text = prompt_manager.render()
     if sections_text:
