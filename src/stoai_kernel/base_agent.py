@@ -588,7 +588,7 @@ class BaseAgent:
     # Heartbeat — always-on health monitor (involuntary)
     # ------------------------------------------------------------------
 
-    _CPR_TIMEOUT = 600.0  # 10 minutes
+    _CPR_TIMEOUT_DEFAULT = 1200.0  # 20 minutes
 
     def _start_heartbeat(self) -> None:
         """Start the heartbeat daemon thread."""
@@ -600,10 +600,12 @@ class BaseAgent:
             name=f"heartbeat-{self.agent_name}",
         )
         self._heartbeat_thread.start()
+        self._log("heartbeat_start")
 
     def _stop_heartbeat(self) -> None:
         """Stop the heartbeat (called only by stop/shutdown)."""
         self._heartbeat_thread = None
+        self._log("heartbeat_stop", beats=self._heartbeat)
 
     def _heartbeat_loop(self) -> None:
         """Beat every 1 second. Perform CPR if agent is stuck or errored."""
@@ -619,7 +621,8 @@ class BaseAgent:
                     self._cpr_start = now
 
                 elapsed = now - self._cpr_start
-                if elapsed > self._CPR_TIMEOUT:
+                cpr_timeout = self._config.cpr_timeout
+                if elapsed > cpr_timeout:
                     # CPR failed — pronounce dead
                     self._log("heartbeat_dead", beats=self._heartbeat, cpr_seconds=elapsed)
                     self._set_state(AgentState.DEAD, reason="CPR failed")

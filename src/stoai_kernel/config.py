@@ -16,6 +16,7 @@ class AgentConfig:
     model: str | None = None
     api_key: str | None = None
     base_url: str | None = None
-    retry_timeout: float = 30.0
+    retry_timeout: float = 120.0
+    cpr_timeout: float = 1200.0  # 20 minutes — max CPR before pronouncing dead
     thinking_budget: int | None = None
     data_dir: str | None = None  # for cache files (e.g., model context windows)

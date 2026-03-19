@@ -176,8 +176,8 @@ class TestHeartbeatDead:
         )
         agent._set_state(AgentState.ACTIVE, reason="test")
         agent._set_state(AgentState.SLEEPING, reason="stuck")
-        # Simulate CPR started 11 minutes ago
-        agent._cpr_start = time.monotonic() - 660
+        # Simulate CPR started 21 minutes ago (exceeds 20 min window)
+        agent._cpr_start = time.monotonic() - 1260
 
         agent._start_heartbeat()
         time.sleep(1.5)
