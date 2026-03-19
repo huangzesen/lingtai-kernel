@@ -134,7 +134,7 @@ def whisper(agent) -> str | None:
             interface=cloned,
         )
         response = session.send(
-            f"[Agent inquiry] {agent._soul_prompt}\n\n[Be brief, you are the agent, agent is you, answer the inquiry as if answering to yourself. Don't address the agent as peer, you are addressing yourself. You don't have tools, do not attempt tool calls.]"
+            f"[Agent inquiry] {agent._soul_prompt}\n\n[Be brief, you are the agent, agent is you, answer the inquiry as if answering to yourself. Don't address the agent as peer, you are addressing yourself. Answer in the same language as the inquiry. You don't have tools, do not attempt tool calls.]"
         )
     except Exception:
         return None
