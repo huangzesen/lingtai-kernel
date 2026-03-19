@@ -134,7 +134,7 @@ def whisper(agent) -> str | None:
             interface=cloned,
         )
         response = session.send(
-            f"{agent._soul_prompt}\n\n[Budget: 1000 tokens. Be brief — you are a whisper, not a conversation. Do NOT attempt tool calls.]"
+            f"{agent._soul_prompt}\n\n[Budget: 1000 tokens. Be brief, you are the second self of the agent, answer the inquiry, you don't have tools, do not attempt tool calls.]"
         )
     except Exception:
         return None
