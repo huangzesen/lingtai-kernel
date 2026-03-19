@@ -102,17 +102,13 @@ def whisper(agent) -> dict | None:
     # Deep-copy the interface (safe: agent thread is blocked in inbox.get())
     cloned = ChatInterface.from_dict(iface.to_dict())
 
-    # Build content — same as what the agent would see
+    # Build content — no timestamp here; _handle_request adds it when the
+    # agent processes the [inner voice] message from the inbox.
     if agent._soul_prompt:
         content = agent._soul_prompt
     else:
         delay = int(agent._soul_delay)
         content = t(agent._config.language, "soul.time_lapse", seconds=delay)
-
-    # Prepend timestamp — same pattern as _handle_request
-    from datetime import datetime, timezone
-    current_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    prompt = f"{t(agent._config.language, 'system.current_time', time=current_time)}\n\n{content}"
 
     # Create a temporary session: same system prompt, no tools, cloned history
     system_prompt = agent._build_system_prompt()
@@ -126,7 +122,7 @@ def whisper(agent) -> dict | None:
             provider=agent._config.provider,
             interface=cloned,
         )
-        response = session.send(prompt)
+        response = session.send(content)
     except Exception:
         return None
 
@@ -134,7 +130,7 @@ def whisper(agent) -> dict | None:
         return None
 
     return {
-        "prompt": prompt,
+        "prompt": content,
         "voice": response.text,
         "thinking": response.thoughts or [],
     }

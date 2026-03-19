@@ -111,45 +111,27 @@ class TestWhisper:
         return agent, mock_session
 
     def test_whisper_flow_mode(self):
-        """Flow mode: [Current time: ...] + time lapse."""
+        """Flow mode: time lapse prompt, no timestamp (added by _handle_request)."""
         agent, mock_session = self._make_whisper_agent(soul_prompt="")
         result = whisper(agent)
         assert result["voice"] == "You should check your notes."
         assert result["thinking"] == ["Maybe I should review my earlier findings."]
-        assert "[Current time:" in result["prompt"]
-        assert "120 seconds passed..." in result["prompt"]
+        assert "seconds passed" in result["prompt"]
+        assert "[Current time:" not in result["prompt"]
 
     def test_whisper_inquiry_mode(self):
-        """Inquiry mode: [Current time: ...] + question."""
+        """Inquiry mode: question as prompt, no timestamp."""
         agent, mock_session = self._make_whisper_agent(soul_prompt="What am I missing?")
         result = whisper(agent)
         assert result["voice"] == "You should check your notes."
-        assert "[Current time:" in result["prompt"]
-        assert "What am I missing?" in result["prompt"]
-
-    def test_whisper_same_pattern_flow_and_inquiry(self):
-        """Flow and inquiry use the same [Current time: ...] pattern."""
-        import re
-        ts_pattern = re.compile(r"^\[Current time: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\]\n\n.+", re.DOTALL)
-
-        agent_flow, session_flow = self._make_whisper_agent(soul_prompt="")
-        whisper(agent_flow)
-        msg_flow = session_flow.send.call_args[0][0]
-
-        agent_inq, session_inq = self._make_whisper_agent(soul_prompt="Am I stuck?")
-        whisper(agent_inq)
-        msg_inq = session_inq.send.call_args[0][0]
-
-        assert ts_pattern.match(msg_flow)
-        assert ts_pattern.match(msg_inq)
+        assert result["prompt"] == "What am I missing?"
 
     def test_whisper_flow_mode_chinese(self):
-        """Chinese config uses Chinese time lapse and timestamp."""
+        """Chinese config uses Chinese time lapse."""
         agent, mock_session = self._make_whisper_agent(soul_prompt="")
         agent._config.language = "zh"
         result = whisper(agent)
-        assert "当前时间" in result["prompt"]
-        assert "已过去120秒..." in result["prompt"]
+        assert "已过去120秒" in result["prompt"]
 
     def test_whisper_returns_none_when_no_chat(self):
         agent = MagicMock()
