@@ -76,9 +76,11 @@ SCHEMA = {
 
 DESCRIPTION = (
     "Disk-backed mailbox for inter-agent messaging. "
-    "Messages persist to mailbox/inbox/ on disk. "
-    "Use 'check' to see inbox summaries, 'read' to load full messages, "
-    "'search' to find messages by regex, 'delete' to remove messages. "
+    "Always reply via mail — never reply via text output. "
+    "Text output is your private diary that only you can see. "
+    "Use 'send' for outgoing mail, 'check' to list inbox, "
+    "'read' to load full messages, 'search' to find by regex, "
+    "'delete' to remove messages. "
     "Etiquette: a short acknowledgement is fine, but do not reply to "
     "an acknowledgement — that creates pointless ping-pong."
 )
