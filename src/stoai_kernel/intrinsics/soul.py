@@ -92,3 +92,44 @@ def handle(agent, args: dict) -> dict:
 
     else:
         return {"error": f"Unknown soul action: {action}. Use on or off."}
+
+
+def whisper(agent) -> str | None:
+    """Clone the agent's conversation and send the agent-authored prompt.
+
+    Returns the inner voice text, or None if there's nothing to reflect on.
+
+    Thread safety: called from the soul Timer thread while the agent thread
+    is blocked in inbox.get().  iface.to_dict() is a pure read over a Python
+    list — atomic under CPython's GIL.  The cloned interface is a deep copy
+    so the subsequent create_session/send touches no shared state.
+    """
+    from ..llm.interface import ChatInterface
+
+    if agent._chat is None:
+        return None
+
+    iface = agent._chat.interface
+    if not iface.conversation_entries():
+        return None
+
+    # Deep-copy the interface (GIL-safe read of the entry list)
+    cloned = ChatInterface.from_dict(iface.to_dict())
+
+    # Create a temporary session: same system prompt, no tools, cloned history
+    system_prompt = agent._build_system_prompt()
+    try:
+        session = agent.service.create_session(
+            system_prompt=system_prompt,
+            tools=None,
+            model=agent._config.model or agent.service.model,
+            thinking="low",
+            tracked=False,
+            provider=agent._config.provider,
+            interface=cloned,
+        )
+        response = session.send(agent._soul_prompt)
+    except Exception:
+        return None
+
+    return response.text or None
