@@ -258,7 +258,7 @@ class BaseAgent:
     def _wire_intrinsics(self) -> None:
         """Wire kernel intrinsic tool handlers."""
         for name, info in ALL_INTRINSICS.items():
-            handle_fn = info["handle"]
+            handle_fn = info["module"].handle
             self._intrinsics[name] = lambda args, fn=handle_fn: fn(self, args)
 
     # ------------------------------------------------------------------
@@ -956,11 +956,12 @@ class BaseAgent:
     def _build_system_prompt(self) -> str:
         """Build the system prompt from base + sections + tool inventory."""
         # Build tool inventory from full tool descriptions
+        lang = self._config.language
         lines = []
         for name in self._intrinsics:
             info = ALL_INTRINSICS.get(name)
             if info:
-                lines.append(f"### {name}\n{info['description']}")
+                lines.append(f"### {name}\n{info['module'].get_description(lang)}")
         for s in self._mcp_schemas:
             if s.description:
                 lines.append(f"### {s.name}\n{s.description}")
@@ -987,17 +988,18 @@ class BaseAgent:
         schemas = []
 
         # Intrinsic schemas
+        lang = self._config.language
         for name in self._intrinsics:
             info = ALL_INTRINSICS.get(name)
             if info:
-                params = dict(info["schema"])
+                params = dict(info["module"].get_schema(lang))
                 props = dict(params.get("properties", {}))
                 props.update(reasoning_prop)
                 params["properties"] = props
                 schemas.append(
                     FunctionSchema(
                         name=name,
-                        description=info["description"],
+                        description=info["module"].get_description(lang),
                         parameters=params,
                     )
                 )

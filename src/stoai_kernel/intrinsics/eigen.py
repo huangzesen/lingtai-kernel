@@ -9,51 +9,42 @@ Internal:
 """
 from __future__ import annotations
 
-SCHEMA = {
-    "type": "object",
-    "properties": {
-        "object": {
-            "type": "string",
-            "enum": ["memory", "context"],
-            "description": (
-                "memory: your working notes (system/memory.md). "
-                "context: manage conversation context."
-            ),
-        },
-        "action": {
-            "type": "string",
-            "enum": ["edit", "load", "molt"],
-            "description": (
-                "memory: edit | load.\n"
-                "context: molt."
-            ),
-        },
-        "content": {
-            "type": "string",
-            "description": "Text content for memory edit.",
-        },
-        "summary": {
-            "type": "string",
-            "description": (
-                "For context molt: a briefing to your future self — "
-                "the ONLY thing you will see after molt. "
-                "Write what you are doing, what you have found, "
-                "what remains to be done, and who you are working with. "
-                "~10000 tokens max."
-            ),
-        },
-    },
-    "required": ["object", "action"],
-}
+def get_description(lang: str = "en") -> str:
+    from ..i18n import t
+    return t(lang, "eigen.description")
 
-DESCRIPTION = (
-    "Core self-management — working notes and context control.\n"
-    "memory: edit to write your working notes (system/memory.md), "
-    "load to inject them into your active prompt.\n"
-    "context: molt to molt — write a briefing to your future self, "
-    "your conversation history is wiped and your summary becomes the new starting context. "
-    "Before molting, save important data elsewhere first."
-)
+
+def get_schema(lang: str = "en") -> dict:
+    from ..i18n import t
+    return {
+        "type": "object",
+        "properties": {
+            "object": {
+                "type": "string",
+                "enum": ["memory", "context"],
+                "description": t(lang, "eigen.object_description"),
+            },
+            "action": {
+                "type": "string",
+                "enum": ["edit", "load", "molt"],
+                "description": t(lang, "eigen.action_description"),
+            },
+            "content": {
+                "type": "string",
+                "description": t(lang, "eigen.content_description"),
+            },
+            "summary": {
+                "type": "string",
+                "description": t(lang, "eigen.summary_description"),
+            },
+        },
+        "required": ["object", "action"],
+    }
+
+
+# Backward compat
+SCHEMA = get_schema("en")
+DESCRIPTION = get_description("en")
 
 
 def handle(agent, args: dict) -> dict:
@@ -148,10 +139,12 @@ def _context_molt(agent, args: dict) -> dict:
 
     # Inject the agent's summary as the opening context
     from ..llm.interface import TextBlock
+    from ..i18n import t
+    lang = agent._config.language
     iface = agent._session._chat.interface
-    iface.add_user_message(f"[Previous conversation summary]\n{summary}")
+    iface.add_user_message(f"{t(lang, 'eigen.molt_summary_prefix')}\n{summary}")
     iface.add_assistant_message(
-        [TextBlock(text="Understood. I have my previous context restored.")],
+        [TextBlock(text=t(lang, 'eigen.molt_ack'))],
     )
 
     after_tokens = iface.estimate_context_tokens()
@@ -179,10 +172,7 @@ def context_forget(agent) -> dict:
     Called by base_agent auto-forget after ignored molt warnings.
     Same mechanism as molt, just with a system-authored summary.
     """
+    from ..i18n import t
     return _context_molt(agent, {
-        "summary": (
-            "[System-initiated molt — you ignored 5 warnings.]\n"
-            "Context wiped by system. Check persistent knowledge "
-            "(mail, email, library) to recover context."
-        ),
+        "summary": t(agent._config.language, "eigen.context_forget_summary"),
     })

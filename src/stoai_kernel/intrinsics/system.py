@@ -11,61 +11,37 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
-SCHEMA = {
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["show", "sleep", "shutdown", "restart"],
-            "description": (
-                "show: display full agent self-inspection. Returns:\n"
-                "- identity: agent_id, working_dir, mail_address (or null if no mail service)\n"
-                "- runtime: started_at (UTC ISO), uptime_seconds\n"
-                "- tokens.input_tokens, output_tokens, thinking_tokens, cached_tokens, "
-                "total_tokens, api_calls: cumulative LLM usage since start\n"
-                "- tokens.context.system_tokens, tools_tokens, history_tokens: "
-                "current context window breakdown\n"
-                "- tokens.context.window_size: total context window capacity\n"
-                "- tokens.context.usage_pct: percentage of context window currently occupied\n"
-                "Use this to monitor resource consumption, decide when to save "
-                "important information to long-term memory, and identify yourself.\n\n"
-                "sleep: pause execution. If seconds is given, waits up to that many seconds "
-                "(wakes early if a message arrives). If seconds is omitted, blocks until "
-                "a message arrives. Capped at 300 seconds.\n\n"
-                "shutdown: initiate graceful self-termination. Use when you want "
-                "to add more capabilities or tools. Protocol: (1) contact your admin "
-                "explaining what capabilities/tools you need and why, (2) then call "
-                "shutdown. A successor agent may resume from your working directory "
-                "and conversation history.\n\n"
-                "restart: the agent stops, reloads MCP servers and config "
-                "from its working directory (mcp/servers.json), and restarts with "
-                "a fresh session but the same identity. Use after installing new "
-                "MCP tools to pick them up without requiring external re-delegation."
-            ),
+def get_description(lang: str = "en") -> str:
+    from ..i18n import t
+    return t(lang, "system_tool.description")
+
+
+def get_schema(lang: str = "en") -> dict:
+    from ..i18n import t
+    return {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["show", "sleep", "shutdown", "restart"],
+                "description": t(lang, "system_tool.action_description"),
+            },
+            "seconds": {
+                "type": "number",
+                "description": t(lang, "system_tool.seconds_description"),
+            },
+            "reason": {
+                "type": "string",
+                "description": t(lang, "system_tool.reason_description"),
+            },
         },
-        "seconds": {
-            "type": "number",
-            "description": (
-                "For sleep: maximum seconds to wait. "
-                "If omitted, waits indefinitely until a message arrives. "
-                "Capped at 300."
-            ),
-        },
-        "reason": {
-            "type": "string",
-            "description": "Reason for shutdown or restart (logged to event log).",
-        },
-    },
-    "required": ["action"],
-}
-DESCRIPTION = (
-    "Runtime, lifecycle, and synchronization. "
-    "'show' returns identity, runtime, and resource usage. "
-    "'sleep' pauses execution — specify 'seconds' for a timed sleep, "
-    "or omit it to block until an incoming message arrives. "
-    "'shutdown' initiates graceful self-termination. "
-    "'restart' triggers rebirth — reloads MCP servers from working dir and restarts."
-)
+        "required": ["action"],
+    }
+
+
+# Backward compat
+SCHEMA = get_schema("en")
+DESCRIPTION = get_description("en")
 
 
 def handle(agent, args: dict) -> dict:
@@ -195,12 +171,13 @@ def _sleep(agent, args: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def _shutdown(agent, args: dict) -> dict:
+    from ..i18n import t
     reason = args.get("reason", "")
     agent._log("shutdown_requested", reason=reason)
     agent._shutdown.set()
     return {
         "status": "ok",
-        "message": "Shutdown initiated. A successor agent may resume from your working directory and conversation history.",
+        "message": t(agent._config.language, "system_tool.shutdown_message"),
     }
 
 
@@ -209,13 +186,12 @@ def _shutdown(agent, args: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def _restart(agent, args: dict) -> dict:
+    from ..i18n import t
     reason = args.get("reason", "")
     agent._log("restart_requested", reason=reason)
     agent._restart_requested = True
     agent._shutdown.set()
     return {
         "status": "ok",
-        "message": "Restart initiated — rebirth in progress. "
-                   "You will be reborn with the same identity but fresh tools. "
-                   "Any new MCP servers in mcp/servers.json will be loaded.",
+        "message": t(agent._config.language, "system_tool.restart_message"),
     }

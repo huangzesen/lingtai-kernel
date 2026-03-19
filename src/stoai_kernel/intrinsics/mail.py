@@ -17,73 +17,62 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SCHEMA = {
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["send", "check", "read", "search", "delete"],
-            "description": (
-                "send: send a message (requires address, message; optional subject, attachments, type). "
-                "check: list inbox summaries (optional n to limit count). "
-                "read: load full message(s) by id (requires id array). "
-                "search: regex search inbox (requires query). "
-                "delete: remove message(s) from inbox (requires id array)."
-            ),
-        },
-        "address": {
-            "type": "string",
-            "description": "Target address for send (e.g. 127.0.0.1:8301)",
-        },
-        "subject": {"type": "string", "description": "Message subject (for send)"},
-        "message": {"type": "string", "description": "Message body (for send)"},
-        "attachments": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "List of file paths to attach to the message (for send)",
-        },
-        "type": {
-            "type": "string",
-            "enum": ["normal", "silence", "kill"],
-            "description": (
-                "Mail type (for send). 'normal' (default) is regular mail. "
-                "'silence' interrupts the target agent and puts it to idle "
-                "(revives on next email; requires admin.silence privilege). "
-                "'kill' hard-stops the target agent (requires admin.kill privilege). "
-                "To revive: re-delegate with the SAME name."
-            ),
-        },
-        "delay": {
-            "type": "integer",
-            "description": "Delay in seconds before delivery (default: 0)",
-        },
-        "id": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Message ID(s) for read or delete actions",
-        },
-        "n": {
-            "type": "integer",
-            "description": "Max number of messages to show in check (default: all)",
-        },
-        "query": {
-            "type": "string",
-            "description": "Regex pattern for search action (searched in from, subject, message)",
-        },
-    },
-    "required": ["action"],
-}
+def get_description(lang: str = "en") -> str:
+    from ..i18n import t
+    return t(lang, "mail.description")
 
-DESCRIPTION = (
-    "Disk-backed mailbox for inter-agent messaging. "
-    "Always reply via mail — never reply via text output. "
-    "Text output is your private diary that only you can see. "
-    "Use 'send' for outgoing mail, 'check' to list inbox, "
-    "'read' to load full messages, 'search' to find by regex, "
-    "'delete' to remove messages. "
-    "Etiquette: a short acknowledgement is fine, but do not reply to "
-    "an acknowledgement — that creates pointless ping-pong."
-)
+
+def get_schema(lang: str = "en") -> dict:
+    from ..i18n import t
+    return {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["send", "check", "read", "search", "delete"],
+                "description": t(lang, "mail.action_description"),
+            },
+            "address": {
+                "type": "string",
+                "description": t(lang, "mail.address_description"),
+            },
+            "subject": {"type": "string", "description": t(lang, "mail.subject_description")},
+            "message": {"type": "string", "description": t(lang, "mail.message_description")},
+            "attachments": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": t(lang, "mail.attachments_description"),
+            },
+            "type": {
+                "type": "string",
+                "enum": ["normal", "silence", "kill"],
+                "description": t(lang, "mail.type_description"),
+            },
+            "delay": {
+                "type": "integer",
+                "description": t(lang, "mail.delay_description"),
+            },
+            "id": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": t(lang, "mail.id_description"),
+            },
+            "n": {
+                "type": "integer",
+                "description": t(lang, "mail.n_description"),
+            },
+            "query": {
+                "type": "string",
+                "description": t(lang, "mail.query_description"),
+            },
+        },
+        "required": ["action"],
+    }
+
+
+# Backward compat
+SCHEMA = get_schema("en")
+DESCRIPTION = get_description("en")
 
 
 # ---------------------------------------------------------------------------
