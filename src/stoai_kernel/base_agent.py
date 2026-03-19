@@ -445,11 +445,6 @@ class BaseAgent:
 
         if mail_type == "silence":
             self._cancel_event.set()
-            # Deactivate conscience if present (Agent layer has _capability_managers)
-            cap_managers = getattr(self, "_capability_managers", {})
-            conscience = cap_managers.get("conscience")
-            if conscience is not None:
-                conscience.stop()
             self._log(
                 "silence_received",
                 sender=payload.get("from", "unknown"),
