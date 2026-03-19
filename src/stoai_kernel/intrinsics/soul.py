@@ -12,6 +12,112 @@ Inquiry mode does the same but with a specific question, once.
 """
 from __future__ import annotations
 
+# "Ponder." in ~20 languages — the flow mode trigger.
+# Detect the majority language of the conversation and use the matching word.
+# Fallback is English.
+_PONDER = {
+    "zh": "沉思。",
+    "ja": "熟考せよ。",
+    "ko": "숙고하라.",
+    "en": "Ponder.",
+    "es": "Reflexiona.",
+    "fr": "Médite.",
+    "de": "Besinne dich.",
+    "pt": "Pondera.",
+    "it": "Rifletti.",
+    "ru": "Обдумай.",
+    "ar": "تأمّل.",
+    "hi": "विचार करो।",
+    "th": "ครุ่นคิด",
+    "vi": "Suy ngẫm.",
+    "tr": "Düşün.",
+    "pl": "Rozważ.",
+    "nl": "Overdenk.",
+    "sv": "Begrunda.",
+    "uk": "Поміркуй.",
+    "id": "Renungkan.",
+}
+_PONDER_FALLBACK = "Ponder."
+
+
+def _detect_flow_message(iface) -> str:
+    """Pick the ponder word matching the conversation's majority language."""
+    from collections import Counter
+    import re
+
+    # Sample text from recent conversation entries
+    texts = []
+    for entry in iface.conversation_entries()[-10:]:
+        for block in entry.content:
+            if hasattr(block, "text") and block.text:
+                texts.append(block.text)
+    sample = " ".join(texts)[:3000]
+
+    if not sample.strip():
+        return _PONDER_FALLBACK
+
+    # Simple heuristic: count Unicode script ranges
+    counts = Counter()
+    for ch in sample:
+        cp = ord(ch)
+        if 0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF:
+            counts["zh"] += 1
+        elif 0x3040 <= cp <= 0x30FF or 0x31F0 <= cp <= 0x31FF:
+            counts["ja"] += 1
+        elif 0xAC00 <= cp <= 0xD7AF or 0x1100 <= cp <= 0x11FF:
+            counts["ko"] += 1
+        elif 0x0600 <= cp <= 0x06FF:
+            counts["ar"] += 1
+        elif 0x0900 <= cp <= 0x097F:
+            counts["hi"] += 1
+        elif 0x0E00 <= cp <= 0x0E7F:
+            counts["th"] += 1
+        elif 0x0400 <= cp <= 0x04FF:
+            # Could be Russian or Ukrainian — default to ru
+            counts["ru"] += 1
+        elif 0x0041 <= cp <= 0x024F:
+            counts["latin"] += 1
+
+    if not counts:
+        return _PONDER_FALLBACK
+
+    top = counts.most_common(1)[0][0]
+
+    # For CJK scripts, we have direct mappings
+    if top in _PONDER:
+        return _PONDER[top]
+
+    # Latin script — can't distinguish languages by script alone, use English
+    if top == "latin":
+        # Quick keyword detection for common Latin-script languages
+        lower = sample.lower()
+        if re.search(r"\b(el|la|los|las|es|está|pero|porque|también)\b", lower):
+            return _PONDER["es"]
+        if re.search(r"\b(le|la|les|est|mais|aussi|avec|dans|pour)\b", lower):
+            return _PONDER["fr"]
+        if re.search(r"\b(der|die|das|ist|aber|auch|und|für|mit)\b", lower):
+            return _PONDER["de"]
+        if re.search(r"\b(o|a|os|as|é|mas|também|com|para)\b", lower):
+            return _PONDER["pt"]
+        if re.search(r"\b(il|la|è|ma|anche|con|per|che|questo)\b", lower):
+            return _PONDER["it"]
+        if re.search(r"\b(bir|ve|bu|için|ile|ama|da|de)\b", lower):
+            return _PONDER["tr"]
+        if re.search(r"\b(và|của|là|không|được|này|có|cho)\b", lower):
+            return _PONDER["vi"]
+        if re.search(r"\b(dan|yang|ini|untuk|dengan|dari|ada)\b", lower):
+            return _PONDER["id"]
+        if re.search(r"\b(jest|nie|się|ale|też|dla|czy)\b", lower):
+            return _PONDER["pl"]
+        if re.search(r"\b(het|een|van|en|is|maar|ook|met)\b", lower):
+            return _PONDER["nl"]
+        if re.search(r"\b(och|är|att|men|för|med|det|som)\b", lower):
+            return _PONDER["sv"]
+        return _PONDER["en"]
+
+    return _PONDER_FALLBACK
+
+
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -144,8 +250,8 @@ def whisper(agent) -> str | None:
             f"Be brief, you are addressing yourself. Answer in the same language as the inquiry."
         )
     else:
-        # Flow mode
-        message = "Briefly reflect yourself in same language."
+        # Flow mode — one word in the conversation's language
+        message = _detect_flow_message(iface)
 
     # Create a temporary session: same system prompt, no tools, cloned history
     system_prompt = agent._build_system_prompt()

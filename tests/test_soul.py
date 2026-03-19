@@ -120,7 +120,7 @@ class TestWhisper:
         result = whisper(agent)
         assert result == "You should check your notes."
         sent_msg = mock_session.send.call_args[0][0]
-        assert "reflect" in sent_msg.lower()
+        assert "ponder" in sent_msg.lower()
 
     def test_whisper_inquiry_mode(self):
         """Inquiry mode sends the specific question."""
