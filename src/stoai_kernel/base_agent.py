@@ -227,6 +227,7 @@ class BaseAgent:
         self._soul_active = False
         self._soul_delay = 120.0
         self._soul_prompt = ""
+        self._soul_oneshot = False
         self._soul_timer: threading.Timer | None = None
 
         # Session manager — LLM session, token tracking, compaction
@@ -551,6 +552,11 @@ class BaseAgent:
                 self._persist_soul_entry(self._soul_prompt, text)
                 msg = _make_message(MSG_REQUEST, "soul", f"[inner voice] {text}")
                 self.inbox.put(msg)
+            # One-shot inquiry: deactivate after firing
+            if self._soul_oneshot:
+                self._soul_active = False
+                self._soul_oneshot = False
+                self._log("soul_off", reason="inquiry completed")
         except Exception as e:
             self._log("soul_whisper_error", error=str(e))
 
