@@ -309,6 +309,15 @@ class TestSoulIntegration:
         sent_msg = mock_soul_session.send.call_args[0][0]
         assert "What am I overlooking?" in sent_msg
 
+        # Verify soul.jsonl was written
+        import json
+        soul_file = tmp_path / "test" / "system" / "soul.jsonl"
+        assert soul_file.is_file()
+        entry = json.loads(soul_file.read_text().strip())
+        assert entry["inquiry"] == "What am I overlooking?"
+        assert entry["voice"] == "Have you considered the energy implications?"
+        assert "ts" in entry
+
     def test_empty_whisper_does_not_inject(self, tmp_path):
         """If whisper returns None, no message is put in inbox."""
         from stoai_kernel import BaseAgent, AgentState

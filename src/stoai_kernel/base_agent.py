@@ -548,10 +548,25 @@ class BaseAgent:
             text = whisper(self)
             if text:
                 self._log("soul_whisper", length=len(text))
+                self._persist_soul_entry(self._soul_prompt, text)
                 msg = _make_message(MSG_REQUEST, "soul", f"[inner voice] {text}")
                 self.inbox.put(msg)
         except Exception as e:
             self._log("soul_whisper_error", error=str(e))
+
+    def _persist_soul_entry(self, inquiry: str, voice: str) -> None:
+        """Append a soul whisper entry to system/soul.jsonl and git-track it."""
+        from datetime import datetime, timezone
+        soul_file = self._working_dir / "system" / "soul.jsonl"
+        soul_file.parent.mkdir(exist_ok=True)
+        entry = json.dumps({
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "inquiry": inquiry,
+            "voice": voice,
+        }, ensure_ascii=False)
+        with open(soul_file, "a") as f:
+            f.write(entry + "\n")
+        self._workdir.diff_and_commit("system/soul.jsonl", "soul")
 
     def _log(self, event_type: str, **fields) -> None:
         """Write a structured event to the logging service, if configured."""
@@ -746,6 +761,7 @@ class BaseAgent:
                 )
 
         content = f"[Current time: {current_time}]\n\n{content}"
+        self._log("text_input", text=content)
         response = self._session.send(content)
         result = self._process_response(response)
         self._post_request(msg, result)
