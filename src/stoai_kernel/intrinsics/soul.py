@@ -10,157 +10,38 @@ Inquiry works regardless of flow — it fires once on the next idle.
 """
 from __future__ import annotations
 
-# "Ponder." in ~20 languages — the flow mode trigger.
-# Detect the majority language of the conversation and use the matching word.
-# Fallback is English.
-_PONDER = {
-    "zh": "沉思。",
-    "ja": "熟考せよ。",
-    "ko": "숙고하라.",
-    "en": "Ponder.",
-    "es": "Reflexiona.",
-    "fr": "Médite.",
-    "de": "Besinne dich.",
-    "pt": "Pondera.",
-    "it": "Rifletti.",
-    "ru": "Обдумай.",
-    "ar": "تأمّل.",
-    "hi": "विचार करो।",
-    "th": "ครุ่นคิด",
-    "vi": "Suy ngẫm.",
-    "tr": "Düşün.",
-    "pl": "Rozważ.",
-    "nl": "Overdenk.",
-    "sv": "Begrunda.",
-    "uk": "Поміркуй.",
-    "id": "Renungkan.",
-}
-_PONDER_FALLBACK = "Ponder."
+
+def get_description(lang: str = "en") -> str:
+    from ..i18n import t
+    return t(lang, "soul.description")
 
 
-
-def _detect_lang(text: str) -> str:
-    """Detect the dominant language of a text sample. Returns a lang key or 'en'."""
-    from collections import Counter
-    import re
-
-    if not text.strip():
-        return "en"
-
-    counts = Counter()
-    for ch in text:
-        cp = ord(ch)
-        if 0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF:
-            counts["zh"] += 1
-        elif 0x3040 <= cp <= 0x30FF or 0x31F0 <= cp <= 0x31FF:
-            counts["ja"] += 1
-        elif 0xAC00 <= cp <= 0xD7AF or 0x1100 <= cp <= 0x11FF:
-            counts["ko"] += 1
-        elif 0x0600 <= cp <= 0x06FF:
-            counts["ar"] += 1
-        elif 0x0900 <= cp <= 0x097F:
-            counts["hi"] += 1
-        elif 0x0E00 <= cp <= 0x0E7F:
-            counts["th"] += 1
-        elif 0x0400 <= cp <= 0x04FF:
-            counts["ru"] += 1
-        elif 0x0041 <= cp <= 0x024F:
-            counts["latin"] += 1
-
-    if not counts:
-        return "en"
-
-    top = counts.most_common(1)[0][0]
-
-    if top in _PONDER:
-        return top
-
-    if top == "latin":
-        lower = text.lower()
-        if re.search(r"\b(el|la|los|las|es|está|pero|porque|también)\b", lower):
-            return "es"
-        if re.search(r"\b(le|la|les|est|mais|aussi|avec|dans|pour)\b", lower):
-            return "fr"
-        if re.search(r"\b(der|die|das|ist|aber|auch|und|für|mit)\b", lower):
-            return "de"
-        if re.search(r"\b(o|a|os|as|é|mas|também|com|para)\b", lower):
-            return "pt"
-        if re.search(r"\b(il|la|è|ma|anche|con|per|che|questo)\b", lower):
-            return "it"
-        if re.search(r"\b(bir|ve|bu|için|ile|ama|da|de)\b", lower):
-            return "tr"
-        if re.search(r"\b(và|của|là|không|được|này|có|cho)\b", lower):
-            return "vi"
-        if re.search(r"\b(dan|yang|ini|untuk|dengan|dari|ada)\b", lower):
-            return "id"
-        if re.search(r"\b(jest|nie|się|ale|też|dla|czy)\b", lower):
-            return "pl"
-        if re.search(r"\b(het|een|van|en|is|maar|ook|met)\b", lower):
-            return "nl"
-        if re.search(r"\b(och|är|att|men|för|med|det|som)\b", lower):
-            return "sv"
-        return "en"
-
-    return "en"
-
-
-def _detect_flow_message(iface) -> str:
-    """Pick the ponder word matching the conversation's majority language."""
-    texts = []
-    for entry in iface.conversation_entries()[-10:]:
-        for block in entry.content:
-            if hasattr(block, "text") and block.text:
-                texts.append(block.text)
-    sample = " ".join(texts)[:3000]
-
-    lang = _detect_lang(sample)
-    return _PONDER.get(lang, _PONDER_FALLBACK)
-
-
-
-
-SCHEMA = {
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["inquiry", "delay"],
-            "description": (
-                "inquiry: one-shot self-directed question — "
-                "fires once on next idle. Requires 'inquiry' parameter. "
-                "delay: adjust how long to wait after going idle "
-                "before the soul whispers. Requires 'delay' parameter."
-            ),
+def get_schema(lang: str = "en") -> dict:
+    from ..i18n import t
+    return {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["inquiry", "delay"],
+                "description": t(lang, "soul.action_description"),
+            },
+            "inquiry": {
+                "type": "string",
+                "description": t(lang, "soul.inquiry_description"),
+            },
+            "delay": {
+                "type": "number",
+                "description": t(lang, "soul.delay_description"),
+            },
         },
-        "inquiry": {
-            "type": "string",
-            "description": (
-                "Your self-inquiry — a question to yourself. "
-                "Required for action='inquiry'. "
-                "This is you asking yourself a question, not prompting someone else."
-            ),
-        },
-        "delay": {
-            "type": "number",
-            "description": (
-                "Seconds to wait after going idle before the soul whispers. "
-                "Min 1. Short delay = restless, long delay = patient. "
-                "Required for action='delay'."
-            ),
-        },
-    },
-    "required": ["action"],
-}
+        "required": ["action"],
+    }
 
-DESCRIPTION = (
-    "Your inner voice — a second you that whispers back after you go idle. "
-    "A clone of your full conversation is created: same system prompt, "
-    "same history, no tools. "
-    "Flow mode is determined at birth — you cannot toggle it. "
-    "'inquiry' fires a one-shot self-directed question on next idle. "
-    "'delay' adjusts the idle wait time. "
-    "The soul keeps you going without external push."
-)
+
+# Backward compat — evaluated at import with English defaults
+SCHEMA = get_schema("en")
+DESCRIPTION = get_description("en")
 
 _MIN_DELAY = 1.0
 
@@ -209,6 +90,7 @@ def whisper(agent) -> str | None:
     so the subsequent create_session/send touches no shared state.
     """
     from ..llm.interface import ChatInterface
+    from ..i18n import t
 
     if agent._chat is None:
         return None
@@ -224,12 +106,12 @@ def whisper(agent) -> str | None:
     if agent._soul_prompt:
         content = agent._soul_prompt
     else:
-        content = _detect_flow_message(iface)
+        content = t(agent._config.language, "soul.ponder")
 
     # Prepend timestamp — same pattern as _handle_request
     from datetime import datetime, timezone
     current_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    content = f"[Current time: {current_time}]\n\n{content}"
+    content = f"{t(agent._config.language, 'system.current_time', time=current_time)}\n\n{content}"
 
     # Create a temporary session: same system prompt, no tools, cloned history
     system_prompt = agent._build_system_prompt()

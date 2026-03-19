@@ -101,6 +101,7 @@ class TestWhisper:
         mock_session.send.return_value = mock_response
         agent.service.create_session.return_value = mock_session
         agent._config = MagicMock()
+        agent._config.language = "en"
         agent._config.provider = None
         agent._config.model = None
         agent.service.model = "test-model"
@@ -141,6 +142,15 @@ class TestWhisper:
         assert ts_pattern.match(msg_flow)
         assert ts_pattern.match(msg_inq)
 
+    def test_whisper_flow_mode_chinese(self):
+        """Chinese config uses Chinese ponder word and timestamp."""
+        agent, mock_session = self._make_whisper_agent(soul_prompt="")
+        agent._config.language = "zh"
+        result = whisper(agent)
+        sent_msg = mock_session.send.call_args[0][0]
+        assert "当前时间" in sent_msg
+        assert "沉思。" in sent_msg
+
     def test_whisper_returns_none_when_no_chat(self):
         agent = MagicMock()
         agent._chat = None
@@ -172,6 +182,7 @@ class TestWhisper:
         agent._build_system_prompt = MagicMock(return_value="test")
         agent._soul_prompt = ""
         agent._config = MagicMock()
+        agent._config.language = "en"
         agent._config.provider = None
         agent._config.model = None
         agent.service.model = "test-model"
