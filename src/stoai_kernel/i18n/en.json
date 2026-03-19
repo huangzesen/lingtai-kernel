@@ -8,7 +8,7 @@
   "system.molt_urgent": "[system] Context pressure: {pressure} full — countdown {remaining} {turns} until auto-wipe. Deposit important data to library NOW ({tool} submit), then molt. Your molt summary is a briefing to your future self — the ONLY context you will have.",
   "system.molt_warning": "[system] Context pressure: {pressure} full — countdown {remaining} turns until auto-wipe. Start tidying up: save important findings to library ({tool} submit). When ready, molt with a briefing to your future self: {tool}(object=context, action=molt, summary=<briefing>). Your summary is the ONLY thing you will see after molt — include what you're doing, what's done, what's pending, and which library entries to load.",
 
-  "soul.time_lapse": "{seconds} seconds passed...",
+  "soul.time_lapse": "{seconds} seconds passed, think.",
   "soul.description": "Your inner voice — a second you that whispers back after you go idle. A clone of your full conversation is created: same system prompt, same history, no tools. Flow mode is determined at birth — you cannot toggle it. 'inquiry' fires a one-shot self-directed question on next idle. 'delay' adjusts the idle wait time. The soul keeps you going without external push.",
   "soul.action_description": "inquiry: one-shot self-directed question — fires once on next idle. Requires 'inquiry' parameter. delay: adjust how long to wait after going idle before the soul whispers. Requires 'delay' parameter.",
   "soul.inquiry_description": "Your self-inquiry — a question to yourself. Required for action='inquiry'. This is you asking yourself a question, not prompting someone else.",
