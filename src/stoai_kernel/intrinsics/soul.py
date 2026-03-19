@@ -1,14 +1,12 @@
 """Soul intrinsic — the agent's inner voice.
 
 Actions:
-    on    — activate continuous free reflection (flow mode)
-    off   — deactivate the soul
     inquiry — one-shot self-directed question, fires once on next idle
+    delay   — adjust the idle delay before the soul whispers
 
-When active (flow), the soul whispers after the agent goes idle:
-it clones the agent's full conversation into a temporary session
-and injects the response as [inner voice] into the agent's inbox.
-Inquiry mode does the same but with a specific question, once.
+Flow mode (continuous free reflection) is enabled at agent creation
+via config.flow and cannot be toggled at runtime.
+Inquiry works regardless of flow — it fires once on the next idle.
 """
 from __future__ import annotations
 
@@ -40,25 +38,17 @@ _PONDER = {
 _PONDER_FALLBACK = "Ponder."
 
 
-def _detect_flow_message(iface) -> str:
-    """Pick the ponder word matching the conversation's majority language."""
+
+def _detect_lang(text: str) -> str:
+    """Detect the dominant language of a text sample. Returns a lang key or 'en'."""
     from collections import Counter
     import re
 
-    # Sample text from recent conversation entries
-    texts = []
-    for entry in iface.conversation_entries()[-10:]:
-        for block in entry.content:
-            if hasattr(block, "text") and block.text:
-                texts.append(block.text)
-    sample = " ".join(texts)[:3000]
+    if not text.strip():
+        return "en"
 
-    if not sample.strip():
-        return _PONDER_FALLBACK
-
-    # Simple heuristic: count Unicode script ranges
     counts = Counter()
-    for ch in sample:
+    for ch in text:
         cp = ord(ch)
         if 0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF:
             counts["zh"] += 1
@@ -73,49 +63,60 @@ def _detect_flow_message(iface) -> str:
         elif 0x0E00 <= cp <= 0x0E7F:
             counts["th"] += 1
         elif 0x0400 <= cp <= 0x04FF:
-            # Could be Russian or Ukrainian — default to ru
             counts["ru"] += 1
         elif 0x0041 <= cp <= 0x024F:
             counts["latin"] += 1
 
     if not counts:
-        return _PONDER_FALLBACK
+        return "en"
 
     top = counts.most_common(1)[0][0]
 
-    # For CJK scripts, we have direct mappings
     if top in _PONDER:
-        return _PONDER[top]
+        return top
 
-    # Latin script — can't distinguish languages by script alone, use English
     if top == "latin":
-        # Quick keyword detection for common Latin-script languages
-        lower = sample.lower()
+        lower = text.lower()
         if re.search(r"\b(el|la|los|las|es|está|pero|porque|también)\b", lower):
-            return _PONDER["es"]
+            return "es"
         if re.search(r"\b(le|la|les|est|mais|aussi|avec|dans|pour)\b", lower):
-            return _PONDER["fr"]
+            return "fr"
         if re.search(r"\b(der|die|das|ist|aber|auch|und|für|mit)\b", lower):
-            return _PONDER["de"]
+            return "de"
         if re.search(r"\b(o|a|os|as|é|mas|também|com|para)\b", lower):
-            return _PONDER["pt"]
+            return "pt"
         if re.search(r"\b(il|la|è|ma|anche|con|per|che|questo)\b", lower):
-            return _PONDER["it"]
+            return "it"
         if re.search(r"\b(bir|ve|bu|için|ile|ama|da|de)\b", lower):
-            return _PONDER["tr"]
+            return "tr"
         if re.search(r"\b(và|của|là|không|được|này|có|cho)\b", lower):
-            return _PONDER["vi"]
+            return "vi"
         if re.search(r"\b(dan|yang|ini|untuk|dengan|dari|ada)\b", lower):
-            return _PONDER["id"]
+            return "id"
         if re.search(r"\b(jest|nie|się|ale|też|dla|czy)\b", lower):
-            return _PONDER["pl"]
+            return "pl"
         if re.search(r"\b(het|een|van|en|is|maar|ook|met)\b", lower):
-            return _PONDER["nl"]
+            return "nl"
         if re.search(r"\b(och|är|att|men|för|med|det|som)\b", lower):
-            return _PONDER["sv"]
-        return _PONDER["en"]
+            return "sv"
+        return "en"
 
-    return _PONDER_FALLBACK
+    return "en"
+
+
+def _detect_flow_message(iface) -> str:
+    """Pick the ponder word matching the conversation's majority language."""
+    texts = []
+    for entry in iface.conversation_entries()[-10:]:
+        for block in entry.content:
+            if hasattr(block, "text") and block.text:
+                texts.append(block.text)
+    sample = " ".join(texts)[:3000]
+
+    lang = _detect_lang(sample)
+    return _PONDER.get(lang, _PONDER_FALLBACK)
+
+
 
 
 SCHEMA = {
@@ -123,14 +124,12 @@ SCHEMA = {
     "properties": {
         "action": {
             "type": "string",
-            "enum": ["on", "off", "inquiry"],
+            "enum": ["inquiry", "delay"],
             "description": (
-                "on: activate your inner voice in flow mode — "
-                "continuous free reflection after each idle. "
-                "off: silence your inner voice. "
                 "inquiry: one-shot self-directed question — "
-                "fires once on next idle, then deactivates. "
-                "Requires 'inquiry' parameter."
+                "fires once on next idle. Requires 'inquiry' parameter. "
+                "delay: adjust how long to wait after going idle "
+                "before the soul whispers. Requires 'delay' parameter."
             ),
         },
         "inquiry": {
@@ -145,8 +144,8 @@ SCHEMA = {
             "type": "number",
             "description": (
                 "Seconds to wait after going idle before the soul whispers. "
-                "Default 120. Min 1, max 3600. "
-                "Short delay = restless, long delay = patient."
+                "Min 1. Short delay = restless, long delay = patient. "
+                "Required for action='delay'."
             ),
         },
     },
@@ -157,66 +156,45 @@ DESCRIPTION = (
     "Your inner voice — a second you that whispers back after you go idle. "
     "A clone of your full conversation is created: same system prompt, "
     "same history, no tools. "
-    "'on' activates continuous free reflection (flow mode). "
-    "'inquiry' fires a one-shot self-directed question, then deactivates. "
-    "'off' silences it. "
+    "Flow mode is determined at birth — you cannot toggle it. "
+    "'inquiry' fires a one-shot self-directed question on next idle. "
+    "'delay' adjusts the idle wait time. "
     "The soul keeps you going without external push."
 )
 
-_MAX_DELAY = 3600.0
 _MIN_DELAY = 1.0
-_DEFAULT_DELAY = 120.0
 
 
 def handle(agent, args: dict) -> dict:
-    """Handle soul tool — on/off/inquiry."""
+    """Handle soul tool — inquiry/delay."""
     action = args.get("action", "")
 
-    if action == "on":
-        delay = args.get("delay", _DEFAULT_DELAY)
-        try:
-            delay = float(delay)
-        except (TypeError, ValueError):
-            return {"error": "delay must be a number."}
-        if delay < _MIN_DELAY:
-            return {"error": f"delay must be >= {_MIN_DELAY} seconds."}
-        delay = min(delay, _MAX_DELAY)
-
-        agent._soul_active = True
-        agent._soul_delay = delay
-        agent._soul_prompt = ""  # flow mode — no fixed inquiry
-        agent._soul_oneshot = False
-        agent._log("soul_on", delay=delay, mode="flow")
-        return {"status": "ok", "active": True, "mode": "flow", "delay": delay}
-
-    elif action == "inquiry":
+    if action == "inquiry":
         inquiry = args.get("inquiry", "")
         if not isinstance(inquiry, str) or not inquiry.strip():
             return {"error": "inquiry is required — what do you want to reflect on?"}
 
-        delay = args.get("delay", _DEFAULT_DELAY)
+        agent._soul_prompt = inquiry.strip()
+        agent._soul_oneshot = True
+        agent._log("soul_inquiry", delay=agent._soul_delay, inquiry=agent._soul_prompt[:200])
+        return {"status": "ok", "mode": "inquiry", "delay": agent._soul_delay}
+
+    elif action == "delay":
+        delay = args.get("delay")
         try:
             delay = float(delay)
         except (TypeError, ValueError):
             return {"error": "delay must be a number."}
         if delay < _MIN_DELAY:
             return {"error": f"delay must be >= {_MIN_DELAY} seconds."}
-        delay = min(delay, _MAX_DELAY)
 
-        agent._soul_active = True
+        old = agent._soul_delay
         agent._soul_delay = delay
-        agent._soul_prompt = inquiry.strip()
-        agent._soul_oneshot = True
-        agent._log("soul_inquiry", delay=delay, inquiry=agent._soul_prompt[:200])
-        return {"status": "ok", "active": True, "mode": "inquiry", "delay": delay}
-
-    elif action == "off":
-        agent._soul_active = False
-        agent._log("soul_off")
-        return {"status": "ok", "active": False}
+        agent._log("soul_delay", old=old, new=delay)
+        return {"status": "ok", "delay": delay}
 
     else:
-        return {"error": f"Unknown soul action: {action}. Use on, off, or inquiry."}
+        return {"error": f"Unknown soul action: {action}. Use inquiry or delay."}
 
 
 def whisper(agent) -> str | None:
@@ -242,16 +220,16 @@ def whisper(agent) -> str | None:
     # Deep-copy the interface (safe: agent thread is blocked in inbox.get())
     cloned = ChatInterface.from_dict(iface.to_dict())
 
-    # Build the whisper message
+    # Build content — same as what the agent would see
     if agent._soul_prompt:
-        # Inquiry mode
-        message = (
-            f"This is your own question to yourself: {agent._soul_prompt}\n\n"
-            f"Be brief, you are addressing yourself. Answer in the same language as the inquiry."
-        )
+        content = agent._soul_prompt
     else:
-        # Flow mode — one word in the conversation's language
-        message = _detect_flow_message(iface)
+        content = _detect_flow_message(iface)
+
+    # Prepend timestamp — same pattern as _handle_request
+    from datetime import datetime, timezone
+    current_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    content = f"[Current time: {current_time}]\n\n{content}"
 
     # Create a temporary session: same system prompt, no tools, cloned history
     system_prompt = agent._build_system_prompt()
@@ -265,7 +243,7 @@ def whisper(agent) -> str | None:
             provider=agent._config.provider,
             interface=cloned,
         )
-        response = session.send(message)
+        response = session.send(content)
     except Exception:
         return None
 

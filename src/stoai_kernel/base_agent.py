@@ -224,10 +224,12 @@ class BaseAgent:
         self._sealed = False
 
         # Soul — inner voice
-        self._soul_active = False
-        self._soul_delay = 120.0
-        self._soul_prompt = ""
-        self._soul_oneshot = False
+        # Flow mode: locked at creation via config.flow; agent cannot toggle.
+        # Inquiry: on-demand one-shot, independent of flow.
+        self._soul_flow = self._config.flow
+        self._soul_delay = max(1.0, self._config.flow_delay)
+        self._soul_prompt = ""       # non-empty during inquiry
+        self._soul_oneshot = False    # True during pending inquiry
         self._soul_timer: threading.Timer | None = None
 
         # Heartbeat — always-on health monitor
@@ -533,8 +535,8 @@ class BaseAgent:
         self._log("agent_state", old=old.value, new=new_state.value, reason=reason)
 
     def _start_soul_timer(self) -> None:
-        """Start the soul delay timer if soul is active."""
-        if not self._soul_active:
+        """Start the soul delay timer if flow is enabled or inquiry is pending."""
+        if not self._soul_flow and not self._soul_oneshot:
             return
         if self._shutdown.is_set():
             return
@@ -561,11 +563,11 @@ class BaseAgent:
                 self._persist_soul_entry(self._soul_prompt, text)
                 msg = _make_message(MSG_REQUEST, "soul", f"[inner voice] {text}")
                 self.inbox.put(msg)
-            # One-shot inquiry: deactivate after firing
+            # One-shot inquiry: clear after firing
             if self._soul_oneshot:
-                self._soul_active = False
                 self._soul_oneshot = False
-                self._log("soul_off", reason="inquiry completed")
+                self._soul_prompt = ""
+                self._log("soul_inquiry_done")
         except Exception as e:
             self._log("soul_whisper_error", error=str(e))
 

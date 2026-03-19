@@ -8,11 +8,14 @@ import enum
 class AgentState(enum.Enum):
     """Lifecycle state of an agent.
 
-    SLEEPING --(inbox message)---> ACTIVE
-    ACTIVE   --(idle/stuck/error)-> SLEEPING
-    SLEEPING --(CPR timeout)-----> DEAD
+    ACTIVE --(completed)--------> IDLE
+    ACTIVE --(timeout/exception)-> ERROR
+    IDLE   --(inbox message)----> ACTIVE
+    ERROR  --(AED)--------------> ACTIVE  (session reset, fresh run loop)
+    ERROR  --(AED timeout)------> DEAD    (shutdown)
     """
 
     ACTIVE = "active"
-    SLEEPING = "sleeping"
+    IDLE = "idle"
+    ERROR = "error"
     DEAD = "dead"
