@@ -126,7 +126,7 @@ def whisper(agent) -> str | None:
             system_prompt=system_prompt,
             tools=None,
             model=agent._config.model or agent.service.model,
-            thinking="low",
+            thinking="high",
             tracked=False,
             provider=agent._config.provider,
             interface=cloned,
