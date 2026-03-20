@@ -1164,6 +1164,11 @@ class BaseAgent:
 
     def status(self) -> dict:
         """Return agent status for monitoring."""
+        life_left = None
+        if self._uptime_anchor is not None:
+            elapsed = time.monotonic() - self._uptime_anchor
+            remaining = max(0.0, self._config.lifetime - elapsed)
+            life_left = round(remaining, 1)
         return {
             "agent_id": self.agent_id,
             "agent_name": self.agent_name,
@@ -1172,6 +1177,7 @@ class BaseAgent:
             "idle": self.is_idle,
             "heartbeat": self._heartbeat,
             "queue_depth": self.inbox.qsize(),
+            "life_left": life_left,
             "tokens": self.get_token_usage(),
         }
 

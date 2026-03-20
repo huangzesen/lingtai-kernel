@@ -68,6 +68,7 @@ def _show(agent, args: dict) -> dict:
         mail_addr = agent._mail_service.address
 
     uptime = time.monotonic() - agent._uptime_anchor if agent._uptime_anchor is not None else 0.0
+    life_left = max(0.0, agent._config.lifetime - uptime) if agent._uptime_anchor is not None else None
 
     usage = agent.get_token_usage()
 
@@ -95,6 +96,7 @@ def _show(agent, args: dict) -> dict:
             "current_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "started_at": agent._started_at,
             "uptime_seconds": round(uptime, 1),
+            "life_left": round(life_left, 1) if life_left is not None else None,
         },
         "tokens": {
             "input_tokens": usage["input_tokens"],
