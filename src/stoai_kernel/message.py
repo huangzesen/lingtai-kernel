@@ -39,6 +39,11 @@ def _make_message(
     *,
     reply_to: str | None = None,
 ) -> Message:
+    # Prepend UTC timestamp to string content so the agent sees when each message arrived
+    if isinstance(content, str):
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        content = f"[{ts}] {content}"
     return Message(
         id=f"msg_{uuid4().hex[:12]}",
         type=type,
