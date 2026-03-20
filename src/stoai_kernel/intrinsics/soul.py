@@ -102,6 +102,16 @@ def whisper(agent) -> dict | None:
     # Deep-copy the interface (safe: agent thread is blocked in inbox.get())
     cloned = ChatInterface.from_dict(iface.to_dict())
 
+    # Strip tool calls and tool results — the soul has no tools and must
+    # produce only text.  Leaving tool examples in the history causes some
+    # LLMs (e.g. MiniMax) to mimic the tool-call XML syntax in plain text.
+    from ..llm.interface import ToolCallBlock, TextBlock
+    for entry in cloned._entries:
+        if entry.role == "system":
+            continue
+        stripped = [b for b in entry.content if not isinstance(b, ToolCallBlock)]
+        entry.content = stripped or [TextBlock(text="(action taken)")]
+
     # Build content — no timestamp here; _handle_request adds it when the
     # agent processes the [inner voice] message from the inbox.
     if agent._soul_prompt:
@@ -110,8 +120,14 @@ def whisper(agent) -> dict | None:
         delay = int(agent._soul_delay)
         content = t(agent._config.language, "soul.time_lapse", seconds=delay)
 
-    # Create a temporary session: same system prompt, no tools, cloned history
+    # Build system prompt WITHOUT tool descriptions — the soul has no tools
+    # and must not see tool inventories that tempt it to emit tool-call syntax.
+    saved_tools = agent._prompt_manager.read_section("tools")
+    agent._prompt_manager.delete_section("tools")
     system_prompt = agent._build_system_prompt()
+    # Restore tools section for the agent's own prompt
+    if saved_tools is not None:
+        agent._prompt_manager.write_section("tools", saved_tools, protected=True)
     try:
         session = agent.service.create_session(
             system_prompt=system_prompt,
