@@ -1177,6 +1177,7 @@ class BaseAgent:
             "idle": self.is_idle,
             "heartbeat": self._heartbeat,
             "queue_depth": self.inbox.qsize(),
+            "lifetime": self._config.lifetime,
             "life_left": life_left,
             "tokens": self.get_token_usage(),
         }

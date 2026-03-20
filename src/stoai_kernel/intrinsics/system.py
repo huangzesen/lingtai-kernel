@@ -96,6 +96,7 @@ def _show(agent, args: dict) -> dict:
             "current_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "started_at": agent._started_at,
             "uptime_seconds": round(uptime, 1),
+            "lifetime": agent._config.lifetime,
             "life_left": round(life_left, 1) if life_left is not None else None,
         },
         "tokens": {
