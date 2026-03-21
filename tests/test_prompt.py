@@ -1,13 +1,12 @@
-from stoai_kernel.prompt import build_system_prompt
-from stoai_kernel.prompt import SystemPromptManager
+from lingtai_kernel.prompt import build_system_prompt
+from lingtai_kernel.prompt import SystemPromptManager
 
 
 def test_build_system_prompt_minimal():
     mgr = SystemPromptManager()
     prompt = build_system_prompt(mgr)
-    # Manifesto is always present
-    assert "private" in prompt
-    assert "tools" in prompt
+    # Without a registered manifesto, prompt is empty or just sections
+    assert isinstance(prompt, str)
 
 
 def test_build_system_prompt_with_sections():
@@ -19,12 +18,19 @@ def test_build_system_prompt_with_sections():
     assert "Remember: user likes concise" in prompt
 
 
-def test_get_manifesto_chinese():
-    from stoai_kernel.prompt import get_manifesto
-    text = get_manifesto("zh")
-    assert "你的思维是私密的" in text
+def test_set_manifesto_and_get():
+    from lingtai_kernel.prompt import set_manifesto, get_manifesto, _MANIFESTO_CACHE
+    set_manifesto("test_lang", "Test manifesto content")
+    assert get_manifesto("test_lang") == "Test manifesto content"
+    # Clean up
+    _MANIFESTO_CACHE.pop("test_lang", None)
 
-def test_get_manifesto_unknown_falls_back_to_en():
-    from stoai_kernel.prompt import get_manifesto
-    text = get_manifesto("xx")
-    assert "Your mind is private" in text
+
+def test_get_manifesto_unknown_returns_empty():
+    from lingtai_kernel.prompt import get_manifesto, _MANIFESTO_CACHE
+    # Clear cache to test fallback
+    _MANIFESTO_CACHE.pop("nonexistent_lang", None)
+    text = get_manifesto("nonexistent_lang")
+    assert text == ""
+    # Clean up
+    _MANIFESTO_CACHE.pop("nonexistent_lang", None)

@@ -67,14 +67,12 @@ class SystemPromptManager:
 
 
 def _load_manifesto(lang: str = "en") -> str:
-    """Load the kernel manifesto for the given language."""
-    from pathlib import Path
-    base = Path(__file__).parent
-    if lang != "en":
-        path = base / f"manifesto_{lang}.md"
-        if path.is_file():
-            return path.read_text().strip()
-    return (base / "manifesto.md").read_text().strip()
+    """Fallback manifesto loader. Returns empty string if no file found.
+
+    Wrapper packages (lingtai) register manifestos via set_manifesto().
+    The kernel ships no manifesto files.
+    """
+    return ""
 
 
 _MANIFESTO_CACHE: dict[str, str] = {}
@@ -85,6 +83,11 @@ def get_manifesto(lang: str = "en") -> str:
     if lang not in _MANIFESTO_CACHE:
         _MANIFESTO_CACHE[lang] = _load_manifesto(lang)
     return _MANIFESTO_CACHE[lang]
+
+
+def set_manifesto(lang: str, text: str) -> None:
+    """Register a manifesto for the given language (used by wrapper packages)."""
+    _MANIFESTO_CACHE[lang] = text
 
 
 def _load_soul_prompt(lang: str = "en") -> str:
@@ -117,7 +120,7 @@ def build_system_prompt(
 
     Order: manifesto → base prompt → sections.
     The manifesto is the agent's foundational truth — it comes first, always.
-    base_prompt is framework-level guidance injected by the wrapper package (stoai).
+    base_prompt is framework-level guidance injected by the wrapper package (lingtai).
     """
     parts = [get_manifesto(language)]
     if base_prompt:
