@@ -184,13 +184,6 @@ class BaseAgent:
         except OSError:
             self._billboard_path = None
 
-        # Wire TCP discovery — banner on connect + info query handler
-        if self._mail_service is not None:
-            if hasattr(self._mail_service, '_banner_id'):
-                self._mail_service._banner_id = self.agent_id
-            if hasattr(self._mail_service, '_info_handler'):
-                self._mail_service._info_handler = self._get_discovery_info
-
         self._mail_arrived = threading.Event()  # set when normal mail arrives; system sleep uses this
 
         # Mailbox identity — capabilities override these to change notification text.
@@ -259,24 +252,6 @@ class BaseAgent:
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
-
-    def _get_discovery_info(self) -> dict:
-        """Return live agent info for TCP discovery queries."""
-        info = {
-            "_lingtai": "agent",
-            "agent_id": self.agent_id,
-            "agent_name": self.agent_name,
-            "started_at": self._started_at,
-            "working_dir": str(self._working_dir),
-            "admin": self._admin,
-            "status": self._state.value,
-        }
-        if self._mail_service is not None and self._mail_service.address:
-            info["address"] = self._mail_service.address
-        # Capabilities (set by Agent subclass)
-        if hasattr(self, "_capabilities"):
-            info["capabilities"] = [name for name, _ in self._capabilities]
-        return info
 
     @property
     def is_idle(self) -> bool:
@@ -404,7 +379,7 @@ class BaseAgent:
             try:
                 self._mail_service.listen(on_message=lambda payload: self._on_mail_received(payload))
             except RuntimeError:
-                pass  # Already listening or no listen_port — that's fine
+                pass  # Already listening — that's fine
 
         self._thread = threading.Thread(
             target=self._run_loop,
