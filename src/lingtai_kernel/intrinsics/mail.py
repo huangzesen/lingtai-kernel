@@ -287,6 +287,20 @@ def _mailman(agent, msg_id: str, payload: dict, deliver_at: datetime,
     if isinstance(address, list):
         address = address[0] if address else ""
 
+    # Look up expected_agent_id from contacts for delivery verification
+    contacts_path = _mailbox_dir(agent) / "contacts.json"
+    expected_id = None
+    if contacts_path.is_file():
+        try:
+            import json as _json
+            contacts = _json.loads(contacts_path.read_text())
+            for c in contacts:
+                if c.get("address") == address:
+                    expected_id = c.get("agent_id")
+                    break
+        except (json.JSONDecodeError, OSError):
+            pass
+
     err = None
     try:
         if _is_self_send(agent, address):
@@ -294,7 +308,7 @@ def _mailman(agent, msg_id: str, payload: dict, deliver_at: datetime,
             agent._mail_arrived.set()
             status = "delivered"
         elif agent._mail_service is not None:
-            err = agent._mail_service.send(address, payload)
+            err = agent._mail_service.send(address, payload, expected_agent_id=expected_id)
             status = "delivered" if err is None else "refused"
         else:
             err = f"No mail service configured"
