@@ -90,7 +90,14 @@ class TCPMailService(MailService):
         self._banner_id: str = ""  # set by agent to enable TCP banner
 
     def send(self, address: str, message: dict) -> str | None:
-        """Send a message to host:port. Returns None on success, error string on failure."""
+        """Send a message to host:port. Returns None on success, error string on failure.
+
+        Addresses may have a logical prefix (e.g. "cli@localhost:8502").
+        The prefix before '@' is stripped to extract the network address.
+        """
+        # Strip logical prefix: "cli@localhost:8502" → "localhost:8502"
+        if "@" in address:
+            address = address.rsplit("@", 1)[1]
         try:
             host, port_str = address.rsplit(":", 1)
             port = int(port_str)
@@ -158,7 +165,7 @@ class TCPMailService(MailService):
             conn.settimeout(10.0)
             # Send banner for TCP discovery — scanners read this and disconnect.
             # Normal email senders ignore it (they never read from the socket).
-            banner = f"STOAI {self._banner_id}\n".encode("utf-8") if self._banner_id else b""
+            banner = f"LINGTAI {self._banner_id}\n".encode("utf-8") if self._banner_id else b""
             if banner:
                 try:
                     conn.sendall(banner)
@@ -178,7 +185,7 @@ class TCPMailService(MailService):
             payload = json.loads(payload_data.decode("utf-8"))
 
             # TCP discovery: respond with agent info and close
-            if payload.get("_stoai") == "info" and self._info_handler:
+            if payload.get("_lingtai") == "info" and self._info_handler:
                 info = self._info_handler()
                 resp = json.dumps(info, ensure_ascii=False).encode("utf-8")
                 conn.sendall(struct.pack(">I", len(resp)) + resp)
@@ -209,7 +216,7 @@ class TCPMailService(MailService):
 
                 # Save message.json (without binary data)
                 (msg_dir / "message.json").write_text(
-                    json.dumps({k: v for k, v in payload.items()}, indent=2, default=str)
+                    json.dumps({k: v for k, v in payload.items()}, indent=2, ensure_ascii=False, default=str)
                 )
 
             on_message(payload)

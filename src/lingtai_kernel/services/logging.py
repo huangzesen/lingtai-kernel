@@ -36,17 +36,18 @@ class JSONLLoggingService(LoggingService):
     Thread-safe via lock. Flushes after every write for real-time tailing.
     """
 
-    def __init__(self, path: Path | str) -> None:
+    def __init__(self, path: Path | str, *, ensure_ascii: bool = False) -> None:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._file = open(self._path, "a")
         self._lock = threading.Lock()
         self._closed = False
+        self._ensure_ascii = ensure_ascii
 
     def log(self, event: dict) -> None:
         if self._closed:
             return
-        line = json.dumps(event, default=str)
+        line = json.dumps(event, ensure_ascii=self._ensure_ascii, default=str)
         with self._lock:
             self._file.write(line + "\n")
             self._file.flush()

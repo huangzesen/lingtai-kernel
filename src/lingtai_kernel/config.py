@@ -9,7 +9,7 @@ class AgentConfig:
     """Configuration for a BaseAgent instance.
 
     The host app reads its own config files and passes resolved values here.
-    No file-based config reading inside stoai.
+    No file-based config reading inside lingtai.
     """
     max_turns: int = 50
     provider: str | None = None  # None = use LLMService's provider
@@ -24,3 +24,4 @@ class AgentConfig:
     flow_delay: float = 120.0  # seconds idle before soul whispers; large value = effectively off
     language: str = "en"  # agent language ("en", "zh"); controls all kernel-injected strings
     lifetime: float = 3600.0  # agent lifetime in seconds; set at birth, not changeable by the agent
+    ensure_ascii: bool = False  # JSON output: False = readable unicode, True = \uXXXX escapes

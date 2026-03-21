@@ -111,7 +111,10 @@ class BaseAgent:
         from .services.logging import JSONLLoggingService
         log_dir = self._working_dir / "logs"
         log_dir.mkdir(exist_ok=True)
-        self._log_service = JSONLLoggingService(log_dir / "events.jsonl")
+        self._log_service = JSONLLoggingService(
+            log_dir / "events.jsonl",
+            ensure_ascii=self._config.ensure_ascii,
+        )
 
         # Acquire working directory lock
         self._workdir.acquire_lock()
@@ -166,7 +169,7 @@ class BaseAgent:
         # Auto-inject identity into system prompt from manifest
         import json as _json
         self._prompt_manager.write_section(
-            "identity", _json.dumps(manifest_data, indent=2), protected=True
+            "identity", _json.dumps(manifest_data, indent=2, ensure_ascii=False), protected=True
         )
 
         # Post to billboard — ephemeral discovery index at ~/.lingtai/billboard/
@@ -177,7 +180,7 @@ class BaseAgent:
             self._billboard_path = billboard_dir / f"{self.agent_id}.json"
             import json as _json, os as _os
             tmp = self._billboard_path.with_suffix(".tmp")
-            tmp.write_text(_json.dumps(manifest_data, indent=2))
+            tmp.write_text(_json.dumps(manifest_data, indent=2, ensure_ascii=False))
             _os.replace(str(tmp), str(self._billboard_path))
         except OSError:
             self._billboard_path = None
@@ -353,7 +356,7 @@ class BaseAgent:
         # Update identity in system prompt
         import json as _json
         self._prompt_manager.write_section(
-            "identity", _json.dumps(self._build_manifest(), indent=2), protected=True
+            "identity", _json.dumps(self._build_manifest(), indent=2, ensure_ascii=False), protected=True
         )
 
     # ------------------------------------------------------------------

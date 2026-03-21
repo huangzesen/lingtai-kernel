@@ -236,5 +236,5 @@ class WorkingDir:
     def write_manifest(self, manifest: dict) -> None:
         target = self._path / _MANIFEST_FILE
         tmp = self._path / ".agent.json.tmp"
-        tmp.write_text(json.dumps(manifest, indent=2))
+        tmp.write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
         os.replace(str(tmp), str(target))

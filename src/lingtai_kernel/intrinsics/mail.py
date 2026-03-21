@@ -221,7 +221,7 @@ def _persist_to_inbox(agent, payload: dict) -> str:
     payload["received_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     (msg_dir / "message.json").write_text(
-        json.dumps(payload, indent=2, default=str)
+        json.dumps(payload, indent=2, ensure_ascii=False, default=str)
     )
     return msg_id
 
@@ -247,7 +247,7 @@ def _persist_to_outbox(agent, payload: dict, deliver_at: datetime) -> str:
     payload["deliver_at"] = deliver_at.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     (msg_dir / "message.json").write_text(
-        json.dumps(payload, indent=2, default=str)
+        json.dumps(payload, indent=2, ensure_ascii=False, default=str)
     )
     return msg_id
 
@@ -269,7 +269,7 @@ def _move_to_sent(agent, msg_id: str, sent_at: str, status: str) -> None:
             data = {}
         data["sent_at"] = sent_at
         data["status"] = status
-        msg_file.write_text(json.dumps(data, indent=2, default=str))
+        msg_file.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str))
 
     shutil.move(str(src), str(dst))
 
