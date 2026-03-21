@@ -1,7 +1,7 @@
-"""Tests for stoai_kernel.intrinsics.soul."""
+"""Tests for lingtai_kernel.intrinsics.soul."""
 from unittest.mock import MagicMock
 
-from stoai_kernel.intrinsics import soul
+from lingtai_kernel.intrinsics import soul
 
 
 def _make_mock_agent():
@@ -75,13 +75,13 @@ class TestSoulHandle:
         assert agent._soul_oneshot is True
 
 
-from stoai_kernel.intrinsics.soul import whisper
+from lingtai_kernel.intrinsics.soul import whisper
 
 
 class TestWhisper:
 
     def _make_whisper_agent(self, soul_prompt=""):
-        from stoai_kernel.llm.interface import ChatInterface, TextBlock
+        from lingtai_kernel.llm.interface import ChatInterface, TextBlock
 
         agent = MagicMock()
         iface = ChatInterface()
@@ -140,7 +140,7 @@ class TestWhisper:
         assert result is None
 
     def test_whisper_returns_none_on_empty_interface(self):
-        from stoai_kernel.llm.interface import ChatInterface
+        from lingtai_kernel.llm.interface import ChatInterface
 
         agent = MagicMock()
         iface = ChatInterface()
@@ -151,7 +151,7 @@ class TestWhisper:
         assert result is None
 
     def test_whisper_returns_none_on_api_error(self):
-        from stoai_kernel.llm.interface import ChatInterface, TextBlock
+        from lingtai_kernel.llm.interface import ChatInterface, TextBlock
 
         agent = MagicMock()
         iface = ChatInterface()
@@ -177,7 +177,7 @@ class TestWhisper:
 import threading
 import time
 
-from stoai_kernel.config import AgentConfig
+from lingtai_kernel.config import AgentConfig
 
 
 def make_mock_service():
@@ -191,10 +191,10 @@ class TestSoulTimer:
 
     def test_soul_attributes_initialized_flow_on(self, tmp_path):
         """BaseAgent with default config has flow enabled."""
-        from stoai_kernel import BaseAgent
+        from lingtai_kernel import BaseAgent
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         assert agent._soul_flow is True
@@ -205,20 +205,20 @@ class TestSoulTimer:
 
     def test_soul_attributes_initialized_flow_off(self, tmp_path):
         """BaseAgent with flow=False."""
-        from stoai_kernel import BaseAgent
+        from lingtai_kernel import BaseAgent
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             config=AgentConfig(flow=False),
             base_dir=tmp_path,
         )
         assert agent._soul_flow is False
 
     def test_soul_timer_starts_on_idle_when_flow_enabled(self, tmp_path):
-        from stoai_kernel import BaseAgent, AgentState
+        from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._soul_delay = 1.0
@@ -229,10 +229,10 @@ class TestSoulTimer:
         agent._soul_timer.cancel()
 
     def test_soul_timer_does_not_start_when_flow_disabled(self, tmp_path):
-        from stoai_kernel import BaseAgent, AgentState
+        from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             config=AgentConfig(flow=False),
             base_dir=tmp_path,
         )
@@ -242,10 +242,10 @@ class TestSoulTimer:
 
     def test_soul_timer_starts_on_idle_for_inquiry(self, tmp_path):
         """Inquiry fires timer even when flow is off."""
-        from stoai_kernel import BaseAgent, AgentState
+        from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             config=AgentConfig(flow=False),
             base_dir=tmp_path,
         )
@@ -257,10 +257,10 @@ class TestSoulTimer:
         agent._soul_timer.cancel()
 
     def test_soul_timer_cancelled_on_wake(self, tmp_path):
-        from stoai_kernel import BaseAgent, AgentState
+        from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._soul_delay = 300.0
@@ -272,10 +272,10 @@ class TestSoulTimer:
 
     def test_flow_delay_from_config(self, tmp_path):
         """flow_delay in config sets initial _soul_delay."""
-        from stoai_kernel import BaseAgent
+        from lingtai_kernel import BaseAgent
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             config=AgentConfig(flow_delay=60.0),
             base_dir=tmp_path,
         )
@@ -283,10 +283,10 @@ class TestSoulTimer:
 
     def test_flow_delay_clamped_to_min(self, tmp_path):
         """flow_delay below 1 is clamped to 1."""
-        from stoai_kernel import BaseAgent
+        from lingtai_kernel import BaseAgent
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             config=AgentConfig(flow_delay=-10.0),
             base_dir=tmp_path,
         )
@@ -296,10 +296,10 @@ class TestSoulTimer:
 class TestSoulCleanup:
 
     def test_stop_cancels_soul_timer(self, tmp_path):
-        from stoai_kernel import BaseAgent, AgentState
+        from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._soul_delay = 300.0
@@ -314,13 +314,13 @@ class TestSoulIntegration:
 
     def test_flow_injects_inner_voice_into_inbox(self, tmp_path):
         """Flow mode: timer fires, whisper runs, inbox gets message."""
-        from stoai_kernel import BaseAgent, AgentState
-        from stoai_kernel.llm.interface import ChatInterface, TextBlock
+        from lingtai_kernel import BaseAgent, AgentState
+        from lingtai_kernel.llm.interface import ChatInterface, TextBlock
 
         svc = make_mock_service()
         agent = BaseAgent(
-            agent_name="test",
             service=svc,
+            agent_name="test",
             base_dir=tmp_path,
         )
 
@@ -360,7 +360,7 @@ class TestSoulIntegration:
 
         # Verify soul.jsonl was written with prompt, thinking, voice
         import json
-        soul_file = tmp_path / "test" / "system" / "soul.jsonl"
+        soul_file = agent.working_dir / "system" / "soul.jsonl"
         assert soul_file.is_file()
         entry = json.loads(soul_file.read_text().strip())
         assert "seconds passed" in entry["prompt"]
@@ -369,13 +369,13 @@ class TestSoulIntegration:
 
     def test_inquiry_clears_after_firing(self, tmp_path):
         """Inquiry mode: fires once, then oneshot clears (flow unaffected)."""
-        from stoai_kernel import BaseAgent, AgentState
-        from stoai_kernel.llm.interface import ChatInterface, TextBlock
+        from lingtai_kernel import BaseAgent, AgentState
+        from lingtai_kernel.llm.interface import ChatInterface, TextBlock
 
         svc = make_mock_service()
         agent = BaseAgent(
-            agent_name="test",
             service=svc,
+            agent_name="test",
             config=AgentConfig(flow=False),
             base_dir=tmp_path,
         )
@@ -416,12 +416,12 @@ class TestSoulIntegration:
         assert agent._soul_prompt == ""
 
     def test_empty_whisper_does_not_inject(self, tmp_path):
-        from stoai_kernel import BaseAgent, AgentState
+        from lingtai_kernel import BaseAgent, AgentState
 
         svc = make_mock_service()
         agent = BaseAgent(
-            agent_name="test",
             service=svc,
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._soul_delay = 0.1
@@ -433,10 +433,10 @@ class TestSoulIntegration:
         assert agent.inbox.empty()
 
     def test_soul_timer_not_started_during_shutdown(self, tmp_path):
-        from stoai_kernel import BaseAgent, AgentState
+        from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._soul_delay = 1.0

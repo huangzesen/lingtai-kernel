@@ -40,7 +40,7 @@ class SessionManager:
         llm_service: LLMService,
         config: AgentConfig,
         agent_id: str,
-        agent_name: str,
+        agent_name: str | None = None,
         streaming: bool,
         build_system_prompt_fn: Callable[[], str],
         build_tool_schemas_fn: Callable[[], list[FunctionSchema]],
@@ -50,6 +50,7 @@ class SessionManager:
         self._config = config
         self._agent_id = agent_id
         self._agent_name = agent_name
+        self._display_name = agent_name or agent_id
         self._streaming = streaming
         self._build_system_prompt_fn = build_system_prompt_fn
         self._build_tool_schemas_fn = build_tool_schemas_fn
@@ -144,7 +145,7 @@ class SessionManager:
                 tools=self._build_tool_schemas_fn() or None,
                 model=self._config.model or self._llm_service.model,
                 thinking="high",
-                agent_type=self._agent_name,
+                agent_type=self._display_name,
                 tracked=True,
                 interaction_id=self._interaction_id,
                 provider=self._config.provider,
@@ -171,7 +172,7 @@ class SessionManager:
                     message=message,
                     timeout_pool=self._timeout_pool,
                     retry_timeout=retry_timeout,
-                    agent_name=self._agent_name,
+                    agent_name=self._display_name,
                     logger=logger,
                     on_reset=self._on_reset,
                 )
@@ -184,7 +185,7 @@ class SessionManager:
                     tools=self._build_tool_schemas_fn() or None,
                     model=self._config.model or self._llm_service.model,
                     thinking="high",
-                    agent_type=self._agent_name,
+                    agent_type=self._display_name,
                     tracked=True,
                     provider=self._config.provider,
                 )
@@ -196,7 +197,7 @@ class SessionManager:
                         message=message,
                         timeout_pool=self._timeout_pool,
                         retry_timeout=retry_timeout,
-                        agent_name=self._agent_name,
+                        agent_name=self._display_name,
                         logger=logger,
                     )
             else:
@@ -219,7 +220,7 @@ class SessionManager:
             message=message,
             timeout_pool=self._timeout_pool,
             retry_timeout=retry_timeout,
-            agent_name=self._agent_name,
+            agent_name=self._display_name,
             logger=logger,
             on_reset=self._on_reset,
         )
@@ -315,7 +316,7 @@ class SessionManager:
         track_llm_usage(
             response=response,
             token_state=token_state,
-            agent_name=self._agent_name,
+            agent_name=self._display_name,
             last_tool_context=self._last_tool_context,
             system_tokens=self._system_prompt_tokens,
             tools_tokens=self._tools_tokens,
@@ -381,7 +382,7 @@ class SessionManager:
                 return
             except Exception as e:
                 logger.warning(
-                    f"[{self._agent_name}] Failed to resume session: {e}. Starting fresh.",
+                    f"[{self._display_name}] Failed to resume session: {e}. Starting fresh.",
                     exc_info=True,
                 )
         self.ensure_session()

@@ -1,9 +1,9 @@
-"""Tests for stoai.services.logging."""
+"""Tests for lingtai.services.logging."""
 import json
 import threading
 from pathlib import Path
 
-from stoai_kernel.services.logging import LoggingService, JSONLLoggingService
+from lingtai_kernel.services.logging import LoggingService, JSONLLoggingService
 
 
 class TestJSONLLoggingService:
@@ -104,9 +104,9 @@ class TestJSONLLoggingService:
 # ---------------------------------------------------------------------------
 
 from unittest.mock import MagicMock
-from stoai_kernel import BaseAgent, AgentState
-from stoai_kernel.llm import ToolCall
-from stoai_kernel.loop_guard import LoopGuard
+from lingtai_kernel import BaseAgent, AgentState
+from lingtai_kernel.llm import ToolCall
+from lingtai_kernel.loop_guard import LoopGuard
 
 
 def make_mock_service():
@@ -120,11 +120,11 @@ class TestBaseAgentLoggingIntegration:
 
     def test_tool_call_logged(self, tmp_path):
         """Executing a tool logs tool_call and tool_result events."""
-        from stoai_kernel.tool_executor import ToolExecutor
+        from lingtai_kernel.tool_executor import ToolExecutor
 
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent.add_tool("greet", schema={"type": "object", "properties": {}}, handler=lambda args: {"status": "ok"})
@@ -144,7 +144,7 @@ class TestBaseAgentLoggingIntegration:
         executor.execute([tc], collected_errors=errors)
 
         # Log file should exist in working dir
-        log_file = tmp_path / "test" / "logs" / "events.jsonl"
+        log_file = agent.working_dir / "logs" / "events.jsonl"
         assert log_file.is_file()
         events = agent._log_service.get_events()
         types = [e["type"] for e in events]
@@ -157,11 +157,11 @@ class TestBaseAgentLoggingIntegration:
 
     def test_auto_logging_to_working_dir(self, tmp_path):
         """Agent always creates JSONL log in working dir."""
-        from stoai_kernel.tool_executor import ToolExecutor
+        from lingtai_kernel.tool_executor import ToolExecutor
 
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent.add_tool("greet", schema={"type": "object", "properties": {}}, handler=lambda args: {"status": "ok"})
@@ -181,7 +181,7 @@ class TestBaseAgentLoggingIntegration:
         executor.execute([tc], collected_errors=errors)
 
         # Log file should exist in working dir
-        log_file = tmp_path / "test" / "logs" / "events.jsonl"
+        log_file = agent.working_dir / "logs" / "events.jsonl"
         assert log_file.is_file()
         events = agent._log_service.get_events()
         types = [e["type"] for e in events]
@@ -190,8 +190,8 @@ class TestBaseAgentLoggingIntegration:
     def test_state_change_logged(self, tmp_path):
         """State transitions are logged."""
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._set_state(AgentState.ACTIVE, reason="test")

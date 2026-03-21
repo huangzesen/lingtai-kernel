@@ -75,9 +75,9 @@ class BaseAgent:
 
     def __init__(
         self,
-        agent_name: str,
         service: LLMService,
         *,
+        agent_name: str | None = None,
         file_io: Any | None = None,
         mail_service: Any | None = None,
         config: AgentConfig | None = None,
@@ -103,7 +103,7 @@ class BaseAgent:
         self._base_dir = Path(base_dir)
         if not self._base_dir.is_dir():
             raise FileNotFoundError(f"base_dir does not exist: {self._base_dir}")
-        self._workdir = WorkingDir(base_dir=base_dir, agent_name=agent_name)
+        self._workdir = WorkingDir(base_dir=base_dir, agent_id=self.agent_id)
         self._working_dir = self._workdir.path
 
         # LoggingService: always JSONL in working dir
@@ -156,18 +156,10 @@ class BaseAgent:
         if loaded_memory.strip():
             self._prompt_manager.write_section("memory", loaded_memory)
 
-        # Write manifest — stable identity only (no covenant, no runtime state)
+        # Write manifest — stable identity + construction recipe (no runtime state)
         from datetime import datetime, timezone
         self._started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        manifest_data = {
-            "agent_id": self.agent_id,
-            "agent_name": self.agent_name,
-            "started_at": self._started_at,
-            "working_dir": str(self._working_dir),
-            "admin": self._admin,
-        }
-        if self._mail_service is not None and self._mail_service.address:
-            manifest_data["address"] = self._mail_service.address
+        manifest_data = self._build_manifest()
         self._workdir.write_manifest(manifest_data)
 
         # Auto-inject identity into system prompt from manifest
@@ -176,10 +168,10 @@ class BaseAgent:
             "identity", _json.dumps(manifest_data, indent=2), protected=True
         )
 
-        # Post to billboard — ephemeral discovery index at ~/.stoai/billboard/
+        # Post to billboard — ephemeral discovery index at ~/.lingtai/billboard/
         self._billboard_path: Path | None = None
         try:
-            billboard_dir = Path.home() / ".stoai" / "billboard"
+            billboard_dir = Path.home() / ".lingtai" / "billboard"
             billboard_dir.mkdir(parents=True, exist_ok=True)
             self._billboard_path = billboard_dir / f"{self.agent_id}.json"
             import json as _json, os as _os
@@ -268,7 +260,7 @@ class BaseAgent:
     def _get_discovery_info(self) -> dict:
         """Return live agent info for TCP discovery queries."""
         info = {
-            "_stoai": "agent",
+            "_lingtai": "agent",
             "agent_id": self.agent_id,
             "agent_name": self.agent_name,
             "started_at": self._started_at,
@@ -342,6 +334,28 @@ class BaseAgent:
         self._session.intermediate_text_streamed = value
 
     # ------------------------------------------------------------------
+    # Naming
+    # ------------------------------------------------------------------
+
+    def set_name(self, name: str) -> None:
+        """Set the agent's true name (真名). Can only be done once."""
+        if not name:
+            raise ValueError("Agent name cannot be empty.")
+        if self.agent_name is not None:
+            raise RuntimeError(
+                f"Agent is already named '{self.agent_name}'. "
+                "The true name can only be set once."
+            )
+        self.agent_name = name
+        # Update manifest on disk
+        self._workdir.write_manifest(self._build_manifest())
+        # Update identity in system prompt
+        import json as _json
+        self._prompt_manager.write_section(
+            "identity", _json.dumps(self._build_manifest(), indent=2), protected=True
+        )
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
@@ -392,7 +406,7 @@ class BaseAgent:
         self._thread = threading.Thread(
             target=self._run_loop,
             daemon=True,
-            name=f"agent-{self.agent_name}",
+            name=f"agent-{self.agent_id}",
         )
         self._thread.start()
         self._start_heartbeat()
@@ -437,16 +451,7 @@ class BaseAgent:
                 pass
 
         # Persist final state and release lock
-        manifest_data = {
-            "agent_id": self.agent_id,
-            "agent_name": self.agent_name,
-            "started_at": self._started_at,
-            "working_dir": str(self._working_dir),
-            "admin": self._admin,
-        }
-        if self._mail_service is not None and self._mail_service.address:
-            manifest_data["address"] = self._mail_service.address
-        self._workdir.write_manifest(manifest_data)
+        self._workdir.write_manifest(self._build_manifest())
         self._workdir.release_lock()
 
     def _on_mail_received(self, payload: dict) -> None:
@@ -482,7 +487,7 @@ class BaseAgent:
             threading.Thread(
                 target=self.stop,
                 daemon=True,
-                name=f"kill-{self.agent_name}",
+                name=f"kill-{self.agent_id}",
             ).start()
             return
 
@@ -541,7 +546,7 @@ class BaseAgent:
         self._cancel_soul_timer()
         self._soul_timer = threading.Timer(self._soul_delay, self._soul_whisper)
         self._soul_timer.daemon = True
-        self._soul_timer.name = f"soul-{self.agent_name}"
+        self._soul_timer.name = f"soul-{self.agent_id}"
         self._soul_timer.start()
 
     def _cancel_soul_timer(self) -> None:
@@ -596,7 +601,7 @@ class BaseAgent:
         self._heartbeat_thread = threading.Thread(
             target=self._heartbeat_loop,
             daemon=True,
-            name=f"heartbeat-{self.agent_name}",
+            name=f"heartbeat-{self.agent_id}",
         )
         self._heartbeat_thread.start()
         self._log("heartbeat_start")
@@ -1029,6 +1034,25 @@ class BaseAgent:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def _build_manifest(self) -> dict:
+        """Build the manifest dict for .agent.json.
+
+        Subclasses override to add fields (e.g. capabilities).
+        Contains identity + construction recipe — enough to respawn
+        an agent with the same abilities.
+        """
+        data = {
+            "agent_id": self.agent_id,
+            "agent_name": self.agent_name,
+            "started_at": self._started_at,
+            "working_dir": str(self._working_dir),
+            "admin": self._admin,
+            "language": self._config.language,
+        }
+        if self._mail_service is not None and self._mail_service.address:
+            data["address"] = self._mail_service.address
+        return data
 
     def mail(self, address: str, message: str, subject: str = "") -> dict:
         """Send a message to another agent (public API). Requires MailService."""

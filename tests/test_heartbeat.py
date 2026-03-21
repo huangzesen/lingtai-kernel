@@ -13,10 +13,10 @@ def make_mock_service():
 class TestHeartbeatInit:
 
     def test_heartbeat_counter_initialized(self, tmp_path):
-        from stoai_kernel import BaseAgent
+        from lingtai_kernel import BaseAgent
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         assert agent._heartbeat == 0
@@ -25,10 +25,10 @@ class TestHeartbeatInit:
         assert agent._aed_pending is False
 
     def test_heartbeat_in_status(self, tmp_path):
-        from stoai_kernel import BaseAgent
+        from lingtai_kernel import BaseAgent
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._heartbeat = 42
@@ -39,10 +39,10 @@ class TestHeartbeatInit:
 class TestHeartbeatBeating:
 
     def test_heartbeat_increments(self, tmp_path):
-        from stoai_kernel import BaseAgent
+        from lingtai_kernel import BaseAgent
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._start_heartbeat()
@@ -52,10 +52,10 @@ class TestHeartbeatBeating:
 
     def test_no_aed_on_idle(self, tmp_path):
         """Heartbeat does NOT AED when agent is IDLE."""
-        from stoai_kernel import BaseAgent, AgentState
+        from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._start_heartbeat()
@@ -72,10 +72,10 @@ class TestAED:
 
     def test_aed_resets_session_on_error(self, tmp_path):
         """AED resets the LLM session when agent is in ERROR."""
-        from stoai_kernel import BaseAgent, AgentState
+        from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._set_state(AgentState.ACTIVE, reason="test")
@@ -92,10 +92,10 @@ class TestAED:
 
     def test_aed_fires_once_per_error(self, tmp_path):
         """AED fires once, then waits — does NOT flood inbox."""
-        from stoai_kernel import BaseAgent, AgentState
+        from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._start_heartbeat()
@@ -114,10 +114,10 @@ class TestAED:
 
     def test_aed_pending_resets_on_recovery(self, tmp_path):
         """When agent recovers to ACTIVE, _aed_pending resets."""
-        from stoai_kernel import BaseAgent, AgentState
+        from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._aed_pending = True
@@ -136,10 +136,10 @@ class TestAED:
 
     def test_aed_on_error_via_heartbeat(self, tmp_path):
         """Full cycle: error → heartbeat detects → AED → revive message."""
-        from stoai_kernel import BaseAgent, AgentState
+        from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._start_heartbeat()
@@ -162,10 +162,10 @@ class TestHeartbeatDead:
 
     def test_aed_timeout_triggers_dead(self, tmp_path):
         """After AED timeout, agent is pronounced DEAD."""
-        from stoai_kernel import BaseAgent, AgentState
+        from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._set_state(AgentState.ACTIVE, reason="test")
@@ -181,10 +181,10 @@ class TestHeartbeatDead:
         assert agent._shutdown.is_set()
 
     def test_dead_state_in_status(self, tmp_path):
-        from stoai_kernel import BaseAgent, AgentState
+        from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
-            agent_name="test",
             service=make_mock_service(),
+            agent_name="test",
             base_dir=tmp_path,
         )
         agent._state = AgentState.DEAD
