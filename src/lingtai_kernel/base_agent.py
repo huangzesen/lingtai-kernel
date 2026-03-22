@@ -213,10 +213,9 @@ class BaseAgent:
         self._sealed = False
 
         # Soul — inner voice
-        # Flow mode: locked at creation via config.flow; agent cannot toggle.
+        # soul_delay controls idle whisper timing. Very large = effectively off.
         # Inquiry: on-demand one-shot, independent of flow.
-        self._soul_flow = self._config.flow
-        self._soul_delay = max(1.0, self._config.flow_delay)
+        self._soul_delay = max(1.0, self._config.soul_delay)
         self._soul_prompt = ""       # non-empty during inquiry
         self._soul_oneshot = False    # True during pending inquiry
         self._soul_timer: threading.Timer | None = None
@@ -489,9 +488,9 @@ class BaseAgent:
         self._log("agent_state", old=old.value, new=new_state.value, reason=reason)
 
     def _start_soul_timer(self) -> None:
-        """Start the soul delay timer if flow is enabled or inquiry is pending."""
-        if not self._soul_flow and not self._soul_oneshot:
-            return
+        """Start the soul delay timer for flow or pending inquiry."""
+        if not self._soul_oneshot and self._soul_delay > self._config.vigil:
+            return  # delay exceeds vigil — effectively disabled
         if self._shutdown.is_set():
             return
         self._cancel_soul_timer()
