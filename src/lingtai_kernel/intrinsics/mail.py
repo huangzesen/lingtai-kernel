@@ -180,9 +180,13 @@ def _message_summary(msg: dict, read_ids: set[str]) -> dict:
     msg_id = msg.get("_mailbox_id", "")
     body = msg.get("message", "")
     preview = body[:120] + "..." if len(body) > 120 else body
+    identity = msg.get("identity")
+    sender = msg.get("from", "")
+    if identity and identity.get("agent_name"):
+        sender = f"{identity['agent_name']} ({sender})"
     return {
         "id": msg_id,
-        "from": msg.get("from", ""),
+        "from": sender,
         "to": msg.get("to", ""),
         "subject": msg.get("subject", ""),
         "preview": preview,
@@ -364,6 +368,7 @@ def _send(agent, args: dict) -> dict:
         "subject": subject,
         "message": message_text,
         "type": mail_type,
+        "identity": agent._build_manifest(),
     }
 
     attachments = args.get("attachments", [])

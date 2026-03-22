@@ -453,6 +453,9 @@ class BaseAgent:
 
         email_id = payload.get("_mailbox_id") or str(uuid4())
         sender = payload.get("from", "unknown")
+        identity = payload.get("identity")
+        if identity and identity.get("agent_name"):
+            sender = f"{identity['agent_name']} ({sender})"
         subject = payload.get("subject", "(no subject)")
         message = payload.get("message", "")
         sent_at = payload.get("sent_at") or payload.get("time") or ""
