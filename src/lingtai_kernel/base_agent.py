@@ -600,6 +600,15 @@ class BaseAgent:
                 self._shutdown.set()
                 self._log("quell_received", source="signal_file")
 
+            # Vigil enforcement — self-quell when vigil expires
+            if self._uptime_anchor is not None and self._state != AgentState.DORMANT:
+                elapsed = time.monotonic() - self._uptime_anchor
+                if elapsed >= self._config.vigil:
+                    self._log("vigil_expired", elapsed=round(elapsed, 1), vigil=self._config.vigil)
+                    self._cancel_event.set()
+                    self._set_state(AgentState.DORMANT, reason="vigil expired")
+                    self._shutdown.set()
+
             if self._state == AgentState.STUCK:
                 now = time.monotonic()
                 if self._cpr_start is None:
@@ -1182,11 +1191,11 @@ class BaseAgent:
 
     def status(self) -> dict:
         """Return agent status for monitoring."""
-        life_left = None
+        vigil_left = None
         if self._uptime_anchor is not None:
             elapsed = time.monotonic() - self._uptime_anchor
-            remaining = max(0.0, self._config.lifetime - elapsed)
-            life_left = round(remaining, 1)
+            remaining = max(0.0, self._config.vigil - elapsed)
+            vigil_left = round(remaining, 1)
         return {
             "agent_id": self.agent_id,
             "agent_name": self.agent_name,
@@ -1195,8 +1204,8 @@ class BaseAgent:
             "idle": self.is_idle,
             "heartbeat": self._heartbeat,
             "queue_depth": self.inbox.qsize(),
-            "lifetime": self._config.lifetime,
-            "life_left": life_left,
+            "vigil": self._config.vigil,
+            "vigil_left": vigil_left,
             "tokens": self.get_token_usage(),
         }
 
