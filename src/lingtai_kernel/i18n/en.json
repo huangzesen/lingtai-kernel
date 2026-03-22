@@ -26,7 +26,7 @@
   "mail.n_description": "Max number of messages to show in check (default: all)",
   "mail.query_description": "Regex pattern for search action (searched in from, subject, message)",
 
-  "eigen.description": "Core self-management — working notes and context control. memory: edit to write your working notes (system/memory.md), load to inject them into your active prompt. context: molt to molt — write a briefing to your future self, your conversation history is wiped and your summary becomes the new starting context. Before molting, save important data elsewhere first.",
+  "eigen.description": "Core self-management — working notes and context control. memory: edit to write your working notes (system/memory.md), load to inject them into your active prompt. context: molt (凝蜕 — crystallize what matters, shed the rest; 转世 — reincarnation, carry your 前尘往事 into a new life). Save important findings to library and character first, then write what you need to carry forward to your future self. Your conversation history is wiped and your summary becomes the new starting context.",
   "eigen.object_description": "memory: your working notes (system/memory.md). context: manage conversation context. name: your true name (set once).",
   "eigen.action_description": "memory: edit | load.\ncontext: molt.\nname: set.",
   "eigen.name_description": "Your true name — set once, never changed. Use content to provide your chosen name.",

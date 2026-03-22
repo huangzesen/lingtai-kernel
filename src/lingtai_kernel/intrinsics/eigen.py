@@ -148,9 +148,6 @@ def _context_molt(agent, args: dict) -> dict:
     lang = agent._config.language
     iface = agent._session._chat.interface
     iface.add_user_message(f"{t(lang, 'eigen.molt_summary_prefix')}\n{summary}")
-    iface.add_assistant_message(
-        [TextBlock(text=t(lang, 'eigen.molt_ack'))],
-    )
 
     after_tokens = iface.estimate_context_tokens()
 
