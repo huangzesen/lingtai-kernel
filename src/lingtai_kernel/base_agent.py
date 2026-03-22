@@ -577,6 +577,27 @@ class BaseAgent:
                 except OSError:
                     pass
 
+            # --- signal file detection ---
+            silence_file = self._working_dir / ".silence"
+            if silence_file.is_file():
+                try:
+                    silence_file.unlink()
+                except OSError:
+                    pass
+                self._cancel_event.set()
+                self._log("silence_received", source="signal_file")
+
+            quell_file = self._working_dir / ".quell"
+            if quell_file.is_file():
+                try:
+                    quell_file.unlink()
+                except OSError:
+                    pass
+                self._cancel_event.set()
+                self._set_state(AgentState.DORMANT, reason="quell signal")
+                self._shutdown.set()
+                self._log("quell_received", source="signal_file")
+
             if self._state == AgentState.STUCK:
                 now = time.monotonic()
                 if self._cpr_start is None:
