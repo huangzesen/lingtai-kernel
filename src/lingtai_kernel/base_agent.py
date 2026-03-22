@@ -159,6 +159,9 @@ class BaseAgent:
         if loaded_memory.strip():
             self._prompt_manager.write_section("memory", loaded_memory)
 
+        # Soul delay — needed before manifest build
+        self._soul_delay = max(1.0, self._config.soul_delay)
+
         # Write manifest — stable identity + construction recipe (no runtime state)
         from datetime import datetime, timezone
         self._started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -213,9 +216,8 @@ class BaseAgent:
         self._sealed = False
 
         # Soul — inner voice
-        # soul_delay controls idle whisper timing. Very large = effectively off.
+        # soul_delay initialized earlier (before manifest build).
         # Inquiry: on-demand one-shot, independent of flow.
-        self._soul_delay = max(1.0, self._config.soul_delay)
         self._soul_prompt = ""       # non-empty during inquiry
         self._soul_oneshot = False    # True during pending inquiry
         self._soul_timer: threading.Timer | None = None

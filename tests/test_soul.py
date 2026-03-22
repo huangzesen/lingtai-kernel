@@ -6,7 +6,6 @@ from lingtai_kernel.intrinsics import soul
 
 def _make_mock_agent():
     agent = MagicMock()
-    agent._soul_flow = True
     agent._soul_delay = 120.0
     agent._soul_prompt = ""
     agent._soul_oneshot = False
@@ -66,10 +65,10 @@ class TestSoulHandle:
         result = soul.handle(agent, {"action": "on"})
         assert "error" in result
 
-    def test_inquiry_works_without_flow(self):
-        """Inquiry is independent of flow mode."""
+    def test_inquiry_works_with_large_delay(self):
+        """Inquiry is independent of soul_delay value."""
         agent = _make_mock_agent()
-        agent._soul_flow = False
+        agent._soul_delay = 999999.0
         result = soul.handle(agent, {"action": "inquiry", "inquiry": "Am I stuck?"})
         assert result["status"] == "ok"
         assert agent._soul_oneshot is True
@@ -189,8 +188,8 @@ def make_mock_service():
 
 class TestSoulTimer:
 
-    def test_soul_attributes_initialized_flow_on(self, tmp_path):
-        """BaseAgent with default config has flow enabled."""
+    def test_soul_attributes_initialized_default(self, tmp_path):
+        """BaseAgent with default config has soul_delay=120."""
         from lingtai_kernel import BaseAgent
         agent = BaseAgent(
             service=make_mock_service(),
@@ -198,23 +197,22 @@ class TestSoulTimer:
             agent_name="test",
             base_dir=tmp_path,
         )
-        assert agent._soul_flow is True
         assert agent._soul_delay == 120.0
         assert agent._soul_prompt == ""
         assert agent._soul_oneshot is False
         assert agent._soul_timer is None
 
-    def test_soul_attributes_initialized_flow_off(self, tmp_path):
-        """BaseAgent with flow=False."""
+    def test_soul_effectively_disabled_when_delay_exceeds_vigil(self, tmp_path):
+        """soul_delay > vigil means flow is effectively off."""
         from lingtai_kernel import BaseAgent
         agent = BaseAgent(
             service=make_mock_service(),
             agent_id="test",
             agent_name="test",
-            config=AgentConfig(flow=False),
+            config=AgentConfig(soul_delay=99999.0, vigil=100.0),
             base_dir=tmp_path,
         )
-        assert agent._soul_flow is False
+        assert agent._soul_delay == 99999.0
 
     def test_soul_timer_starts_on_idle_when_flow_enabled(self, tmp_path):
         from lingtai_kernel import BaseAgent, AgentState
@@ -231,13 +229,13 @@ class TestSoulTimer:
         assert agent._soul_timer.is_alive()
         agent._soul_timer.cancel()
 
-    def test_soul_timer_does_not_start_when_flow_disabled(self, tmp_path):
+    def test_soul_timer_does_not_start_when_delay_exceeds_vigil(self, tmp_path):
         from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
             service=make_mock_service(),
             agent_id="test",
             agent_name="test",
-            config=AgentConfig(flow=False),
+            config=AgentConfig(soul_delay=99999.0, vigil=100.0),
             base_dir=tmp_path,
         )
         agent._set_state(AgentState.ACTIVE, reason="test")
@@ -245,13 +243,13 @@ class TestSoulTimer:
         assert agent._soul_timer is None
 
     def test_soul_timer_starts_on_idle_for_inquiry(self, tmp_path):
-        """Inquiry fires timer even when flow is off."""
+        """Inquiry fires timer even when soul_delay exceeds vigil."""
         from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
             service=make_mock_service(),
             agent_id="test",
             agent_name="test",
-            config=AgentConfig(flow=False),
+            config=AgentConfig(soul_delay=99999.0, vigil=100.0),
             base_dir=tmp_path,
         )
         agent._soul_oneshot = True
@@ -276,26 +274,26 @@ class TestSoulTimer:
         agent._set_state(AgentState.ACTIVE, reason="new mail")
         assert agent._soul_timer is None
 
-    def test_flow_delay_from_config(self, tmp_path):
-        """flow_delay in config sets initial _soul_delay."""
+    def test_soul_delay_from_config(self, tmp_path):
+        """soul_delay in config sets initial _soul_delay."""
         from lingtai_kernel import BaseAgent
         agent = BaseAgent(
             service=make_mock_service(),
             agent_id="test",
             agent_name="test",
-            config=AgentConfig(flow_delay=60.0),
+            config=AgentConfig(soul_delay=60.0),
             base_dir=tmp_path,
         )
         assert agent._soul_delay == 60.0
 
-    def test_flow_delay_clamped_to_min(self, tmp_path):
-        """flow_delay below 1 is clamped to 1."""
+    def test_soul_delay_clamped_to_min(self, tmp_path):
+        """soul_delay below 1 is clamped to 1."""
         from lingtai_kernel import BaseAgent
         agent = BaseAgent(
             service=make_mock_service(),
             agent_id="test",
             agent_name="test",
-            config=AgentConfig(flow_delay=-10.0),
+            config=AgentConfig(soul_delay=-10.0),
             base_dir=tmp_path,
         )
         assert agent._soul_delay == 1.0
@@ -365,9 +363,6 @@ class TestSoulIntegration:
         assert "energy implications" in msg.content
         assert msg.sender == "soul"
 
-        # Flow stays enabled (it's immutable)
-        assert agent._soul_flow is True
-
         # Verify soul.jsonl was written with prompt, thinking, voice
         import json
         soul_file = agent.working_dir / "system" / "soul.jsonl"
@@ -378,7 +373,7 @@ class TestSoulIntegration:
         assert entry["voice"] == "Have you considered the energy implications?"
 
     def test_inquiry_clears_after_firing(self, tmp_path):
-        """Inquiry mode: fires once, then oneshot clears (flow unaffected)."""
+        """Inquiry mode: fires once, then oneshot clears."""
         from lingtai_kernel import BaseAgent, AgentState
         from lingtai_kernel.llm.interface import ChatInterface, TextBlock
 
@@ -387,7 +382,7 @@ class TestSoulIntegration:
             service=svc,
             agent_id="test",
             agent_name="test",
-            config=AgentConfig(flow=False),
+            config=AgentConfig(soul_delay=99999.0, vigil=100.0),
             base_dir=tmp_path,
         )
 
