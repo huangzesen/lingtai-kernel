@@ -5,4 +5,4 @@ def test_agent_state_values():
     assert AgentState.ACTIVE.value == "active"
     assert AgentState.IDLE.value == "idle"
     assert AgentState.STUCK.value == "stuck"
-    assert AgentState.DEAD.value == "dead"
+    assert AgentState.DORMANT.value == "dormant"

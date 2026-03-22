@@ -112,8 +112,8 @@ class TestHeartbeatFile:
 
         agent._stop_heartbeat()
 
-    def test_heartbeat_file_stale_when_dead(self, tmp_path):
-        """After DEAD + shutdown, heartbeat file is gone or stale."""
+    def test_heartbeat_file_stale_when_dormant(self, tmp_path):
+        """After DORMANT + shutdown, heartbeat file is gone or stale."""
         from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
             service=make_mock_service(),
@@ -127,14 +127,14 @@ class TestHeartbeatFile:
         time.sleep(1.5)
         assert hb_file.exists()
 
-        # Simulate DEAD via AED timeout
+        # Simulate DORMANT via AED timeout
         agent._set_state(AgentState.STUCK)
         agent._cpr_start = time.monotonic() - 1260  # exceeded 20 min
-        time.sleep(2.0)  # heartbeat detects and sets DEAD + shutdown
+        time.sleep(2.0)  # heartbeat detects and sets DORMANT + shutdown
 
-        assert agent._state == AgentState.DEAD
-        # After DEAD, the heartbeat loop exits and _stop_heartbeat
-        # would clean the file. The loop itself stops writing once DEAD.
+        assert agent._state == AgentState.DORMANT
+        # After DORMANT, the heartbeat loop exits and _stop_heartbeat
+        # would clean the file. The loop itself stops writing once DORMANT.
         # The file may still exist with a stale timestamp from the last
         # living tick, or may be gone if _stop_heartbeat was called.
         if hb_file.exists():
@@ -238,8 +238,8 @@ class TestAED:
 
 class TestHeartbeatDead:
 
-    def test_aed_timeout_triggers_dead(self, tmp_path):
-        """After AED timeout, agent is pronounced DEAD."""
+    def test_aed_timeout_triggers_dormant(self, tmp_path):
+        """After AED timeout, agent goes DORMANT."""
         from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
             service=make_mock_service(),
@@ -256,10 +256,10 @@ class TestHeartbeatDead:
         time.sleep(1.5)
         agent._stop_heartbeat()
 
-        assert agent._state == AgentState.DEAD
+        assert agent._state == AgentState.DORMANT
         assert agent._shutdown.is_set()
 
-    def test_dead_state_in_status(self, tmp_path):
+    def test_dormant_state_in_status(self, tmp_path):
         from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
             service=make_mock_service(),
@@ -267,6 +267,6 @@ class TestHeartbeatDead:
             agent_name="test",
             base_dir=tmp_path,
         )
-        agent._state = AgentState.DEAD
+        agent._state = AgentState.DORMANT
         status = agent.status()
-        assert status["state"] == "dead"
+        assert status["state"] == "dormant"

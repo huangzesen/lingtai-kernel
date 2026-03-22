@@ -2,7 +2,7 @@
 BaseAgent — generic agent kernel with intrinsic tools and capability dispatch.
 
 Key concepts:
-    - **4-state lifecycle**: ACTIVE, IDLE, ERROR, DEAD.
+    - **4-state lifecycle**: ACTIVE, IDLE, STUCK, DORMANT.
     - **Persistent LLM session**: each agent keeps its chat session across messages.
     - **2-layer tool dispatch**: intrinsics (built-in) + capability handlers.
     - **Opaque context**: the host app can pass any context object — the agent
@@ -599,8 +599,8 @@ class BaseAgent:
         while self._heartbeat_thread is not None and not self._shutdown.is_set():
             self._heartbeat = time.time()
 
-            # Write heartbeat file for all living states (not DEAD)
-            if self._state != AgentState.DEAD:
+            # Write heartbeat file for all living states (not DORMANT)
+            if self._state != AgentState.DORMANT:
                 try:
                     hb_file = self._working_dir / ".agent.heartbeat"
                     hb_file.write_text(str(self._heartbeat))
@@ -615,9 +615,9 @@ class BaseAgent:
                 elapsed = now - self._cpr_start
                 cpr_timeout = self._config.cpr_timeout
                 if elapsed > cpr_timeout:
-                    # AED failed — pronounce dead
+                    # AED failed — go dormant
                     self._log("heartbeat_dead", heartbeat=self._heartbeat, aed_seconds=elapsed)
-                    self._set_state(AgentState.DEAD, reason="AED failed")
+                    self._set_state(AgentState.DORMANT, reason="AED failed")
                     self._persist_chat_history()
                     self._shutdown.set()
                 elif not self._aed_pending:

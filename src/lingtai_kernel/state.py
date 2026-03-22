@@ -12,10 +12,12 @@ class AgentState(enum.Enum):
     ACTIVE --(timeout/exception)-> STUCK
     IDLE   --(inbox message)----> ACTIVE
     STUCK  --(AED)--------------> ACTIVE  (session reset, fresh run loop)
-    STUCK  --(AED timeout)------> DEAD    (shutdown)
+    STUCK  --(AED timeout)------> DORMANT (shutdown)
+    ACTIVE/IDLE --(quell/shutdown)-> DORMANT
+    DORMANT --(revive)-----------> IDLE    (reconstructed from working dir)
     """
 
     ACTIVE = "active"
     IDLE = "idle"
     STUCK = "stuck"
-    DEAD = "dead"
+    DORMANT = "dormant"
