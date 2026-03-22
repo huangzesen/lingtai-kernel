@@ -588,8 +588,10 @@ class BaseAgent:
         """Stop the heartbeat (called only by stop/shutdown)."""
         self._heartbeat_thread = None
         hb_file = self._working_dir / ".agent.heartbeat"
-        if hb_file.exists():
-            hb_file.unlink()
+        try:
+            hb_file.unlink(missing_ok=True)
+        except OSError:
+            pass
         self._log("heartbeat_stop", heartbeat=self._heartbeat)
 
     def _heartbeat_loop(self) -> None:
@@ -599,8 +601,11 @@ class BaseAgent:
 
             # Write heartbeat file for all living states (not DEAD)
             if self._state != AgentState.DEAD:
-                hb_file = self._working_dir / ".agent.heartbeat"
-                hb_file.write_text(str(self._heartbeat))
+                try:
+                    hb_file = self._working_dir / ".agent.heartbeat"
+                    hb_file.write_text(str(self._heartbeat))
+                except OSError:
+                    pass
 
             if self._state == AgentState.STUCK:
                 now = time.monotonic()
