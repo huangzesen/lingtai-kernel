@@ -20,8 +20,7 @@ class AgentConfig:
     cpr_timeout: float = 1200.0  # 20 minutes — max CPR before pronouncing dead
     thinking_budget: int | None = None
     data_dir: str | None = None  # for cache files (e.g., model context windows)
-    flow: bool = True  # enable inner voice (flow mode) — cannot be changed at runtime
-    flow_delay: float = 120.0  # seconds idle before soul whispers; large value = effectively off
+    soul_delay: float = 120.0  # seconds idle before soul whispers; large value (> vigil) = effectively off
     language: str = "en"  # agent language ("en", "zh"); controls all kernel-injected strings
-    lifetime: float = 3600.0  # agent lifetime in seconds; set at birth, not changeable by the agent
+    vigil: float = 3600.0  # agent vigil in seconds; set at birth, not changeable by the agent
     ensure_ascii: bool = False  # JSON output: False = readable unicode, True = \uXXXX escapes
