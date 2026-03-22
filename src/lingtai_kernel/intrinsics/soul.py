@@ -82,7 +82,7 @@ def handle(agent, args: dict) -> dict:
 def whisper(agent) -> dict | None:
     """Clone the agent's conversation and reflect.
 
-    Flow mode: free reflection. Inquiry mode: answer the specific question.
+    Continuous mode: free reflection. Inquiry mode: answer the specific question.
     Returns {"prompt": str, "voice": str, "thinking": list[str]} or None.
 
     Thread safety: called from the soul Timer thread while the agent is

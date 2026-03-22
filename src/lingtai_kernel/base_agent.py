@@ -435,7 +435,7 @@ class BaseAgent:
         """Callback for MailService — route incoming mail to inbox.
 
         This method is never replaced — it is the stable entry point for all
-        incoming mail. Lifecycle control (silence, quell, revive, annihilate)
+        incoming mail. Lifecycle control (interrupt, quell, revive, nirvana)
         is handled by the system intrinsic via signal files, not mail.
         """
         self._on_normal_mail(payload)
@@ -580,14 +580,14 @@ class BaseAgent:
                     pass
 
             # --- signal file detection ---
-            silence_file = self._working_dir / ".silence"
-            if silence_file.is_file():
+            interrupt_file = self._working_dir / ".interrupt"
+            if interrupt_file.is_file():
                 try:
-                    silence_file.unlink()
+                    interrupt_file.unlink()
                 except OSError:
                     pass
                 self._cancel_event.set()
-                self._log("silence_received", source="signal_file")
+                self._log("interrupt_received", source="signal_file")
 
             quell_file = self._working_dir / ".quell"
             if quell_file.is_file():
@@ -696,17 +696,17 @@ class BaseAgent:
                     self._set_state(sleep_state)
                     self._persist_chat_history()
 
-            # Check for restart (rebirth) before exiting
-            if getattr(self, "_restart_requested", False):
-                self._restart_requested = False
-                self._perform_restart()
+            # Check for refresh (rebirth) before exiting
+            if getattr(self, "_refresh_requested", False):
+                self._refresh_requested = False
+                self._perform_refresh()
                 self._shutdown.clear()
                 continue  # re-enter the message loop
             break  # normal shutdown — exit
 
-    def _perform_restart(self) -> None:
+    def _perform_refresh(self) -> None:
         """Rebirth: close old MCP clients, reload from working dir, reset session."""
-        self._log("restart_start")
+        self._log("refresh_start")
 
         # Close existing MCP clients
         for client in getattr(self, "_mcp_clients", []):
@@ -737,7 +737,7 @@ class BaseAgent:
         # Reset session so next message creates fresh one with new tools
         self._session.chat = None
 
-        self._log("restart_complete", tools=list(self._mcp_handlers.keys()))
+        self._log("refresh_complete", tools=list(self._mcp_handlers.keys()))
 
     def _concat_queued_messages(self, msg: Message) -> Message:
         """Drain any additional queued messages and concatenate into one.

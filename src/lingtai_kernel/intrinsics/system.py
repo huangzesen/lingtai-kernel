@@ -1,10 +1,13 @@
 """System intrinsic — runtime, lifecycle, and synchronization.
 
 Actions:
-    show     — display agent identity, runtime, and resource usage
-    sleep    — pause execution; wakes on incoming message or timeout
-    shutdown — initiate graceful self-termination
-    restart  — stop, reload MCP servers and config from working dir, restart
+    show      — display agent identity, runtime, and resource usage
+    nap       — pause execution; wakes on incoming message or timeout
+    refresh   — stop, reload MCP servers and config from working dir, restart
+    quell     — self-quell (no address) or quell another agent (with address)
+    revive    — revive a dormant agent
+    interrupt — interrupt a running agent's current turn
+    nirvana   — permanently destroy an agent's working directory
 """
 from __future__ import annotations
 
@@ -23,7 +26,7 @@ def get_schema(lang: str = "en") -> dict:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["show", "sleep", "shutdown", "restart", "silence", "quell", "revive", "annihilate"],
+                "enum": ["show", "nap", "refresh", "quell", "revive", "interrupt", "nirvana"],
                 "description": t(lang, "system_tool.action_description"),
             },
             "seconds": {
@@ -53,13 +56,12 @@ def handle(agent, args: dict) -> dict:
     action = args.get("action", "show")
     handler = {
         "show": _show,
-        "sleep": _sleep,
-        "shutdown": _shutdown,
-        "restart": _restart,
-        "silence": _silence,
+        "nap": _nap,
+        "refresh": _refresh,
         "quell": _quell,
         "revive": _revive,
-        "annihilate": _annihilate,
+        "interrupt": _interrupt,
+        "nirvana": _nirvana,
     }.get(action)
     if handler is None:
         return {"status": "error", "message": f"Unknown system action: {action}"}
@@ -76,7 +78,7 @@ def _show(agent, args: dict) -> dict:
         mail_addr = agent._mail_service.address
 
     uptime = time.monotonic() - agent._uptime_anchor if agent._uptime_anchor is not None else 0.0
-    life_left = max(0.0, agent._config.lifetime - uptime) if agent._uptime_anchor is not None else None
+    vigil_left = max(0.0, agent._config.vigil - uptime) if agent._uptime_anchor is not None else None
 
     usage = agent.get_token_usage()
 
@@ -104,8 +106,8 @@ def _show(agent, args: dict) -> dict:
             "current_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "started_at": agent._started_at,
             "uptime_seconds": round(uptime, 1),
-            "lifetime": agent._config.lifetime,
-            "life_left": round(life_left, 1) if life_left is not None else None,
+            "vigil": agent._config.vigil,
+            "vigil_left": round(vigil_left, 1) if vigil_left is not None else None,
         },
         "tokens": {
             "input_tokens": usage["input_tokens"],
@@ -127,10 +129,10 @@ def _show(agent, args: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# sleep (ported from clock.wait)
+# nap (ported from clock.wait)
 # ---------------------------------------------------------------------------
 
-def _sleep(agent, args: dict) -> dict:
+def _nap(agent, args: dict) -> dict:
     max_wait = 300
     seconds = args.get("seconds")
     if seconds is not None:
@@ -139,13 +141,13 @@ def _sleep(agent, args: dict) -> dict:
             return {"status": "error", "message": "seconds must be non-negative"}
         seconds = min(seconds, max_wait)
 
-    agent._log("system_sleep_start", seconds=seconds)
+    agent._log("system_nap_start", seconds=seconds)
 
     if agent._cancel_event.is_set():
-        agent._log("system_sleep_end", reason="silenced", waited=0.0)
-        return {"status": "ok", "reason": "silenced", "waited": 0.0}
+        agent._log("system_nap_end", reason="interrupted", waited=0.0)
+        return {"status": "ok", "reason": "interrupted", "waited": 0.0}
     if agent._mail_arrived.is_set():
-        agent._log("system_sleep_end", reason="mail_arrived", waited=0.0)
+        agent._log("system_nap_end", reason="mail_arrived", waited=0.0)
         return {"status": "ok", "reason": "mail_arrived", "waited": 0.0}
 
     agent._mail_arrived.clear()
@@ -157,15 +159,15 @@ def _sleep(agent, args: dict) -> dict:
         waited = time.monotonic() - t0
 
         if agent._cancel_event.is_set():
-            agent._log("system_sleep_end", reason="silenced", waited=waited)
-            return {"status": "ok", "reason": "silenced", "waited": waited}
+            agent._log("system_nap_end", reason="interrupted", waited=waited)
+            return {"status": "ok", "reason": "interrupted", "waited": waited}
 
         if agent._mail_arrived.is_set():
-            agent._log("system_sleep_end", reason="mail_arrived", waited=waited)
+            agent._log("system_nap_end", reason="mail_arrived", waited=waited)
             return {"status": "ok", "reason": "mail_arrived", "waited": waited}
 
         if seconds is not None and waited >= seconds:
-            agent._log("system_sleep_end", reason="timeout", waited=waited)
+            agent._log("system_nap_end", reason="timeout", waited=waited)
             return {"status": "ok", "reason": "timeout", "waited": waited}
 
         if seconds is not None:
@@ -178,42 +180,27 @@ def _sleep(agent, args: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# shutdown
+# refresh
 # ---------------------------------------------------------------------------
 
-def _shutdown(agent, args: dict) -> dict:
+def _refresh(agent, args: dict) -> dict:
     from ..i18n import t
     reason = args.get("reason", "")
-    agent._log("shutdown_requested", reason=reason)
+    agent._log("refresh_requested", reason=reason)
+    agent._refresh_requested = True
     agent._shutdown.set()
     return {
         "status": "ok",
-        "message": t(agent._config.language, "system_tool.shutdown_message"),
+        "message": t(agent._config.language, "system_tool.refresh_message"),
     }
 
 
 # ---------------------------------------------------------------------------
-# restart
+# Karma gate mapping
 # ---------------------------------------------------------------------------
 
-def _restart(agent, args: dict) -> dict:
-    from ..i18n import t
-    reason = args.get("reason", "")
-    agent._log("restart_requested", reason=reason)
-    agent._restart_requested = True
-    agent._shutdown.set()
-    return {
-        "status": "ok",
-        "message": t(agent._config.language, "system_tool.restart_message"),
-    }
-
-
-# ---------------------------------------------------------------------------
-# Admin gate mapping
-# ---------------------------------------------------------------------------
-
-_KARMA_ACTIONS = {"silence", "quell", "revive"}
-_NIRVANA_ACTIONS = {"annihilate"}
+_KARMA_ACTIONS = {"interrupt", "quell", "revive"}
+_NIRVANA_ACTIONS = {"nirvana"}
 
 
 def _check_karma_gate(agent, action: str, args: dict) -> dict | None:
@@ -226,33 +213,32 @@ def _check_karma_gate(agent, action: str, args: dict) -> dict | None:
     if not address:
         return {"error": True, "message": f"{action} requires an address"}
     if str(agent._working_dir) == str(address):
-        return {"error": True, "message": f"Cannot {action} self — use shutdown/restart instead"}
+        return {"error": True, "message": f"Cannot {action} self"}
     if not is_agent(address):
         return {"error": True, "message": f"No agent at {address}"}
     return None
 
 
-def _silence(agent, args: dict) -> dict:
-    from pathlib import Path
-    from ..handshake import is_alive
-    err = _check_karma_gate(agent, "silence", args)
-    if err:
-        return err
-    address = args["address"]
-    if not is_alive(address):
-        return {"error": True, "message": f"Agent at {address} is not running"}
-    (Path(address) / ".silence").write_text("")
-    agent._log("karma_silence", target=address)
-    return {"status": "silenced", "address": address}
-
-
 def _quell(agent, args: dict) -> dict:
+    from ..i18n import t
+    address = args.get("address")
+    if not address:
+        # Self-quell
+        from ..state import AgentState
+        reason = args.get("reason", "")
+        agent._log("self_quell", reason=reason)
+        agent._set_state(AgentState.DORMANT, reason="self-quell")
+        agent._shutdown.set()
+        return {
+            "status": "ok",
+            "message": t(agent._config.language, "system_tool.quell_message"),
+        }
+    # Quell other — karma-gated
     from pathlib import Path
     from ..handshake import is_alive
     err = _check_karma_gate(agent, "quell", args)
     if err:
         return err
-    address = args["address"]
     if not is_alive(address):
         return {"error": True, "message": f"Agent at {address} is not running — already dormant?"}
     (Path(address) / ".quell").write_text("")
@@ -275,11 +261,25 @@ def _revive(agent, args: dict) -> dict:
     return {"status": "revived", "address": address}
 
 
-def _annihilate(agent, args: dict) -> dict:
+def _interrupt(agent, args: dict) -> dict:
+    from pathlib import Path
+    from ..handshake import is_alive
+    err = _check_karma_gate(agent, "interrupt", args)
+    if err:
+        return err
+    address = args["address"]
+    if not is_alive(address):
+        return {"error": True, "message": f"Agent at {address} is not running"}
+    (Path(address) / ".interrupt").write_text("")
+    agent._log("karma_interrupt", target=address)
+    return {"status": "interrupted", "address": address}
+
+
+def _nirvana(agent, args: dict) -> dict:
     import shutil
     from pathlib import Path
     from ..handshake import is_alive
-    err = _check_karma_gate(agent, "annihilate", args)
+    err = _check_karma_gate(agent, "nirvana", args)
     if err:
         return err
     address = args["address"]
@@ -295,5 +295,5 @@ def _annihilate(agent, args: dict) -> dict:
             if is_alive(address):
                 return {"error": True, "message": f"Agent at {address} did not quell within timeout"}
     shutil.rmtree(address)
-    agent._log("karma_annihilate", target=address)
-    return {"status": "annihilated", "address": address}
+    agent._log("karma_nirvana", target=address)
+    return {"status": "nirvana", "address": address}
