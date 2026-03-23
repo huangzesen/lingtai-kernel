@@ -156,6 +156,10 @@ def whisper(agent) -> dict | None:
     content = raw
 
     # Create a temporary session: same system prompt, no tools, cloned history
+    # Timeout: soul should respond within retry_timeout. If not, give up — next cycle.
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+    timeout = agent._config.retry_timeout
+
     system_prompt = agent._build_system_prompt()
     try:
         session = agent.service.create_session(
@@ -166,8 +170,14 @@ def whisper(agent) -> dict | None:
             tracked=False,
             interface=cloned,
         )
-        response = session.send(content)
-    except Exception:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(session.send, content)
+            response = future.result(timeout=timeout)
+    except FuturesTimeout:
+        agent._log("soul_whisper_error", error=f"LLM call timed out after {timeout}s")
+        return None
+    except Exception as e:
+        agent._log("soul_whisper_error", error=str(e)[:200])
         return None
 
     if not response.text:
