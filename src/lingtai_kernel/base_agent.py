@@ -183,8 +183,7 @@ class BaseAgent:
         except OSError:
             self._billboard_path = None
 
-        self._mail_arrived = threading.Event()  # set when normal mail arrives; nap uses this
-        self._soul_arrived = threading.Event()  # set when soul whisper arrives; nap uses this
+        self._mail_arrived = threading.Event()  # set when mail arrives; nap uses this
 
         # Mailbox identity — capabilities override these to change notification text.
         # _mailbox_name: human label ("mail box", "email box", "gmail box")
@@ -510,7 +509,6 @@ class BaseAgent:
                 self._persist_soul_entry(result)
                 msg = _make_message(MSG_REQUEST, "soul", voice)
                 self.inbox.put(msg)
-                self._soul_arrived.set()  # wake nap if sleeping
         except Exception as e:
             self._log("soul_whisper_error", error=str(e))
 

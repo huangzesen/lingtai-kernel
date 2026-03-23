@@ -157,10 +157,6 @@ def _nap(agent, args: dict) -> dict:
         if agent._mail_arrived.is_set():
             agent._log("system_nap_end", reason="mail_arrived", waited=waited)
             return {"status": "ok", "reason": "mail_arrived", "waited": waited}
-        if agent._soul_arrived.is_set():
-            agent._soul_arrived.clear()
-            agent._log("system_nap_end", reason="soul_flow", waited=waited)
-            return {"status": "ok", "reason": "soul_flow", "waited": waited}
         return None
 
     result = _check_wake(0.0)
