@@ -508,7 +508,7 @@ class BaseAgent:
                 voice = result["voice"]
                 self._log("soul_whisper", length=len(voice))
                 self._persist_soul_entry(result)
-                msg = _make_message(MSG_REQUEST, "soul", _t(self._config.language, "system.soul_flow", text=voice))
+                msg = _make_message(MSG_REQUEST, "soul", voice)
                 self.inbox.put(msg)
                 self._soul_arrived.set()  # wake nap if sleeping
         except Exception as e:

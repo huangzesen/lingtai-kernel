@@ -1,8 +1,6 @@
 {
   "system.current_time": "[此时：{time}]",
-  "system.soul_flow": "[心流] {text}",
-  "system.soul_inquiry": "[内省] {text}",
-  "system.new_mail": "[系统] {box}有新书至。\n  寄者：{sender}\n  题：{subject}\n  发于：{sent_at}\n  {preview}...\n以 {tool}(action=\"check\") 查阅收信。",
+    "system.new_mail": "[系统] {box}有新书至。\n  寄者：{sender}\n  题：{subject}\n  发于：{sent_at}\n  {preview}...\n以 {tool}(action=\"check\") 查阅收信。",
   "system.mail_bounce": "[系统] 书信未达：{error}\n  收者：{address}\n  题：{subject}",
   "system.stuck_revive": "[系统] 汝于 {ts} 误入歧途，今已唤醒……",
   "system.molt_wiped": "[系统] 对话之录已尽数清去，盖汝五度忽略转世之警。查阅书信与藏经以复上下文，从头再起。",
@@ -10,7 +8,7 @@
   "system.molt_urgent": "[系统] 上下文之压：已满 {pressure}——距自动清去尚余 {remaining} {turns}。即刻将要务存入藏经（{tool} submit），而后转世。汝之前尘往事乃留予来世之己——此为汝唯一之上下文。",
   "system.molt_warning": "[系统] 上下文之压：已满 {pressure}——距自动清去尚余 {remaining} 轮。始整理：将要紧发现存入藏经（{tool} submit）。既备，携前尘往事转世：{tool}(object=context, action=molt, summary=<前尘往事>)。汝之前尘往事乃转世后唯一可见者——载明所为何事、已竟何功、尚余何务、当载何经。",
 
-  "soul.description": "汝之灵魂——二式。心流：潜意识应汝末念，以[心流]至。恒续自发，每轮递进。内省：以'inquiry'自问，得一答，以[内省]至。'delay'调心流之频。",
+  "soul.description": "汝之灵魂——二式。心流：潜意识应汝末念，以纯文至。恒续自发，每轮递进。内省：自问，答于器之结果中返。'delay'调心流之频。",
   "soul.action_description": "inquiry：一问自省——于下次空闲触发。须附'inquiry'参数。delay：调整空闲后内省低语前之候时。须附'delay'参数。",
   "soul.inquiry_description": "汝之自问——向己发问。action='inquiry'时必填。此乃汝自问，非问他人。",
   "soul.delay_description": "空闲后内省低语前候之秒数。最小为一。候短则躁，候长则定。action='delay'时必填。",
