@@ -1,8 +1,10 @@
 """System prompt — section manager + builder.
 
-SystemPromptManager manages named sections (covenant, memory, etc.) of an agent's
-system prompt. build_system_prompt() assembles the base prompt + rendered
-sections into the final string sent to the LLM.
+SystemPromptManager manages named sections of an agent's system prompt.
+Sections are rendered in a configurable order. The default order is:
+    principle (no header) → covenant → tools → identity → memory
+
+build_system_prompt() assembles base_prompt + rendered sections.
 """
 from __future__ import annotations
 
@@ -14,11 +16,20 @@ class SystemPromptManager:
 
     Sections can be marked as protected (host-written, not overwritable by the LLM)
     or unprotected (LLM-writable at runtime).
+
+    Render order is configurable via set_order(). Sections not in the order
+    list are rendered between the ordered sections and the tail. The last
+    name in the order list is always rendered last (typically 'memory').
     """
 
+    # Default render order. First entry rendered without ## header (raw text).
+    _DEFAULT_ORDER = ["principle", "covenant", "tools", "identity", "memory"]
+
     def __init__(self) -> None:
-        # {name: {"content": str, "protected": bool}}
         self._sections: dict[str, dict] = {}
+        self._order: list[str] = list(self._DEFAULT_ORDER)
+        # First entry in order is rendered without ## header (raw text)
+        self._raw_sections: set[str] = {"principle"}
 
     def write_section(self, name: str, content: str, protected: bool = False) -> None:
         """Write a section (host API — bypasses protection checks)."""
@@ -40,28 +51,55 @@ class SystemPromptManager:
             for name, entry in self._sections.items()
         ]
 
-    def render(self) -> str:
-        """Render all sections into a single system prompt string.
+    def set_order(self, names: list[str]) -> None:
+        """Set the render order. Last name is always rendered last."""
+        self._order = list(names)
 
-        Ordering: covenant → tools → rest → memory (always last).
+    def set_raw(self, name: str) -> None:
+        """Mark a section as raw — rendered without ## header."""
+        self._raw_sections.add(name)
+
+    def render(self) -> str:
+        """Render all sections into a single string following the configured order.
+
+        - Sections in self._order are rendered in that order.
+        - The last name in self._order is always rendered last (tail).
+        - Sections not in self._order are rendered between ordered and tail.
+        - Sections in self._raw_sections are rendered without ## header.
+        - Empty/missing sections are skipped.
         """
         ordered: list[str] = []
-        priority = ["covenant", "tools"]
+        tail_name = self._order[-1] if self._order else None
+        head_names = self._order[:-1] if self._order else []
 
-        for key in priority:
-            entry = self._sections.get(key)
-            if entry:
-                ordered.append(f"## {key}\n{entry['content']}")
-
-        for name, entry in self._sections.items():
-            if name in priority or name == "memory":
+        # Render head sections in order
+        for name in head_names:
+            entry = self._sections.get(name)
+            if not entry:
                 continue
-            ordered.append(f"## {name}\n{entry['content']}")
+            if name in self._raw_sections:
+                ordered.append(entry["content"])
+            else:
+                ordered.append(f"## {name}\n{entry['content']}")
 
-        # Memory always last
-        mem = self._sections.get("memory")
-        if mem:
-            ordered.append(f"## memory\n{mem['content']}")
+        # Render unordered sections (not in order list)
+        all_ordered = set(self._order)
+        for name, entry in self._sections.items():
+            if name in all_ordered:
+                continue
+            if name in self._raw_sections:
+                ordered.append(entry["content"])
+            else:
+                ordered.append(f"## {name}\n{entry['content']}")
+
+        # Render tail section last
+        if tail_name:
+            entry = self._sections.get(tail_name)
+            if entry:
+                if tail_name in self._raw_sections:
+                    ordered.append(entry["content"])
+                else:
+                    ordered.append(f"## {tail_name}\n{entry['content']}")
 
         return "\n\n".join(ordered)
 

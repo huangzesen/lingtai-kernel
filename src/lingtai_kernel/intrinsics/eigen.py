@@ -137,21 +137,11 @@ def _context_molt(agent, args: dict) -> dict:
 
     before_tokens = agent._chat.interface.estimate_context_tokens()
 
-    # Wipe context and start fresh session
+    # Wipe context
     agent._session._chat = None
     agent._session._interaction_id = None
-    agent._session.ensure_session()
 
-    # Inject the agent's summary as the opening context
-    from ..llm.interface import TextBlock
-    from ..i18n import t
-    lang = agent._config.language
-    iface = agent._session._chat.interface
-    iface.add_user_message(f"{t(lang, 'eigen.molt_summary_prefix')}\n{summary}")
-
-    after_tokens = iface.estimate_context_tokens()
-
-    # Reset molt warnings since agent just molted
+    # Reset molt warnings
     if hasattr(agent._session, "_compaction_warnings"):
         agent._session._compaction_warnings = 0
 
@@ -159,16 +149,27 @@ def _context_molt(agent, args: dict) -> dict:
     agent._molt_count += 1
     agent._workdir.write_manifest(agent._build_manifest())
 
-    # Reset soul mirror session — start fresh after molt
+    # Reset soul mirror session
     from .soul import reset_soul_session
     reset_soul_session(agent)
 
-    # Post-molt hook — capabilities can register callbacks
+    # Post-molt hooks — reload character/memory into prompt manager BEFORE new session
     for cb in getattr(agent, "_post_molt_hooks", []):
         try:
             cb()
         except Exception:
             pass
+
+    # Now create fresh session with updated prompt manager
+    agent._session.ensure_session()
+
+    # Inject the agent's summary as the opening context
+    from ..i18n import t
+    lang = agent._config.language
+    iface = agent._session._chat.interface
+    iface.add_user_message(f"{t(lang, 'eigen.molt_summary_prefix')}\n{summary}")
+
+    after_tokens = iface.estimate_context_tokens()
 
     agent._log(
         "eigen_molt",
