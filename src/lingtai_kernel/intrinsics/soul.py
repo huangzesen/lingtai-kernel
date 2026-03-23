@@ -1,11 +1,12 @@
 """Soul intrinsic — the agent's inner voice.
 
-Actions:
-    inquiry — one-shot self-directed question, fires once on next idle
-    delay   — adjust the idle delay before the soul whispers
+Two modes:
+    flow    — text completion from serialized thinking+diary. Stateless, automatic.
+    inquiry — mirror session with cloned conversation. Sync, on-demand.
 
-soul_delay controls flow timing. Very large delay (> vigil) = effectively off.
-Inquiry works regardless of delay — it fires once on the next idle.
+Actions:
+    inquiry — ask yourself a question, get the answer in the tool result
+    delay   — adjust the idle wait before flow fires
 """
 from __future__ import annotations
 
@@ -56,12 +57,7 @@ def handle(agent, args: dict) -> dict:
 
         agent._log("soul_inquiry", inquiry=inquiry.strip()[:200])
 
-        # Sync: do the whisper right now, return the answer
-        agent._soul_prompt = inquiry.strip()
-        agent._soul_oneshot = True
-        result = whisper(agent)
-        agent._soul_oneshot = False
-        agent._soul_prompt = ""
+        result = soul_inquiry(agent, inquiry.strip())
 
         if result:
             agent._persist_soul_entry(result)
@@ -91,33 +87,86 @@ def handle(agent, args: dict) -> dict:
         return {"error": f"Unknown soul action: {action}. Use inquiry or delay."}
 
 
-def whisper(agent) -> dict | None:
-    """Clone the agent's conversation and reflect.
+def _send_with_timeout(agent, session, content: str):
+    """Send with timeout. Returns response or None."""
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+    timeout = agent._config.retry_timeout
 
-    Continuous mode: free reflection. Inquiry mode: answer the specific question.
-    Returns {"prompt": str, "voice": str, "thinking": list[str]} or None.
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(session.send, content)
+            return future.result(timeout=timeout)
+    except FuturesTimeout:
+        agent._log("soul_whisper_error", error=f"LLM call timed out after {timeout}s")
+        return None
+    except Exception as e:
+        agent._log("soul_whisper_error", error=str(e)[:200])
+        return None
 
-    Thread safety: called from the soul Timer thread while the agent is
-    IDLE (blocked in inbox.get()), so the agent thread is not mutating
-    the interface.  The cloned interface is a deep copy via serialization,
-    so the subsequent create_session/send touches no shared state.
+
+def soul_flow(agent) -> dict | None:
+    """Flow mode — text completion from serialized stream of consciousness.
+
+    Serializes all thinking + diary text into one prompt, sends to a fresh
+    session with no history. Stateless — the soul starts blank every time.
     """
-    from ..llm.interface import ChatInterface
+    from ..llm.interface import TextBlock, ThinkingBlock
 
-    # Build a stripped-down interface for reflection:
-    # - No system entries (no system prompt, no tool schemas)
-    # - No ToolCallBlocks or ToolResultBlocks
-    # - Keep only TextBlocks and ThinkingBlocks
-    # - Strip the last assistant turn — the soul prompt IS that last thought
-    from ..llm.interface import TextBlock, ToolCallBlock, ToolResultBlock, ThinkingBlock
-    lang = agent._config.language
+    # Serialize all thinking and diary text
+    parts: list[str] = []
+    if agent._chat is not None:
+        for entry in agent._chat.interface.entries:
+            if entry.role == "system":
+                continue
+            for block in entry.content:
+                if isinstance(block, (ThinkingBlock, TextBlock)) and block.text:
+                    parts.append(block.text)
 
-    # Collect stripped entries
-    stripped_entries: list[tuple[str, list]] = []  # (role, blocks)
+    if parts:
+        content = "\n\n---\n\n".join(parts)
+    else:
+        # No conversation yet: use static prompt
+        from ..prompt import get_soul_prompt
+        template = get_soul_prompt(agent._config.language)
+        content = template.format(seconds=int(agent._soul_delay))
+
+    # Fresh session, no history, no system prompt, no tools
+    try:
+        session = agent.service.create_session(
+            system_prompt="",
+            tools=None,
+            model=agent._config.model or agent.service.model,
+            thinking="high",
+            tracked=False,
+        )
+    except Exception as e:
+        agent._log("soul_whisper_error", error=str(e)[:200])
+        return None
+
+    response = _send_with_timeout(agent, session, content)
+    if not response or not response.text:
+        return None
+
+    return {
+        "prompt": content[:500],
+        "voice": response.text,
+        "thinking": response.thoughts or [],
+    }
+
+
+def soul_inquiry(agent, question: str) -> dict | None:
+    """Inquiry mode — mirror session with cloned conversation.
+
+    Clones the agent's conversation (thinking + diary only, no tool
+    calls/results), sends the question. The soul has full context to
+    give a meaningful answer.
+    """
+    from ..llm.interface import ChatInterface, TextBlock, ThinkingBlock
+
+    cloned = ChatInterface()
 
     if agent._chat is not None:
-        iface = agent._chat.interface
-        for entry in iface.entries:
+        for entry in agent._chat.interface.entries:
             if entry.role == "system":
                 continue
             stripped: list = []
@@ -125,42 +174,12 @@ def whisper(agent) -> dict | None:
                 if isinstance(block, (TextBlock, ThinkingBlock)):
                     stripped.append(block)
             if stripped:
-                stripped_entries.append((entry.role, stripped))
+                if entry.role == "assistant":
+                    cloned.add_assistant_message(stripped)
+                else:
+                    cloned.add_user_blocks(stripped)
 
-    # Extract the last assistant text as the soul prompt (the agent's last thought).
-    # Clone gets everything except that last turn.
-    last_diary = ""
-    if stripped_entries and stripped_entries[-1][0] == "assistant":
-        last_role, last_blocks = stripped_entries.pop()
-        for block in last_blocks:
-            if isinstance(block, TextBlock) and block.text:
-                last_diary = block.text
-                break
-
-    cloned = ChatInterface()
-    for role, blocks in stripped_entries:
-        if role == "assistant":
-            cloned.add_assistant_message(blocks)
-        else:
-            cloned.add_user_blocks(blocks)
-
-    # Build soul prompt: use last diary if available, else static prompt
-    if agent._soul_prompt:
-        raw = agent._soul_prompt
-    elif last_diary:
-        raw = last_diary
-    else:
-        from ..prompt import get_soul_prompt
-        template = get_soul_prompt(lang)
-        raw = template.format(seconds=int(agent._soul_delay))
-    content = raw
-
-    # Create a temporary session: same system prompt, no tools, cloned history
-    # Timeout: soul should respond within retry_timeout. If not, give up — next cycle.
-    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
-    timeout = agent._config.retry_timeout
-
-    # Soul clone: no system prompt, no tools. Pure text reflection.
+    # Mirror session: no system prompt, no tools, cloned history
     try:
         session = agent.service.create_session(
             system_prompt="",
@@ -170,21 +189,16 @@ def whisper(agent) -> dict | None:
             tracked=False,
             interface=cloned,
         )
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(session.send, content)
-            response = future.result(timeout=timeout)
-    except FuturesTimeout:
-        agent._log("soul_whisper_error", error=f"LLM call timed out after {timeout}s")
-        return None
     except Exception as e:
         agent._log("soul_whisper_error", error=str(e)[:200])
         return None
 
-    if not response.text:
+    response = _send_with_timeout(agent, session, question)
+    if not response or not response.text:
         return None
 
     return {
-        "prompt": content,
+        "prompt": question,
         "voice": response.text,
         "thinking": response.thoughts or [],
     }

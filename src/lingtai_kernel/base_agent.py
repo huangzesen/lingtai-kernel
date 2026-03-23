@@ -501,8 +501,8 @@ class BaseAgent:
         """Called by soul timer — flow mode only. Inquiry is sync via tool handler."""
         self._soul_timer = None
         try:
-            from .intrinsics.soul import whisper
-            result = whisper(self)
+            from .intrinsics.soul import soul_flow
+            result = soul_flow(self)
             if result:
                 voice = result["voice"]
                 self._log("soul_whisper", length=len(voice))
