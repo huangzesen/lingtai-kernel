@@ -54,10 +54,22 @@ def handle(agent, args: dict) -> dict:
         if not isinstance(inquiry, str) or not inquiry.strip():
             return {"error": "inquiry is required — what do you want to reflect on?"}
 
+        agent._log("soul_inquiry", inquiry=inquiry.strip()[:200])
+
+        # Sync: do the whisper right now, return the answer
         agent._soul_prompt = inquiry.strip()
         agent._soul_oneshot = True
-        agent._log("soul_inquiry", delay=agent._soul_delay, inquiry=agent._soul_prompt[:200])
-        return {"status": "ok", "mode": "inquiry", "delay": agent._soul_delay}
+        result = whisper(agent)
+        agent._soul_oneshot = False
+        agent._soul_prompt = ""
+
+        if result:
+            agent._persist_soul_entry(result)
+            agent._log("soul_inquiry_done")
+            return {"status": "ok", "voice": result["voice"]}
+        else:
+            agent._log("soul_inquiry_done")
+            return {"status": "ok", "voice": "(silence)"}
 
     elif action == "delay":
         delay = args.get("delay")
@@ -91,17 +103,17 @@ def whisper(agent) -> dict | None:
     so the subsequent create_session/send touches no shared state.
     """
     from ..llm.interface import ChatInterface
-    from ..i18n import t
 
     # Build a stripped-down interface for reflection:
     # - No system entries (no system prompt, no tool schemas)
     # - No ToolCallBlocks or ToolResultBlocks
     # - Keep only TextBlocks and ThinkingBlocks
-    # If no conversation exists yet (开窍 — first awakening), the soul
-    # reflects with just the covenant as context.
+    # - Strip the last assistant turn — the soul prompt IS that last thought
     from ..llm.interface import TextBlock, ToolCallBlock, ToolResultBlock, ThinkingBlock
+    lang = agent._config.language
 
-    cloned = ChatInterface()
+    # Collect stripped entries
+    stripped_entries: list[tuple[str, list]] = []  # (role, blocks)
 
     if agent._chat is not None:
         iface = agent._chat.interface
@@ -113,20 +125,35 @@ def whisper(agent) -> dict | None:
                 if isinstance(block, (TextBlock, ThinkingBlock)):
                     stripped.append(block)
             if stripped:
-                if entry.role == "assistant":
-                    cloned.add_assistant_message(stripped)
-                else:
-                    cloned.add_user_blocks(stripped)
+                stripped_entries.append((entry.role, stripped))
 
-    # Build content — no timestamp here; _handle_request adds it when the
-    # agent processes the [inner voice] message from the inbox.
+    # Extract the last assistant text as the soul prompt (the agent's last thought).
+    # Clone gets everything except that last turn.
+    last_diary = ""
+    if stripped_entries and stripped_entries[-1][0] == "assistant":
+        last_role, last_blocks = stripped_entries.pop()
+        for block in last_blocks:
+            if isinstance(block, TextBlock) and block.text:
+                last_diary = block.text
+                break
+
+    cloned = ChatInterface()
+    for role, blocks in stripped_entries:
+        if role == "assistant":
+            cloned.add_assistant_message(blocks)
+        else:
+            cloned.add_user_blocks(blocks)
+
+    # Build soul prompt: use last diary if available, else static prompt
     if agent._soul_prompt:
-        content = agent._soul_prompt
+        raw = agent._soul_prompt
+    elif last_diary:
+        raw = last_diary
     else:
         from ..prompt import get_soul_prompt
-        delay = int(agent._soul_delay)
-        template = get_soul_prompt(agent._config.language)
-        content = template.format(seconds=delay)
+        template = get_soul_prompt(lang)
+        raw = template.format(seconds=int(agent._soul_delay))
+    content = raw
 
     # Create a temporary session: same system prompt, no tools, cloned history
     system_prompt = agent._build_system_prompt()

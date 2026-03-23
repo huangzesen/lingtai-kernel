@@ -183,7 +183,8 @@ class BaseAgent:
         except OSError:
             self._billboard_path = None
 
-        self._mail_arrived = threading.Event()  # set when normal mail arrives; system sleep uses this
+        self._mail_arrived = threading.Event()  # set when normal mail arrives; nap uses this
+        self._soul_arrived = threading.Event()  # set when soul whisper arrives; nap uses this
 
         # Mailbox identity — capabilities override these to change notification text.
         # _mailbox_name: human label ("mail box", "email box", "gmail box")
@@ -379,9 +380,6 @@ class BaseAgent:
         )
         self._thread.start()
         self._start_heartbeat()
-        # 开窍 — arm soul timer at boot so the agent thinks on its own
-        if self._config.awaken:
-            self._start_soul_timer()
 
     def stop(self, timeout: float = 5.0) -> None:
         """Signal shutdown and wait for the agent thread to exit."""
@@ -501,7 +499,7 @@ class BaseAgent:
             self._soul_timer = None
 
     def _soul_whisper(self) -> None:
-        """Called by soul timer — clone session, whisper, inject into inbox."""
+        """Called by soul timer — flow mode only. Inquiry is sync via tool handler."""
         self._soul_timer = None
         try:
             from .intrinsics.soul import whisper
@@ -510,13 +508,9 @@ class BaseAgent:
                 voice = result["voice"]
                 self._log("soul_whisper", length=len(voice))
                 self._persist_soul_entry(result)
-                msg = _make_message(MSG_REQUEST, "soul", _t(self._config.language, "system.inner_voice", text=voice))
+                msg = _make_message(MSG_REQUEST, "soul", _t(self._config.language, "system.soul_flow", text=voice))
                 self.inbox.put(msg)
-            # One-shot inquiry: clear after firing
-            if self._soul_oneshot:
-                self._soul_oneshot = False
-                self._soul_prompt = ""
-                self._log("soul_inquiry_done")
+                self._soul_arrived.set()  # wake nap if sleeping
         except Exception as e:
             self._log("soul_whisper_error", error=str(e))
 

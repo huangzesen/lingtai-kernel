@@ -21,7 +21,6 @@ class AgentConfig:
     thinking_budget: int | None = None
     data_dir: str | None = None  # for cache files (e.g., model context windows)
     soul_delay: float = 120.0  # seconds idle before soul whispers; large value (> vigil) = effectively off
-    awaken: bool = False  # 开窍 — arm soul timer at boot; when False, agent waits for first message
     language: str = "en"  # agent language ("en", "zh"); controls all kernel-injected strings
     vigil: float = 3600.0  # agent vigil in seconds; set at birth, not changeable by the agent
     ensure_ascii: bool = False  # JSON output: False = readable unicode, True = \uXXXX escapes
