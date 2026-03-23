@@ -43,10 +43,10 @@ class SystemPromptManager:
     def render(self) -> str:
         """Render all sections into a single system prompt string.
 
-        Ordering: tools → covenant → rest → memory (always last).
+        Ordering: covenant → tools → rest → memory (always last).
         """
         ordered: list[str] = []
-        priority = ["tools", "covenant"]
+        priority = ["covenant", "tools"]
 
         for key in priority:
             entry = self._sections.get(key)
