@@ -90,20 +90,33 @@ def handle(agent, args: dict) -> dict:
 
 
 def _send_with_timeout(agent, session, content: str):
-    """Send with timeout. Returns response or None."""
-    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
-    timeout = agent._config.retry_timeout
+    """Send with timeout using a daemon thread. Returns response or None.
 
-    try:
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(session.send, content)
-            return future.result(timeout=timeout)
-    except FuturesTimeout:
+    Uses a daemon thread so it dies with the process — no orphaned threads.
+    """
+    import threading
+    timeout = agent._config.retry_timeout
+    result_box: list = []
+    error_box: list = []
+
+    def _worker():
+        try:
+            result_box.append(session.send(content))
+        except Exception as e:
+            error_box.append(e)
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+
+    if t.is_alive():
+        # Timed out — thread is daemon, will die with process
         agent._log("soul_whisper_error", error=f"LLM call timed out after {timeout}s")
         return None
-    except Exception as e:
-        agent._log("soul_whisper_error", error=str(e)[:200])
+    if error_box:
+        agent._log("soul_whisper_error", error=str(error_box[0])[:200])
         return None
+    return result_box[0] if result_box else None
 
 
 def _get_principle(agent) -> str:
