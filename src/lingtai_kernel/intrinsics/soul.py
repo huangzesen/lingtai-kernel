@@ -105,32 +105,59 @@ def _send_with_timeout(agent, session, content: str):
 
 
 def soul_flow(agent) -> dict | None:
-    """Flow mode — text completion from serialized stream of consciousness.
+    """Flow mode — mirrored chat session with roles swapped.
 
-    Serializes all thinking + diary text into one prompt, sends to a fresh
-    session with no history. Stateless — the soul starts blank every time.
+    The soul sees the agent's diary as [user] input and the agent's
+    [user] input as [assistant] output. A true mirror — the soul IS
+    the agent's reflection. The static soul prompt is sent as the
+    final message to keep the conversation going.
     """
-    from ..llm.interface import TextBlock, ThinkingBlock
+    from ..llm.interface import ChatInterface, TextBlock, ThinkingBlock
 
-    # Serialize all thinking and diary text
-    parts: list[str] = []
+    # Build mirrored interface: swap user ↔ assistant, keep only text+thinking.
+    # Collect entries first, then strip the last assistant (diary) to use as prompt.
+    entries: list[tuple[str, list]] = []
+
     if agent._chat is not None:
         for entry in agent._chat.interface.entries:
             if entry.role == "system":
                 continue
+            stripped: list = []
             for block in entry.content:
-                if isinstance(block, (ThinkingBlock, TextBlock)) and block.text:
-                    parts.append(block.text)
+                if isinstance(block, (TextBlock, ThinkingBlock)) and block.text:
+                    stripped.append(block)
+            if stripped:
+                entries.append((entry.role, stripped))
 
-    if parts:
-        content = "\n\n---\n\n".join(parts)
+    # Extract last diary as the prompt — the soul responds to this
+    last_diary = ""
+    if entries and entries[-1][0] == "assistant":
+        _, last_blocks = entries.pop()
+        for block in last_blocks:
+            if isinstance(block, TextBlock) and block.text:
+                last_diary = block.text
+                break
+
+    # Mirror remaining entries into the interface
+    mirrored = ChatInterface()
+    has_entries = False
+    for role, blocks in entries:
+        has_entries = True
+        if role == "user":
+            mirrored.add_assistant_message(blocks)
+        elif role == "assistant":
+            mirrored.add_user_blocks(blocks)
+
+    # Prompt: last diary, or static nudge if no diary yet
+    if last_diary:
+        content = last_diary
     else:
-        # No conversation yet: use static prompt
         from ..prompt import get_soul_prompt
-        template = get_soul_prompt(agent._config.language)
-        content = template.format(seconds=int(agent._soul_delay))
+        content = get_soul_prompt(agent._config.language).format(
+            seconds=int(agent._soul_delay)
+        )
 
-    # Fresh session, no history, no system prompt, no tools
+    # Mirrored session: no system prompt, no tools
     try:
         session = agent.service.create_session(
             system_prompt="",
@@ -138,6 +165,7 @@ def soul_flow(agent) -> dict | None:
             model=agent._config.model or agent.service.model,
             thinking="high",
             tracked=False,
+            interface=mirrored if has_entries else None,
         )
     except Exception as e:
         agent._log("soul_whisper_error", error=str(e)[:200])
