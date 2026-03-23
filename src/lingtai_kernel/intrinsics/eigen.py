@@ -163,6 +163,13 @@ def _context_molt(agent, args: dict) -> dict:
     from .soul import reset_soul_session
     reset_soul_session(agent)
 
+    # Post-molt hook — capabilities can register callbacks
+    for cb in getattr(agent, "_post_molt_hooks", []):
+        try:
+            cb()
+        except Exception:
+            pass
+
     agent._log(
         "eigen_molt",
         before_tokens=before_tokens,
