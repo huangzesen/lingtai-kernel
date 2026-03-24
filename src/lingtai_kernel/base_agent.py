@@ -2,7 +2,7 @@
 BaseAgent — generic agent kernel with intrinsic tools and capability dispatch.
 
 Key concepts:
-    - **4-state lifecycle**: ACTIVE, IDLE, STUCK, DORMANT.
+    - **5-state lifecycle**: ACTIVE, IDLE, STUCK, DORMANT, SUSPENDED.
     - **Persistent LLM session**: each agent keeps its chat session across messages.
     - **2-layer tool dispatch**: intrinsics (built-in) + capability handlers.
     - **Opaque context**: the host app can pass any context object — the agent
@@ -686,7 +686,9 @@ class BaseAgent:
                 # --- Dormant sleep: soul off, wait for inbox message ---
                 if self._dormant.is_set():
                     self._cancel_soul_timer()
-                    self._session.close()
+                    # Close session only if it's live (idempotent guard)
+                    if self._session.chat is not None:
+                        self._session.close()
                     self._log("dormant_sleep")
 
                     # Block until a message arrives or shutdown
@@ -703,6 +705,7 @@ class BaseAgent:
 
                     # Wake up
                     self._dormant.clear()
+                    self._cancel_event.clear()  # clear stale quell/stamina signal
                     self._set_state(AgentState.ACTIVE, reason=f"woke from dormant: {msg.type}")
                     self._log("dormant_wake", trigger=msg.type)
                     self._reset_uptime()
@@ -736,11 +739,12 @@ class BaseAgent:
                     self._log("error", source="message_handler", message=err_desc)
                     sleep_state = AgentState.STUCK
                 finally:
-                    self._set_state(sleep_state)
+                    if not self._dormant.is_set():
+                        self._set_state(sleep_state)
                     self._persist_chat_history()
 
-            # Check for refresh (rebirth) before exiting
-            if getattr(self, "_refresh_requested", False):
+            # Check for refresh (rebirth) before exiting — but not if suspended
+            if getattr(self, "_refresh_requested", False) and self._state != AgentState.SUSPENDED:
                 self._refresh_requested = False
                 self._perform_refresh()
                 self._shutdown.clear()
