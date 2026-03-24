@@ -345,6 +345,33 @@ def test_get_chat_state_with_session():
     assert state["messages"] == [{"role": "user", "content": "hi"}]
 
 
+def test_rebuild_session_uses_current_prompt_and_tools():
+    sm, svc, _ = make_session_manager()
+    mock_interface = MagicMock()
+    mock_rebuilt = MagicMock()
+    svc.create_session.return_value = mock_rebuilt
+    sm._rebuild_session(mock_interface)
+    call_kw = svc.create_session.call_args.kwargs
+    assert call_kw["system_prompt"] == "test prompt"
+    assert call_kw["tools"] is None  # [] is falsy → or None
+    assert call_kw["model"] == "test-model"
+    assert call_kw["thinking"] == "high"
+    assert call_kw["tracked"] is True
+    assert call_kw["agent_type"] == "test"
+    assert call_kw["provider"] is None
+    assert call_kw["interface"] is mock_interface
+    assert sm.chat is mock_rebuilt
+
+
+def test_rebuild_session_tracked_false():
+    sm, svc, _ = make_session_manager()
+    mock_interface = MagicMock()
+    svc.create_session.return_value = MagicMock()
+    sm._rebuild_session(mock_interface, tracked=False)
+    call_kw = svc.create_session.call_args.kwargs
+    assert call_kw["tracked"] is False
+
+
 def test_restore_chat_with_state():
     sm, svc, _ = make_session_manager()
     restored = MagicMock()

@@ -150,6 +150,21 @@ class SessionManager:
             )
         return self._chat
 
+    def _rebuild_session(
+        self, interface: "ChatInterface", tracked: bool = True,
+    ) -> None:
+        """Create a new chat session with current config, preserving history."""
+        self._chat = self._llm_service.create_session(
+            system_prompt=self._build_system_prompt_fn(),
+            tools=self._build_tool_schemas_fn() or None,
+            model=self._config.model or self._llm_service.model,
+            thinking="high",
+            agent_type=self._display_name,
+            tracked=tracked,
+            provider=self._config.provider,
+            interface=interface,
+        )
+
     def send(self, message: Any) -> LLMResponse:
         """Send a message to the LLM, reusing the persistent chat session."""
         self.ensure_session()
