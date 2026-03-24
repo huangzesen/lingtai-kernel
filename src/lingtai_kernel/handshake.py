@@ -1,7 +1,7 @@
 """Handshake utility — validate agent presence and liveness by working dir path.
 
 Used by FilesystemMailService (mail delivery), system intrinsic (karma/nirvana
-actions), and lingtai's revive logic.
+actions), and lingtai's cpr logic.
 """
 from __future__ import annotations
 
@@ -15,12 +15,24 @@ def is_agent(path: str | Path) -> bool:
     return (Path(path) / ".agent.json").is_file()
 
 
+def is_human(path: str | Path) -> bool:
+    """Check if the agent at *path* is a human (admin key explicitly set to null)."""
+    try:
+        data = manifest(path)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return False
+    return data.get("admin") is None
+
+
 def is_alive(path: str | Path, threshold: float = 2.0) -> bool:
     """Check if the agent at *path* has a fresh heartbeat.
 
     Returns False if heartbeat file is missing, unreadable, or older
-    than *threshold* seconds.
+    than *threshold* seconds.  Human agents (admin=null) are always
+    considered alive — they don't write heartbeats.
     """
+    if is_human(path):
+        return True
     hb = Path(path) / ".agent.heartbeat"
     if not hb.is_file():
         return False

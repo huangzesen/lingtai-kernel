@@ -3,6 +3,7 @@ pyproject.toml
 src/lingtai_kernel/__init__.py
 src/lingtai_kernel/base_agent.py
 src/lingtai_kernel/config.py
+src/lingtai_kernel/handshake.py
 src/lingtai_kernel/llm_utils.py
 src/lingtai_kernel/logging.py
 src/lingtai_kernel/loop_guard.py
@@ -26,7 +27,6 @@ src/lingtai_kernel/intrinsics/mail.py
 src/lingtai_kernel/intrinsics/soul.py
 src/lingtai_kernel/intrinsics/system.py
 src/lingtai_kernel/llm/__init__.py
-src/lingtai_kernel/llm/api_gate.py
 src/lingtai_kernel/llm/base.py
 src/lingtai_kernel/llm/interface.py
 src/lingtai_kernel/llm/service.py
@@ -34,16 +34,16 @@ src/lingtai_kernel/llm/streaming.py
 src/lingtai_kernel/services/__init__.py
 src/lingtai_kernel/services/logging.py
 src/lingtai_kernel/services/mail.py
-tests/test_api_gate.py
+tests/test_base_agent.py
+tests/test_filesystem_mail.py
 tests/test_heartbeat.py
 tests/test_i18n.py
-tests/test_llm_service.py
 tests/test_llm_utils.py
 tests/test_loop_guard.py
+tests/test_mail_identity.py
 tests/test_message.py
 tests/test_prompt.py
 tests/test_services_logging.py
-tests/test_services_mail.py
 tests/test_session.py
 tests/test_soul.py
 tests/test_state.py

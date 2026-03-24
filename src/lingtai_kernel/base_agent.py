@@ -445,7 +445,7 @@ class BaseAgent:
         """Callback for MailService — route incoming mail to inbox.
 
         This method is never replaced — it is the stable entry point for all
-        incoming mail. Lifecycle control (interrupt, quell, revive, nirvana)
+        incoming mail. Lifecycle control (interrupt, quell, cpr, nirvana)
         is handled by the system intrinsic via signal files, not mail.
         """
         self._on_normal_mail(payload)
@@ -1165,10 +1165,10 @@ class BaseAgent:
         if self._chat is not None:
             self._chat.update_system_prompt(prompt)
 
-    def _revive_agent(self, address: str) -> "BaseAgent | None":
-        """Reconstruct and start a dormant agent at *address*.
+    def _cpr_agent(self, address: str) -> "BaseAgent | None":
+        """Resuscitate a suspended agent at *address*.
 
-        Returns the revived agent, or None if not supported.
+        Returns the resuscitated agent, or None if not supported.
         Override in subclasses (e.g. lingtai's Agent) to provide
         full reconstruction from persisted working dir state.
         """

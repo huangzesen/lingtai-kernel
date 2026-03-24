@@ -14,6 +14,7 @@ def _make_agent_dir(base: Path, name: str) -> Path:
     d.mkdir()
     (d / ".agent.json").write_text(json.dumps({
         "agent_name": "test",
+        "admin": {},
     }))
     (d / ".agent.heartbeat").write_text(str(time.time()))
     return d
@@ -146,6 +147,30 @@ class TestSend:
         assert result is not None
         assert "attachment" in result.lower()
 
+    def test_send_to_human_skips_heartbeat(self, tmp_path):
+        """Human recipients (admin=null) don't need a heartbeat."""
+        from lingtai_kernel.services.mail import FilesystemMailService
+
+        sender_dir = _make_agent_dir(tmp_path, "sender01")
+        human_dir = tmp_path / "human01"
+        human_dir.mkdir()
+        (human_dir / ".agent.json").write_text(json.dumps({
+            "agent_name": "human",
+            "admin": None,
+        }))
+        (human_dir / "mailbox" / "inbox").mkdir(parents=True)
+        # No .agent.heartbeat file — should still deliver
+
+        svc = FilesystemMailService(sender_dir, mailbox_rel="mailbox")
+        result = svc.send(str(human_dir), {"message": "hello human"})
+        assert result is None  # success
+
+        inbox = human_dir / "mailbox" / "inbox"
+        entries = list(inbox.iterdir())
+        assert len(entries) == 1
+        msg = json.loads((entries[0] / "message.json").read_text())
+        assert msg["message"] == "hello human"
+
     def test_send_fails_no_heartbeat_file(self, tmp_path):
         from lingtai_kernel.services.mail import FilesystemMailService
 
@@ -154,6 +179,7 @@ class TestSend:
         recip_dir.mkdir()
         (recip_dir / ".agent.json").write_text(json.dumps({
             "agent_name": "test",
+            "admin": {},
         }))
         # No .agent.heartbeat file
 

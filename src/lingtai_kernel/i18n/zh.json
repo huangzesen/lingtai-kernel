@@ -30,12 +30,12 @@
   "eigen.content_description": "用于 memory edit 的文本内容。",
   "eigen.summary_description": "用于 context molt：去芜存菁——凝蜕后你唯一能看到的东西。写下你正在做什么、发现了什么、还有什么待完成、正在和谁合作。约 10000 token 上限。",
 
-  "system_tool.description": "运行时、精力、同步与业力。自身操作：'show'（观己/身份/运行时/用量）、'nap'（小憩/定时或无限暂停）、'quell'（沉睡/自我或他人）、'refresh'（沐浴/重载工具重启会话）。业力操作（需要 admin.karma）：'interrupt'（打断）、'quell'（沉睡）、'revive'（唤醒）。涅槃操作（需要 admin.nirvana）：'nirvana'（涅槃/永久销毁）。",
-  "system_tool.action_description": "show：观己，显示完整的智能体自检。返回：\n- identity：agent_id、working_dir、mail_address（无消息服务时为 null）\n- runtime：started_at（UTC ISO）、uptime_seconds\n- tokens.input_tokens、output_tokens、thinking_tokens、cached_tokens、total_tokens、api_calls：启动以来的累计 LLM 使用量\n- tokens.context.system_tokens、tools_tokens、history_tokens：当前上下文窗口分解\n- tokens.context.window_size：总上下文窗口容量\n- tokens.context.usage_pct：当前上下文窗口占用百分比\n用于监控资源消耗、决定何时将重要信息保存到长期记忆、以及识别自己。\n\nnap：小憩，暂停执行。如果给定 seconds，最多等待该秒数（消息到达时提前唤醒）。如果省略 seconds，阻塞直到消息到达。上限 300 秒。\n\nrefresh：沐浴——智能体停止，从工作目录（mcp/servers.json）重新加载 MCP 服务器和配置，并以相同身份和全新会话重启。安装新 MCP 工具后使用，无需外部重新委派即可加载。身份与记忆已保存。\n\nquell：沉睡（自我或他人）。无 address 时：启动优雅的自我沉睡。身份与记忆已保存，可被唤醒。有 address 时：令另一个智能体沉睡。需要 admin.karma=True。使用 address 指定目标智能体的工作目录。仅对运行中的智能体有效。\n\nrevive：唤醒休眠的智能体。需要 admin.karma=True。使用 address 指定目标智能体的工作目录。仅对休眠的智能体有效。\n\ninterrupt：打断另一个智能体的当前工作（设置其取消事件）。需要 admin.karma=True。使用 address 指定目标智能体的工作目录。\n\nnirvana：涅槃——永久销毁另一个智能体并删除其工作目录。需要 admin.nirvana=True。使用 address 指定目标智能体的工作目录。",
-  "system_tool.address_description": "目标智能体的地址（工作目录路径）。interrupt、quell、revive、nirvana 操作需要此参数。",
+  "system_tool.description": "运行时、精力、同步与业力。自身操作：'show'（观己/身份/运行时/用量）、'nap'（小憩/定时或无限暂停）、'quell'（沉睡/自我或他人）、'refresh'（沐浴/重载工具重启会话）。业力操作（需要 admin.karma）：'interrupt'（打断）、'quell'（沉睡）、'cpr'（心肺复苏/唤醒假死者）。涅槃操作（需要 admin.nirvana）：'nirvana'（涅槃/永久销毁）。",
+  "system_tool.action_description": "show：观己，显示完整的智能体自检。返回：\n- identity：agent_id、working_dir、mail_address（无消息服务时为 null）\n- runtime：started_at（UTC ISO）、uptime_seconds\n- tokens.input_tokens、output_tokens、thinking_tokens、cached_tokens、total_tokens、api_calls：启动以来的累计 LLM 使用量\n- tokens.context.system_tokens、tools_tokens、history_tokens：当前上下文窗口分解\n- tokens.context.window_size：总上下文窗口容量\n- tokens.context.usage_pct：当前上下文窗口占用百分比\n用于监控资源消耗、决定何时将重要信息保存到长期记忆、以及识别自己。\n\nnap：小憩，暂停执行。如果给定 seconds，最多等待该秒数（消息到达时提前唤醒）。如果省略 seconds，阻塞直到消息到达。上限 300 秒。\n\nrefresh：沐浴——智能体停止，从工作目录（mcp/servers.json）重新加载 MCP 服务器和配置，并以相同身份和全新会话重启。安装新 MCP 工具后使用，无需外部重新委派即可加载。身份与记忆已保存。\n\nquell：沉睡（自我或他人）。无 address 时：启动优雅的自我沉睡。身份与记忆已保存，可经心肺复苏唤醒。有 address 时：令另一个智能体沉睡。需要 admin.karma=True。使用 address 指定目标智能体的工作目录。仅对运行中的智能体有效。\n\ncpr：心肺复苏——唤醒假死的智能体。需要 admin.karma=True。使用 address 指定目标智能体的工作目录。仅对假死的智能体有效。\n\ninterrupt：打断另一个智能体的当前工作（设置其取消事件）。需要 admin.karma=True。使用 address 指定目标智能体的工作目录。\n\nnirvana：涅槃——永久销毁另一个智能体并删除其工作目录。需要 admin.nirvana=True。使用 address 指定目标智能体的工作目录。",
+  "system_tool.address_description": "目标智能体的地址（工作目录路径）。interrupt、quell、cpr、nirvana 操作需要此参数。",
   "system_tool.seconds_description": "用于 nap（小憩）：等待秒数。必填。上限 300。收到书信会提前唤醒。",
   "system_tool.reason_description": "沉睡或沐浴的原因（记录到事件日志）。",
-  "system_tool.quell_message": "进入沉睡。身份与记忆已保存。可被唤醒。",
+  "system_tool.quell_message": "进入沉睡。身份与记忆已保存。可经心肺复苏唤醒。",
   "system_tool.refresh_message": "沐浴中——重新加载工具并重置会话。身份与记忆已保存。",
 
   "eigen.molt_summary_prefix": "[去芜存菁]",

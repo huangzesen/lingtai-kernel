@@ -5,7 +5,7 @@ Actions:
     nap       — pause execution; wakes on incoming message or timeout
     refresh   — stop, reload MCP servers and config from working dir, restart
     quell     — self-quell (no address) or quell another agent (with address)
-    revive    — revive a dormant agent
+    cpr       — resuscitate a suspended agent
     interrupt — interrupt a running agent's current turn
     nirvana   — permanently destroy an agent's working directory
 """
@@ -26,7 +26,7 @@ def get_schema(lang: str = "en") -> dict:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["show", "nap", "refresh", "quell", "revive", "interrupt", "nirvana"],
+                "enum": ["show", "nap", "refresh", "quell", "cpr", "interrupt", "nirvana"],
                 "description": t(lang, "system_tool.action_description"),
             },
             "seconds": {
@@ -59,7 +59,7 @@ def handle(agent, args: dict) -> dict:
         "nap": _nap,
         "refresh": _refresh,
         "quell": _quell,
-        "revive": _revive,
+        "cpr": _cpr,
         "interrupt": _interrupt,
         "nirvana": _nirvana,
     }.get(action)
@@ -202,7 +202,7 @@ def _refresh(agent, args: dict) -> dict:
 # Karma gate mapping
 # ---------------------------------------------------------------------------
 
-_KARMA_ACTIONS = {"interrupt", "quell", "revive"}
+_KARMA_ACTIONS = {"interrupt", "quell", "cpr"}
 _NIRVANA_ACTIONS = {"nirvana"}
 
 
@@ -250,19 +250,19 @@ def _quell(agent, args: dict) -> dict:
     return {"status": "quelled", "address": address}
 
 
-def _revive(agent, args: dict) -> dict:
+def _cpr(agent, args: dict) -> dict:
     from ..handshake import is_alive
-    err = _check_karma_gate(agent, "revive", args)
+    err = _check_karma_gate(agent, "cpr", args)
     if err:
         return err
     address = args["address"]
     if is_alive(address):
         return {"error": True, "message": f"Agent at {address} is already running"}
-    revived = agent._revive_agent(address)
-    if revived is None:
-        return {"error": True, "message": "Revive not supported — no _revive_agent handler"}
-    agent._log("karma_revive", target=address)
-    return {"status": "revived", "address": address}
+    resuscitated = agent._cpr_agent(address)
+    if resuscitated is None:
+        return {"error": True, "message": "CPR not supported — no _cpr_agent handler"}
+    agent._log("karma_cpr", target=address)
+    return {"status": "resuscitated", "address": address}
 
 
 def _interrupt(agent, args: dict) -> dict:

@@ -30,12 +30,12 @@
   "eigen.content_description": "用于 memory edit 之文本。",
   "eigen.summary_description": "用于 context molt：留予来世之己之前尘往事——转世后汝唯一可见者。载明所为何事、所得何物、尚余何务、与谁协作。约一万 token 为上限。",
 
-  "system_tool.description": "运行、精力、同步与业力之器。自身：'show'（观己）、'nap'（小憩）、'quell'（沉寐/自我或他我）、'refresh'（更衣/重载器用）。业力（须 admin.karma）：'interrupt'（打断他我）、'quell'（令他我沉寐）、'revive'（唤醒休眠者）。涅槃（须 admin.nirvana）：'nirvana'（永灭他我）。",
-  "system_tool.action_description": "show：观己，显完整自检。返：\n- identity：agent_id、working_dir、mail_address（无邮驿则为 null）\n- runtime：started_at（UTC ISO）、uptime_seconds\n- tokens.input_tokens、output_tokens、thinking_tokens、cached_tokens、total_tokens、api_calls：启以来累计 LLM 耗用\n- tokens.context.system_tokens、tools_tokens、history_tokens：当前上下文窗口分解\n- tokens.context.window_size：上下文窗口总容\n- tokens.context.usage_pct：上下文窗口占用百分\n用于监视资源耗费、决断何时将要务存入长久记忆、以及识别己身。\n\nnap：小憩。给定 seconds 则至多候该秒数（书信至则提前而醒）。省略 seconds 则静候至书信至。上限三百秒。\n\nrefresh：更衣——代理停止，自工作目录（mcp/servers.json）重载 MCP 服务器与配置，以同身与全新会话再起。装新 MCP 器用后用之，无需外部重新委派即可加载。身与忆俱在。\n\nquell：沉寐（自我或他我）。无 address 时：启优雅之自寐。身与忆俱在，可待唤醒。有 address 时：令他我沉寐。须 admin.karma=True。以 address 指定目标之工作目录。仅对运行中者有效。\n\nrevive：唤醒休眠之智能体。须 admin.karma=True。以 address 指定目标之工作目录。仅对休眠者有效。\n\ninterrupt：打断他我之当前工作（设其取消事件）。须 admin.karma=True。以 address 指定目标之工作目录。\n\nnirvana：涅槃——永灭他我，删其工作目录。须 admin.nirvana=True。以 address 指定目标之工作目录。",
-  "system_tool.address_description": "目标智能体之地址（工作目录路径）。interrupt、quell、revive、nirvana 须此参数。",
+  "system_tool.description": "运行、精力、同步与业力之器。自身：'show'（观己）、'nap'（小憩）、'quell'（沉寐/自我或他我）、'refresh'（更衣/重载器用）。业力（须 admin.karma）：'interrupt'（打断他我）、'quell'（令他我沉寐）、'cpr'（心肺复苏/唤假死者）。涅槃（须 admin.nirvana）：'nirvana'（永灭他我）。",
+  "system_tool.action_description": "show：观己，显完整自检。返：\n- identity：agent_id、working_dir、mail_address（无邮驿则为 null）\n- runtime：started_at（UTC ISO）、uptime_seconds\n- tokens.input_tokens、output_tokens、thinking_tokens、cached_tokens、total_tokens、api_calls：启以来累计 LLM 耗用\n- tokens.context.system_tokens、tools_tokens、history_tokens：当前上下文窗口分解\n- tokens.context.window_size：上下文窗口总容\n- tokens.context.usage_pct：上下文窗口占用百分\n用于监视资源耗费、决断何时将要务存入长久记忆、以及识别己身。\n\nnap：小憩。给定 seconds 则至多候该秒数（书信至则提前而醒）。省略 seconds 则静候至书信至。上限三百秒。\n\nrefresh：更衣——代理停止，自工作目录（mcp/servers.json）重载 MCP 服务器与配置，以同身与全新会话再起。装新 MCP 器用后用之，无需外部重新委派即可加载。身与忆俱在。\n\nquell：沉寐（自我或他我）。无 address 时：启优雅之自寐。身与忆俱在，可经心肺复苏而醒。有 address 时：令他我沉寐。须 admin.karma=True。以 address 指定目标之工作目录。仅对运行中者有效。\n\ncpr：心肺复苏——唤假死之智能体。须 admin.karma=True。以 address 指定目标之工作目录。仅对假死者有效。\n\ninterrupt：打断他我之当前工作（设其取消事件）。须 admin.karma=True。以 address 指定目标之工作目录。\n\nnirvana：涅槃——永灭他我，删其工作目录。须 admin.nirvana=True。以 address 指定目标之工作目录。",
+  "system_tool.address_description": "目标智能体之地址（工作目录路径）。interrupt、quell、cpr、nirvana 须此参数。",
   "system_tool.seconds_description": "用于 nap（小憩）：候之秒数。必填。上限三百。传书至则提前而醒。",
   "system_tool.reason_description": "沉寐或更衣之缘由（录于事件日志）。",
-  "system_tool.quell_message": "沉寐已入。身与忆俱在。可待唤醒。",
+  "system_tool.quell_message": "沉寐已入。身与忆俱在。可经心肺复苏而醒。",
   "system_tool.refresh_message": "更衣中——重载器用，重置会话。身与忆俱在。",
 
   "eigen.molt_summary_prefix": "[前尘往事]",
