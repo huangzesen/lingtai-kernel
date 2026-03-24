@@ -1,7 +1,7 @@
 """Tests for BaseAgent — true name (immutable) and nickname (mutable)."""
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -87,3 +87,54 @@ def test_nickname_in_manifest(tmp_path):
     manifest = json.loads((agent.working_dir / ".agent.json").read_text())
     assert manifest["agent_name"] == "悟空"
     assert manifest["nickname"] == "代码探索者"
+
+
+# ------------------------------------------------------------------
+# _perform_refresh — preserves chat history
+# ------------------------------------------------------------------
+
+def test_perform_refresh_preserves_chat_history(tmp_path):
+    """_perform_refresh rebuilds session with existing interface, not None."""
+    agent = BaseAgent(service=make_mock_service(), working_dir=tmp_path / "test")
+
+    # Simulate a live session with an interface
+    mock_interface = MagicMock()
+    mock_chat = MagicMock()
+    mock_chat.interface = mock_interface
+    agent._session.chat = mock_chat
+
+    # Mock _rebuild_session to track calls
+    rebuild_calls = []
+    original_rebuild = agent._session._rebuild_session
+
+    def fake_rebuild(interface, **kw):
+        rebuild_calls.append(interface)
+        # Simulate what _rebuild_session does: set chat to a new session
+        agent._session._chat = MagicMock()
+        agent._session._chat.interface = interface
+
+    agent._session._rebuild_session = fake_rebuild
+
+    # Seal and call refresh
+    agent._sealed = True
+    with patch.object(agent, "_log"):
+        agent._perform_refresh()
+
+    # Chat should NOT have been wiped
+    assert agent._session.chat is not None
+    # _rebuild_session was called with the old interface
+    assert len(rebuild_calls) == 1
+    assert rebuild_calls[0] is mock_interface
+
+
+def test_perform_refresh_no_session_stays_none(tmp_path):
+    """If no session exists, _perform_refresh leaves it as None."""
+    agent = BaseAgent(service=make_mock_service(), working_dir=tmp_path / "test")
+    assert agent._session.chat is None
+
+    agent._sealed = True
+    with patch.object(agent, "_log"):
+        agent._perform_refresh()
+
+    # Still None — ensure_session() will create one later
+    assert agent._session.chat is None

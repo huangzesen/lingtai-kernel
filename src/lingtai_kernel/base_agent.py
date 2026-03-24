@@ -358,9 +358,7 @@ class BaseAgent:
         self._uptime_anchor = time.monotonic()
 
         # Export assembled system prompt to system/system.md
-        system_dir = self._working_dir / "system"
-        system_dir.mkdir(exist_ok=True)
-        (system_dir / "system.md").write_text(self._build_system_prompt())
+        self._flush_system_prompt()
 
         # Restore chat session and token state from filesystem if available
         chat_history_file = self._working_dir / "history" / "chat_history.json"
@@ -781,8 +779,10 @@ class BaseAgent:
         # Re-seal
         self._sealed = True
 
-        # Reset session so next message creates fresh one with new tools
-        self._session.chat = None
+        # Rebuild session with current config, preserving chat history
+        if self._session.chat is not None:
+            self._session._rebuild_session(self._session.chat.interface)
+        # If no session exists yet, ensure_session() will create one on next message
 
         self._log("refresh_complete", tools=list(self._mcp_handlers.keys()))
 
@@ -1145,6 +1145,15 @@ class BaseAgent:
         self._token_decomp_dirty = True
         return handler
 
+    def _flush_system_prompt(self) -> None:
+        """Rebuild system prompt, persist to system/system.md, update live session."""
+        prompt = self._build_system_prompt()
+        system_md = self._working_dir / "system" / "system.md"
+        system_md.parent.mkdir(exist_ok=True)
+        system_md.write_text(prompt)
+        if self._chat is not None:
+            self._chat.update_system_prompt(prompt)
+
     def update_system_prompt(
         self, section: str, content: str, *, protected: bool = False
     ) -> None:
@@ -1157,13 +1166,7 @@ class BaseAgent:
         """
         self._prompt_manager.write_section(section, content, protected=protected)
         self._token_decomp_dirty = True
-        # Export updated system prompt to file and update live session
-        prompt = self._build_system_prompt()
-        system_md = self._working_dir / "system" / "system.md"
-        system_md.parent.mkdir(exist_ok=True)
-        system_md.write_text(prompt)
-        if self._chat is not None:
-            self._chat.update_system_prompt(prompt)
+        self._flush_system_prompt()
 
     def _cpr_agent(self, address: str) -> "BaseAgent | None":
         """Resuscitate a suspended agent at *address*.
