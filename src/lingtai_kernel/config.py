@@ -20,9 +20,9 @@ class AgentConfig:
     cpr_timeout: float = 1200.0  # 20 minutes — max CPR before pronouncing dead
     thinking_budget: int | None = None
     data_dir: str | None = None  # for cache files (e.g., model context windows)
-    soul_delay: float = 120.0  # seconds idle before soul whispers; large value (> vigil) = effectively off
+    soul_delay: float = 120.0  # seconds idle before soul whispers; large value (> stamina) = effectively off
     language: str = "en"  # agent language ("en", "zh"); controls all kernel-injected strings
-    vigil: float = 3600.0  # agent vigil in seconds; set at birth, not changeable by the agent
+    stamina: float = 3600.0  # agent stamina in seconds; set at birth, not changeable by the agent
     context_limit: int | None = None  # max context tokens; None = use model default
     molt_pressure: float = 0.8  # context usage fraction that triggers molt warnings (0.0–1.0)
     molt_warnings: int = 5  # number of warnings before auto-wipe
