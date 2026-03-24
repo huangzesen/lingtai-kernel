@@ -374,19 +374,48 @@ def test_rebuild_session_tracked_false():
 
 def test_restore_chat_with_state():
     sm, svc, _ = make_session_manager()
-    restored = MagicMock()
-    svc.resume_session.return_value = restored
-    sm.restore_chat({"messages": [{"role": "user"}]})
-    assert sm.chat is restored
+    mock_rebuilt = MagicMock()
+    svc.create_session.return_value = mock_rebuilt
+    sm.restore_chat({"messages": [
+        {"id": 0, "role": "system", "system": "old prompt", "timestamp": 0.0},
+        {"id": 1, "role": "user", "content": [{"type": "text", "text": "hi"}], "timestamp": 1.0},
+    ]})
+    assert sm.chat is mock_rebuilt
+    call_kw = svc.create_session.call_args.kwargs
+    assert call_kw["interface"] is not None
 
 
 def test_restore_chat_fallback_on_error():
     sm, svc, _ = make_session_manager()
-    svc.resume_session.side_effect = ValueError("bad state")
-    sm.restore_chat({"messages": [{"role": "user"}]})
-    # Should fallback to ensure_session
+    call_count = [0]
+    def side_effect(*args, **kwargs):
+        call_count[0] += 1
+        if call_count[0] == 1 and kwargs.get("interface") is not None:
+            raise ValueError("bad state")
+        return MagicMock()
+    svc.create_session.side_effect = side_effect
+    sm.restore_chat({"messages": [
+        {"id": 0, "role": "system", "system": "prompt", "timestamp": 0.0},
+        {"id": 1, "role": "user", "content": [{"type": "text", "text": "hi"}], "timestamp": 1.0},
+    ]})
     assert sm.chat is not None
-    svc.create_session.assert_called_once()
+    assert svc.create_session.call_count == 2
+
+
+def test_restore_chat_uses_current_config():
+    sm, svc, _ = make_session_manager()
+    mock_rebuilt = MagicMock()
+    svc.create_session.return_value = mock_rebuilt
+    saved_state = {"messages": [
+        {"id": 0, "role": "system", "system": "OLD stale prompt", "timestamp": 0.0,
+         "tools": [{"name": "old_tool", "description": "gone", "parameters": {}}]},
+        {"id": 1, "role": "user", "content": [{"type": "text", "text": "hello"}], "timestamp": 1.0},
+    ]}
+    sm.restore_chat(saved_state)
+    call_kw = svc.create_session.call_args.kwargs
+    assert call_kw["system_prompt"] == "test prompt"
+    assert call_kw["interface"] is not None
+    assert len(call_kw["interface"].entries) == 2
 
 
 def test_restore_chat_empty_state():

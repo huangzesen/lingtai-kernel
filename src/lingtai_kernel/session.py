@@ -388,15 +388,17 @@ class SessionManager:
             return {}
 
     def restore_chat(self, state: dict) -> None:
-        """Restore or create a chat session from saved state."""
+        """Restore chat history with current system prompt and tools."""
+        from .llm.interface import ChatInterface
         messages = state.get("messages")
         if messages:
             try:
-                self._chat = self._llm_service.resume_session(state)
+                interface = ChatInterface.from_dict(messages)
+                self._rebuild_session(interface)
                 return
             except Exception as e:
                 logger.warning(
-                    f"[{self._display_name}] Failed to resume session: {e}. Starting fresh.",
+                    f"[{self._display_name}] Failed to restore chat: {e}. Starting fresh.",
                     exc_info=True,
                 )
         self.ensure_session()
