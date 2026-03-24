@@ -28,7 +28,7 @@ def get_schema(lang: str = "en") -> dict:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["show", "nap", "refresh", "sleep", "lull", "suspend", "cpr", "interrupt", "nirvana"],
+                "enum": ["show", "nap", "refresh", "sleep", "lull", "interrupt", "suspend", "cpr", "nirvana"],
                 "description": t(lang, "system_tool.action_description"),
             },
             "seconds": {

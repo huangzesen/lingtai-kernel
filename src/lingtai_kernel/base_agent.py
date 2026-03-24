@@ -650,7 +650,7 @@ class BaseAgent:
             time.sleep(1.0)
 
     def _perform_aed(self) -> None:
-        """AED: reset session and inject revive message."""
+        """AED: reset session and inject recovery message."""
         from datetime import datetime, timezone
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -659,9 +659,9 @@ class BaseAgent:
 
         self._log("heartbeat_aed", heartbeat=self._heartbeat)
 
-        # Inject revive message
-        revive_msg = _t(self._config.language, "system.stuck_revive", ts=ts)
-        msg = _make_message(MSG_REQUEST, "system", revive_msg)
+        # Inject AED recovery message
+        aed_msg = _t(self._config.language, "system.stuck_revive", ts=ts)
+        msg = _make_message(MSG_REQUEST, "system", aed_msg)
         self.inbox.put(msg)
 
     def _log(self, event_type: str, **fields) -> None:

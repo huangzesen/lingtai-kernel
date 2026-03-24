@@ -171,7 +171,7 @@ class TestAED:
         time.sleep(3.0)
         agent._stop_heartbeat()
 
-        # Should have only ONE revive message
+        # Should have only ONE AED recovery message
         count = 0
         while not agent.inbox.empty():
             agent.inbox.get_nowait()
@@ -191,7 +191,7 @@ class TestAED:
 
         # Simulate recovery
         agent._start_heartbeat()
-        agent._set_state(AgentState.ACTIVE, reason="revive")
+        agent._set_state(AgentState.ACTIVE, reason="aed")
         agent._set_state(AgentState.IDLE)
 
         time.sleep(1.5)
@@ -201,7 +201,7 @@ class TestAED:
         assert agent._cpr_start is None
 
     def test_aed_on_error_via_heartbeat(self, tmp_path):
-        """Full cycle: error → heartbeat detects → AED → revive message."""
+        """Full cycle: error → heartbeat detects → AED → recovery message."""
         from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
             service=make_mock_service(),
