@@ -683,12 +683,39 @@ class BaseAgent:
         """Wait for messages, process them. Agent persists between messages."""
         while True:
             while not self._shutdown.is_set():
-                try:
-                    msg = self.inbox.get(timeout=self._inbox_timeout)
-                except queue.Empty:
-                    continue
-                msg = self._concat_queued_messages(msg)
-                self._set_state(AgentState.ACTIVE, reason=f"received {msg.type}")
+                # --- Dormant sleep: soul off, wait for inbox message ---
+                if self._dormant.is_set():
+                    self._cancel_soul_timer()
+                    self._session.close()
+                    self._log("dormant_sleep")
+
+                    # Block until a message arrives or shutdown
+                    msg = None
+                    while not self._shutdown.is_set():
+                        try:
+                            msg = self.inbox.get(timeout=1.0)
+                            break
+                        except queue.Empty:
+                            continue
+
+                    if msg is None:
+                        break  # shutdown was set — exit inner loop
+
+                    # Wake up
+                    self._dormant.clear()
+                    self._set_state(AgentState.ACTIVE, reason=f"woke from dormant: {msg.type}")
+                    self._log("dormant_wake", trigger=msg.type)
+                    self._reset_uptime()
+                    msg = self._concat_queued_messages(msg)
+                    # Fall through to handle the message below
+                else:
+                    try:
+                        msg = self.inbox.get(timeout=self._inbox_timeout)
+                    except queue.Empty:
+                        continue
+                    msg = self._concat_queued_messages(msg)
+                    self._set_state(AgentState.ACTIVE, reason=f"received {msg.type}")
+
                 sleep_state = AgentState.IDLE
                 try:
                     self._handle_message(msg)
@@ -718,7 +745,7 @@ class BaseAgent:
                 self._perform_refresh()
                 self._shutdown.clear()
                 continue  # re-enter the message loop
-            break  # normal shutdown — exit
+            break  # SUSPENDED — exit for real
 
     def _perform_refresh(self) -> None:
         """Rebirth: close old MCP clients, reload from working dir, reset session."""
