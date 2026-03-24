@@ -78,7 +78,7 @@ def _show(agent, args: dict) -> dict:
         mail_addr = agent._mail_service.address
 
     uptime = time.monotonic() - agent._uptime_anchor if agent._uptime_anchor is not None else 0.0
-    vigil_left = max(0.0, agent._config.vigil - uptime) if agent._uptime_anchor is not None else None
+    stamina_left = max(0.0, agent._config.stamina - uptime) if agent._uptime_anchor is not None else None
 
     usage = agent.get_token_usage()
 
@@ -105,8 +105,8 @@ def _show(agent, args: dict) -> dict:
             "current_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "started_at": agent._started_at,
             "uptime_seconds": round(uptime, 1),
-            "vigil": agent._config.vigil,
-            "vigil_left": round(vigil_left, 1) if vigil_left is not None else None,
+            "stamina": agent._config.stamina,
+            "stamina_left": round(stamina_left, 1) if stamina_left is not None else None,
         },
         "tokens": {
             "input_tokens": usage["input_tokens"],
@@ -226,14 +226,13 @@ def _quell(agent, args: dict) -> dict:
     from ..i18n import t
     address = args.get("address")
     if not address:
-        # Self-quell — requires karma
-        if not agent._admin.get("karma"):
-            return {"error": "Self-quell requires admin.karma."}
+        # Self-quell — any agent can put itself to sleep
         from ..state import AgentState
         reason = args.get("reason", "")
         agent._log("self_quell", reason=reason)
         agent._set_state(AgentState.DORMANT, reason="self-quell")
-        agent._shutdown.set()
+        agent._dormant.set()
+        agent._cancel_event.set()
         return {
             "status": "ok",
             "message": t(agent._config.language, "system_tool.quell_message"),
