@@ -209,13 +209,13 @@ class TestSoulTimer:
         assert agent._soul_oneshot is False
         assert agent._soul_timer is None
 
-    def test_soul_effectively_disabled_when_delay_exceeds_vigil(self, tmp_path):
-        """soul_delay > vigil means flow is effectively off."""
+    def test_soul_effectively_disabled_when_delay_exceeds_stamina(self, tmp_path):
+        """soul_delay > stamina means flow is effectively off."""
         from lingtai_kernel import BaseAgent
         agent = BaseAgent(
             service=make_mock_service(),
             agent_name="test",
-            config=AgentConfig(soul_delay=99999.0, vigil=100.0),
+            config=AgentConfig(soul_delay=99999.0, stamina=100.0),
             working_dir=tmp_path / "test_agent",
         )
         assert agent._soul_delay == 99999.0
@@ -234,12 +234,12 @@ class TestSoulTimer:
         assert agent._soul_timer.is_alive()
         agent._soul_timer.cancel()
 
-    def test_soul_timer_does_not_start_when_delay_exceeds_vigil(self, tmp_path):
+    def test_soul_timer_does_not_start_when_delay_exceeds_stamina(self, tmp_path):
         from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
             service=make_mock_service(),
             agent_name="test",
-            config=AgentConfig(soul_delay=99999.0, vigil=100.0),
+            config=AgentConfig(soul_delay=99999.0, stamina=100.0),
             working_dir=tmp_path / "test_agent",
         )
         agent._set_state(AgentState.ACTIVE, reason="test")
@@ -247,12 +247,12 @@ class TestSoulTimer:
         assert agent._soul_timer is None
 
     def test_soul_timer_starts_on_idle_for_inquiry(self, tmp_path):
-        """Inquiry fires timer even when soul_delay exceeds vigil."""
+        """Inquiry fires timer even when soul_delay exceeds stamina."""
         from lingtai_kernel import BaseAgent, AgentState
         agent = BaseAgent(
             service=make_mock_service(),
             agent_name="test",
-            config=AgentConfig(soul_delay=99999.0, vigil=100.0),
+            config=AgentConfig(soul_delay=99999.0, stamina=100.0),
             working_dir=tmp_path / "test_agent",
         )
         agent._soul_oneshot = True

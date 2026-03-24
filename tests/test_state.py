@@ -6,3 +6,7 @@ def test_agent_state_values():
     assert AgentState.IDLE.value == "idle"
     assert AgentState.STUCK.value == "stuck"
     assert AgentState.DORMANT.value == "dormant"
+
+
+def test_suspended_state():
+    assert AgentState.SUSPENDED.value == "suspended"
