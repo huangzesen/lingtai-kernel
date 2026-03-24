@@ -206,6 +206,7 @@ class BaseAgent:
 
         # Lifecycle
         self._shutdown = threading.Event()
+        self._dormant = threading.Event()   # set when entering DORMANT; cleared on wake
         self._thread: threading.Thread | None = None
         self._idle = threading.Event()
         self._idle.set()
@@ -393,6 +394,10 @@ class BaseAgent:
         self._thread.start()
         self._start_heartbeat()
 
+    def _reset_uptime(self) -> None:
+        """Reset the uptime anchor for stamina tracking (used on wake from dormant)."""
+        self._uptime_anchor = time.monotonic()
+
     def stop(self, timeout: float = 5.0) -> None:
         """Signal shutdown and wait for the agent thread to exit."""
         self._log("agent_stop")
@@ -494,8 +499,8 @@ class BaseAgent:
 
     def _start_soul_timer(self) -> None:
         """Start the soul delay timer for flow or pending inquiry."""
-        if not self._soul_oneshot and self._soul_delay > self._config.vigil:
-            return  # delay exceeds vigil — effectively disabled
+        if not self._soul_oneshot and self._soul_delay > self._config.stamina:
+            return  # delay exceeds stamina — effectively disabled
         if self._shutdown.is_set():
             return
         self._cancel_soul_timer()
@@ -570,13 +575,12 @@ class BaseAgent:
         while self._heartbeat_thread is not None and not self._shutdown.is_set():
             self._heartbeat = time.time()
 
-            # Write heartbeat file for all living states (not DORMANT)
-            if self._state != AgentState.DORMANT:
-                try:
-                    hb_file = self._working_dir / ".agent.heartbeat"
-                    hb_file.write_text(str(self._heartbeat))
-                except OSError:
-                    pass
+            # Write heartbeat file in ALL living states (everything except SUSPENDED)
+            try:
+                hb_file = self._working_dir / ".agent.heartbeat"
+                hb_file.write_text(str(self._heartbeat))
+            except OSError:
+                pass
 
             # --- signal file detection ---
             interrupt_file = self._working_dir / ".interrupt"
@@ -588,6 +592,19 @@ class BaseAgent:
                 self._cancel_event.set()
                 self._log("interrupt_received", source="signal_file")
 
+            # .suspend = SUSPENDED (full process death, external only)
+            suspend_file = self._working_dir / ".suspend"
+            if suspend_file.is_file():
+                try:
+                    suspend_file.unlink()
+                except OSError:
+                    pass
+                self._cancel_event.set()
+                self._set_state(AgentState.SUSPENDED, reason="suspend signal")
+                self._shutdown.set()
+                self._log("suspend_received", source="signal_file")
+
+            # .quell = DORMANT (sleep, listeners stay alive)
             quell_file = self._working_dir / ".quell"
             if quell_file.is_file():
                 try:
@@ -596,17 +613,17 @@ class BaseAgent:
                     pass
                 self._cancel_event.set()
                 self._set_state(AgentState.DORMANT, reason="quell signal")
-                self._shutdown.set()
+                self._dormant.set()
                 self._log("quell_received", source="signal_file")
 
-            # Vigil enforcement — self-quell when vigil expires
-            if self._uptime_anchor is not None and self._state != AgentState.DORMANT:
+            # Stamina enforcement — dormant when stamina expires
+            if self._uptime_anchor is not None and self._state not in (AgentState.DORMANT, AgentState.SUSPENDED):
                 elapsed = time.monotonic() - self._uptime_anchor
-                if elapsed >= self._config.vigil:
-                    self._log("vigil_expired", elapsed=round(elapsed, 1), vigil=self._config.vigil)
+                if elapsed >= self._config.stamina:
+                    self._log("stamina_expired", elapsed=round(elapsed, 1), stamina=self._config.stamina)
                     self._cancel_event.set()
-                    self._set_state(AgentState.DORMANT, reason="vigil expired")
-                    self._shutdown.set()
+                    self._set_state(AgentState.DORMANT, reason="stamina expired")
+                    self._dormant.set()
 
             if self._state == AgentState.STUCK:
                 now = time.monotonic()
@@ -616,11 +633,11 @@ class BaseAgent:
                 elapsed = now - self._cpr_start
                 cpr_timeout = self._config.cpr_timeout
                 if elapsed > cpr_timeout:
-                    # AED failed — go dormant
+                    # AED failed — go dormant (not suspended)
                     self._log("heartbeat_dead", heartbeat=self._heartbeat, aed_seconds=elapsed)
                     self._set_state(AgentState.DORMANT, reason="AED failed")
                     self._persist_chat_history()
-                    self._shutdown.set()
+                    self._dormant.set()
                 elif not self._aed_pending:
                     # Perform AED — hard restart
                     self._aed_pending = True
@@ -1031,7 +1048,7 @@ class BaseAgent:
             "started_at": self._started_at,
             "admin": self._admin,
             "language": self._config.language,
-            "vigil": self._config.vigil,
+            "stamina": self._config.stamina,
             "soul_delay": self._soul_delay,
             "molt_count": self._molt_count,
         }
@@ -1182,11 +1199,11 @@ class BaseAgent:
 
     def status(self) -> dict:
         """Return agent status for monitoring."""
-        vigil_left = None
+        stamina_left = None
         if self._uptime_anchor is not None:
             elapsed = time.monotonic() - self._uptime_anchor
-            remaining = max(0.0, self._config.vigil - elapsed)
-            vigil_left = round(remaining, 1)
+            remaining = max(0.0, self._config.stamina - elapsed)
+            stamina_left = round(remaining, 1)
         return {
             "address": str(self._working_dir),
             "agent_name": self.agent_name,
@@ -1195,8 +1212,8 @@ class BaseAgent:
             "idle": self.is_idle,
             "heartbeat": self._heartbeat,
             "queue_depth": self.inbox.qsize(),
-            "vigil": self._config.vigil,
-            "vigil_left": vigil_left,
+            "stamina": self._config.stamina,
+            "stamina_left": stamina_left,
             "tokens": self.get_token_usage(),
         }
 
