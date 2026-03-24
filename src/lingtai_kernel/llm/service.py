@@ -45,12 +45,6 @@ class LLMService(ABC):
         """Start a new multi-turn conversation."""
 
     @abstractmethod
-    def resume_session(
-        self, saved_state: dict, *, thinking: str = "high"
-    ) -> "ChatSession":
-        """Restore a session from saved state."""
-
-    @abstractmethod
     def generate(
         self,
         prompt: str,
