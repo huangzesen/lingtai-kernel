@@ -1,4 +1,4 @@
-"""Tests for BaseAgent — agent_name optional, set_name()."""
+"""Tests for BaseAgent — agent_name optional, set_name() (rename allowed)."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -27,11 +27,11 @@ def test_set_name_once(tmp_path):
     assert agent.agent_name == "悟空"
 
 
-def test_set_name_twice_fails(tmp_path):
+def test_set_name_twice_succeeds(tmp_path):
     agent = BaseAgent(service=make_mock_service(), working_dir=tmp_path / "test")
     agent.set_name("悟空")
-    with pytest.raises(RuntimeError, match="already named"):
-        agent.set_name("八戒")
+    agent.set_name("八戒")
+    assert agent.agent_name == "八戒"
 
 
 def test_set_name_empty_fails(tmp_path):
@@ -43,8 +43,8 @@ def test_set_name_empty_fails(tmp_path):
 def test_agent_with_name_at_construction(tmp_path):
     agent = BaseAgent(service=make_mock_service(), working_dir=tmp_path / "test", agent_name="alice")
     assert agent.agent_name == "alice"
-    with pytest.raises(RuntimeError, match="already named"):
-        agent.set_name("bob")
+    agent.set_name("bob")
+    assert agent.agent_name == "bob"
 
 
 def test_set_name_updates_manifest(tmp_path):
