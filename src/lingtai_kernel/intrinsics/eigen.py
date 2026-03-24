@@ -26,7 +26,7 @@ def get_schema(lang: str = "en") -> dict:
             },
             "action": {
                 "type": "string",
-                "enum": ["edit", "load", "molt", "set"],
+                "enum": ["edit", "load", "molt", "set", "nickname"],
                 "description": t(lang, "eigen.action_description"),
             },
             "content": {
@@ -67,8 +67,10 @@ def handle(agent, args: dict) -> dict:
     elif obj == "name":
         if action == "set":
             return _name_set(agent, args)
+        elif action == "nickname":
+            return _name_nickname(agent, args)
         else:
-            return {"error": f"Unknown name action: {action}. Use set."}
+            return {"error": f"Unknown name action: {action}. Use set (true name) or nickname."}
     else:
         return {"error": f"Unknown object: {obj}. Use memory, context, or name."}
 
@@ -199,6 +201,13 @@ def _name_set(agent, args: dict) -> dict:
     except RuntimeError as e:
         return {"error": str(e)}
     return {"status": "ok", "name": name}
+
+
+def _name_nickname(agent, args: dict) -> dict:
+    """Set or change the agent's nickname (别名). Mutable."""
+    nickname = args.get("content", "").strip()
+    agent.set_nickname(nickname)
+    return {"status": "ok", "nickname": nickname or None}
 
 
 def context_forget(agent) -> dict:

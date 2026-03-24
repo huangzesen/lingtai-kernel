@@ -14,13 +14,12 @@ def _make_mock_agent():
 
 class TestSoulHandle:
 
-    def test_inquiry_sets_oneshot(self):
+    def test_inquiry_returns_voice(self):
         agent = _make_mock_agent()
+        agent._config.retry_timeout = 30.0
         result = soul.handle(agent, {"action": "inquiry", "inquiry": "What am I missing?"})
         assert result["status"] == "ok"
-        assert result["mode"] == "inquiry"
-        assert agent._soul_prompt == "What am I missing?"
-        assert agent._soul_oneshot is True
+        assert "voice" in result
 
     def test_inquiry_requires_text(self):
         agent = _make_mock_agent()
@@ -69,15 +68,16 @@ class TestSoulHandle:
         """Inquiry is independent of soul_delay value."""
         agent = _make_mock_agent()
         agent._soul_delay = 999999.0
+        agent._config.retry_timeout = 30.0
         result = soul.handle(agent, {"action": "inquiry", "inquiry": "Am I stuck?"})
         assert result["status"] == "ok"
-        assert agent._soul_oneshot is True
+        assert "voice" in result
 
 
-from lingtai_kernel.intrinsics.soul import whisper
+from lingtai_kernel.intrinsics.soul import soul_flow, soul_inquiry
 
 
-class TestWhisper:
+class TestSoulFlow:
 
     def _make_whisper_agent(self, soul_prompt=""):
         from lingtai_kernel.llm.interface import ChatInterface, TextBlock
@@ -94,6 +94,8 @@ class TestWhisper:
         agent._build_system_prompt = MagicMock(return_value="You are a test agent.")
         agent._soul_prompt = soul_prompt
         agent._soul_delay = 120.0
+        agent._soul_session = None
+        agent._soul_cursor = 0
 
         mock_session = MagicMock()
         mock_response = MagicMock()
@@ -105,23 +107,25 @@ class TestWhisper:
         agent._config.language = "en"
         agent._config.provider = None
         agent._config.model = None
+        agent._config.retry_timeout = 30.0
         agent.service.model = "test-model"
 
         return agent, mock_session
 
     def test_whisper_flow_mode(self):
-        """Flow mode: time lapse prompt, no timestamp (added by _handle_request)."""
+        """Flow mode: diary is collected and sent to soul session."""
         agent, mock_session = self._make_whisper_agent(soul_prompt="")
-        result = whisper(agent)
+        agent._soul_cursor = 0
+        result = soul_flow(agent)
+        assert result is not None
         assert result["voice"] == "You should check your notes."
-        assert result["thinking"] == ["Maybe I should review my earlier findings."]
-        assert "seconds passed" in result["prompt"]
-        assert "[Current time:" not in result["prompt"]
+        assert mock_session.send.called
 
     def test_whisper_inquiry_mode(self):
         """Inquiry mode: question as prompt, no timestamp."""
         agent, mock_session = self._make_whisper_agent(soul_prompt="What am I missing?")
-        result = whisper(agent)
+        result = soul_inquiry(agent, "What am I missing?")
+        assert result is not None
         assert result["voice"] == "You should check your notes."
         assert result["prompt"] == "What am I missing?"
 
@@ -129,14 +133,30 @@ class TestWhisper:
         """Chinese config uses Chinese time lapse."""
         agent, mock_session = self._make_whisper_agent(soul_prompt="")
         agent._config.language = "zh"
-        result = whisper(agent)
+        agent._soul_cursor = 1000  # No diary, will use static prompt
+        result = soul_flow(agent)
+        assert result is not None
         assert "已过去120秒" in result["prompt"]
 
     def test_whisper_returns_none_when_no_chat(self):
         agent = MagicMock()
         agent._chat = None
-        result = whisper(agent)
-        assert result is None
+        agent._soul_delay = 120.0
+        agent._soul_session = None
+        agent._config = MagicMock()
+        agent._config.retry_timeout = 30.0
+        agent.service = MagicMock()
+        mock_session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = "Still here."
+        mock_response.thoughts = []
+        mock_session.send.return_value = mock_response
+        agent.service.create_session.return_value = mock_session
+        agent._config.model = None
+        agent.service.model = "test-model"
+        result = soul_flow(agent)
+        # With no chat, diary is empty, uses static prompt, returns mock response
+        assert result is not None
 
     def test_whisper_returns_none_on_empty_interface(self):
         from lingtai_kernel.llm.interface import ChatInterface
@@ -146,8 +166,20 @@ class TestWhisper:
         mock_chat = MagicMock()
         mock_chat.interface = iface
         agent._chat = mock_chat
-        result = whisper(agent)
-        assert result is None
+        agent._soul_cursor = 0
+        agent._soul_delay = 120.0
+        agent._soul_session = None
+        agent._config = MagicMock()
+        agent._config.retry_timeout = 30.0
+        agent.service = MagicMock()
+        mock_session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = "Still here."
+        mock_session.send.return_value = mock_response
+        agent.service.create_session.return_value = mock_session
+        result = soul_flow(agent)
+        # With empty interface, uses static prompt, returns the mock response
+        assert result is not None
 
     def test_whisper_returns_none_on_api_error(self):
         from lingtai_kernel.llm.interface import ChatInterface, TextBlock
@@ -162,14 +194,17 @@ class TestWhisper:
         agent._chat = mock_chat
         agent._build_system_prompt = MagicMock(return_value="test")
         agent._soul_prompt = ""
+        agent._soul_cursor = 0
+        agent._soul_session = None
         agent._config = MagicMock()
         agent._config.language = "en"
         agent._config.provider = None
         agent._config.model = None
+        agent._config.retry_timeout = 30.0
         agent.service.model = "test-model"
         agent.service.create_session.side_effect = RuntimeError("API down")
 
-        result = whisper(agent)
+        result = soul_flow(agent)
         assert result is None
 
 

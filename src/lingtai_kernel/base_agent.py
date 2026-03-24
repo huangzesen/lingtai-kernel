@@ -88,7 +88,8 @@ class BaseAgent:
         covenant: str = "",
         memory: str = "",
     ):
-        self.agent_name = agent_name
+        self.agent_name = agent_name  # true name (真名) — immutable once set
+        self.nickname: str | None = None  # mutable alias (别名)
         self.service = service
         self._config = config or AgentConfig()
         self._context = context
@@ -312,13 +313,25 @@ class BaseAgent:
     # ------------------------------------------------------------------
 
     def set_name(self, name: str) -> None:
-        """Set or change the agent's name."""
+        """Set the agent's true name (真名). Immutable once set."""
         if not name:
             raise ValueError("Agent name cannot be empty.")
+        if self.agent_name is not None:
+            raise RuntimeError(
+                f"True name already set ({self.agent_name!r}). "
+                f"True names are immutable. Use set_nickname() instead."
+            )
         self.agent_name = name
-        # Update manifest on disk
+        self._update_identity()
+
+    def set_nickname(self, nickname: str) -> None:
+        """Set or change the agent's nickname (别名). Mutable."""
+        self.nickname = nickname or None
+        self._update_identity()
+
+    def _update_identity(self) -> None:
+        """Write manifest and update identity section in system prompt."""
         self._workdir.write_manifest(self._build_manifest())
-        # Update identity in system prompt
         import json as _json
         self._prompt_manager.write_section(
             "identity", _json.dumps(self._build_manifest(), indent=2, ensure_ascii=False), protected=True
@@ -1013,6 +1026,7 @@ class BaseAgent:
         """
         data = {
             "agent_name": self.agent_name,
+            "nickname": self.nickname,
             "address": str(self._working_dir),
             "started_at": self._started_at,
             "admin": self._admin,
