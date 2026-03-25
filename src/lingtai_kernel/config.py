@@ -29,3 +29,4 @@ class AgentConfig:
     molt_warnings: int = 5  # number of warnings before auto-wipe
     molt_prompt: str = ""  # user-provided instruction for how to prepare for molt
     ensure_ascii: bool = False  # JSON output: False = readable unicode, True = \uXXXX escapes
+    soul_context_limit: int = 200_000  # max tokens for soul session; oldest entries dropped when exceeded

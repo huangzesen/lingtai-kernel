@@ -234,11 +234,45 @@ def soul_flow(agent) -> dict | None:
     if not response or not response.text:
         return None
 
+    # Gradual forgetting — drop oldest entries when over budget
+    _trim_soul_session(agent)
+
     return {
         "prompt": diary[:500],
         "voice": response.text,
         "thinking": response.thoughts or [],
     }
+
+
+def _trim_soul_session(agent) -> None:
+    """Drop oldest conversation entries if soul session exceeds token budget.
+
+    The soul gradually forgets — old exchanges fade while recent ones remain.
+    Entries are dropped one at a time from the front (oldest first),
+    preserving the system prompt entry.
+    """
+    session = getattr(agent, "_soul_session", None)
+    if session is None:
+        return
+
+    limit = agent._config.soul_context_limit
+    if limit <= 0:
+        return
+
+    iface = session.interface
+    tokens = iface.estimate_token_count()
+
+    while tokens > limit:
+        # Find first non-system entry to drop
+        dropped = False
+        for i, entry in enumerate(iface.entries):
+            if entry.role != "system":
+                iface._entries.pop(i)
+                dropped = True
+                break
+        if not dropped:
+            break  # only system entries left
+        tokens = iface.estimate_token_count()
 
 
 def reset_soul_session(agent) -> None:
