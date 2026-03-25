@@ -328,6 +328,47 @@ class ChatInterface:
                 by_model[entry.model]["calls"] += 1
         return by_model
 
+    # -- Orphan cleanup -------------------------------------------------------
+
+    def pop_orphan_tool_call(self) -> bool:
+        """Remove orphaned trailing tool-call assistant entry and its tool results.
+
+        When an LLM call fails mid-execution, the interface may have a trailing
+        assistant entry containing ToolCallBlocks whose results were never
+        followed by a successful assistant response.  This method pops that
+        orphan (and any trailing tool-result user entry) so the interface is
+        clean for retry.
+
+        Returns True if anything was removed, False if the interface was
+        already clean.  Idempotent and safe on an empty interface.
+        """
+        if not self._entries:
+            return False
+
+        removed_any = False
+
+        # Step 1: pop trailing tool-result user entries
+        while self._entries:
+            last = self._entries[-1]
+            if last.role == "user" and last.content and all(
+                isinstance(b, ToolResultBlock) for b in last.content
+            ):
+                self._entries.pop()
+                removed_any = True
+            else:
+                break
+
+        # Step 2: pop trailing assistant entry if it contains any ToolCallBlock
+        if self._entries:
+            last = self._entries[-1]
+            if last.role == "assistant" and any(
+                isinstance(b, ToolCallBlock) for b in last.content
+            ):
+                self._entries.pop()
+                removed_any = True
+
+        return removed_any
+
     # -- Truncation (for _on_reset rollback) ----------------------------------
 
     def drop_trailing(self, predicate: Callable[[InterfaceEntry], bool]) -> list[InterfaceEntry]:
