@@ -283,6 +283,9 @@ def reset_soul_session(agent) -> None:
     the agent's post-molt diary from the beginning.
     """
     agent._soul_cursor = 0
+    # Persist the reset cursor immediately — prevents desync if crash
+    # occurs between molt and next soul whisper
+    _save_soul_session(agent)
 
 
 def soul_inquiry(agent, question: str) -> dict | None:

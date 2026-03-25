@@ -91,6 +91,7 @@ class WorkingDir:
             gitignore.write_text(
                 "# Transient process files\n"
                 ".agent.lock\n"
+                ".agent.heartbeat\n"
             )
 
             system_dir = self._path / "system"
