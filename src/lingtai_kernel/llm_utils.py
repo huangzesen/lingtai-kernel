@@ -15,51 +15,6 @@ _logger = get_logger()
 
 # LLM API call timeout thresholds (seconds)
 _LLM_WARN_INTERVAL = 20  # log a warning every N seconds while waiting
-_LLM_RETRY_TIMEOUT = 120  # default timeout for a single LLM call
-
-
-def _is_stale_interaction_error(exc: Exception) -> bool:
-    """Return True if the error indicates a stale/expired Interactions API session."""
-    msg = str(exc).lower()
-    return "interaction" in msg and (
-        "not found" in msg or "invalid" in msg or "expired" in msg
-    )
-
-
-def _is_retryable_api_error(exc: Exception) -> bool:
-    """Return True if exc is a transient API server error worth retrying.
-
-    Uses lazy imports so only the active provider's SDK is checked.
-    This runs *after* the SDK's own built-in retries (typically 2-3 attempts
-    with sub-second backoff) have already been exhausted.
-    """
-    # Anthropic/MiniMax: anthropic.InternalServerError (500+)
-    try:
-        import anthropic
-
-        if isinstance(exc, anthropic.InternalServerError):
-            return True
-    except ImportError:
-        pass
-    # OpenAI: openai.InternalServerError (500+)
-    try:
-        import openai
-
-        if isinstance(exc, openai.InternalServerError):
-            return True
-    except ImportError:
-        pass
-    # Gemini: google.genai.errors.ServerError
-    try:
-        from google.genai import errors as genai_errors
-
-        if isinstance(exc, genai_errors.ServerError):
-            return True
-    except ImportError:
-        pass
-    return False
-
-
 def _send(
     submit_fn,
     timeout_pool: ThreadPoolExecutor,

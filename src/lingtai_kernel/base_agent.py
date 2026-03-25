@@ -697,7 +697,7 @@ class BaseAgent:
                     try:
                         self._handle_message(msg)
                         break  # success
-                    except (TimeoutError, Exception) as e:
+                    except Exception as e:
                         err_desc = str(e) or repr(e)
                         aed_attempts += 1
 
