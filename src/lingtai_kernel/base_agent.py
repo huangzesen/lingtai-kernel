@@ -696,6 +696,7 @@ class BaseAgent:
                 while True:
                     try:
                         self._handle_message(msg)
+                        self._save_chat_history()
                         break  # success
                     except Exception as e:
                         err_desc = str(e) or repr(e)
@@ -1200,23 +1201,32 @@ class BaseAgent:
         """Restore cumulative token counters from a saved session."""
         self._session.restore_token_state(state)
 
-    def _persist_chat_history(self) -> None:
-        """Save chat history and status to history/ and git-commit."""
+    def _save_chat_history(self) -> None:
+        """Write chat history to disk (no git commit).
+
+        Called after every completed interaction for crash resilience.
+        Git commits are handled by the periodic snapshot system.
+        """
         history_dir = self._working_dir / "history"
         history_dir.mkdir(exist_ok=True)
         try:
-            # Chat history
             state = self.get_chat_state()
             if state:
                 (history_dir / "chat_history.json").write_text(
                     json.dumps(state, ensure_ascii=False)
                 )
-            # Status (tokens, state, uptime)
+        except Exception as e:
+            logger.warning(f"[{self.agent_name}] Failed to save chat history: {e}")
+
+    def _persist_chat_history(self) -> None:
+        """Save chat history and status to history/ — called on state transitions."""
+        self._save_chat_history()
+        history_dir = self._working_dir / "history"
+        history_dir.mkdir(exist_ok=True)
+        try:
             (history_dir / "status.json").write_text(
                 json.dumps(self.status(), ensure_ascii=False, indent=2)
             )
-            self._workdir.diff_and_commit("history/chat_history.json", "chat_history")
-            self._workdir.diff_and_commit("history/status.json", "status")
         except Exception as e:
             logger.warning(f"[{self.agent_name}] Failed to persist session state: {e}")
 
