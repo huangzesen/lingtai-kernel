@@ -712,8 +712,7 @@ class BaseAgent:
                 while True:
                     try:
                         self._handle_message(msg)
-                        self._save_chat_history()
-                        break  # success
+                        break  # success (chat saved after each session.send inside)
                     except Exception as e:
                         err_desc = str(e) or repr(e)
                         aed_attempts += 1
@@ -884,6 +883,7 @@ class BaseAgent:
         content = f"{_t(self._config.language, 'system.current_time', time=current_time)}\n\n{content}"
         self._log("text_input", text=content)
         response = self._session.send(content)
+        self._save_chat_history()
         result = self._process_response(response)
         self._post_request(msg, result)
 
@@ -968,6 +968,7 @@ class BaseAgent:
                 break
 
             response = self._session.send(tool_results)
+            self._save_chat_history()
 
         final_text = "\n".join(collected_text_parts)
         has_errors = bool(collected_errors)
