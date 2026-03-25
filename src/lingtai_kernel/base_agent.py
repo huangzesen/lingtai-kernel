@@ -225,6 +225,10 @@ class BaseAgent:
         self._heartbeat_thread: threading.Thread | None = None
         self._aed_start: float | None = None
 
+        # Snapshot — periodic git commits (Time Machine)
+        self._last_snapshot: float = 0.0
+        self._last_gc: float = 0.0
+
         # Session manager — LLM session, token tracking, compaction
         self._session = SessionManager(
             llm_service=service,
@@ -633,6 +637,17 @@ class BaseAgent:
                     self._asleep.set()
             else:
                 self._aed_start = None
+
+            # Periodic snapshot — every 5 minutes
+            now_mono = time.monotonic()
+            if now_mono - self._last_snapshot >= 300:  # 5 minutes
+                self._workdir.snapshot()
+                self._last_snapshot = now_mono
+
+            # Periodic GC — every 24 hours
+            if now_mono - self._last_gc >= 86400:  # 24 hours
+                self._workdir.gc()
+                self._last_gc = now_mono
 
             time.sleep(1.0)
 

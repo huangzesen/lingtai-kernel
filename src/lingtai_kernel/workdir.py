@@ -89,24 +89,8 @@ class WorkingDir:
 
             gitignore = self._path / ".gitignore"
             gitignore.write_text(
-                "# Track nothing by default\n"
-                "*\n"
-                "# Except these\n"
-                "!.gitignore\n"
-                "!system/\n"
-                "!system/**\n"
-                "!history/\n"
-                "!history/**\n"
-                "!logs/\n"
-                "!logs/**\n"
-                "!mailbox/\n"
-                "!mailbox/**\n"
-                "!library/\n"
-                "!library/**\n"
-                "!exports/\n"
-                "!exports/**\n"
-                "!mcp/\n"
-                "!mcp/**\n"
+                "# Transient process files\n"
+                ".agent.lock\n"
             )
 
             system_dir = self._path / "system"
@@ -208,6 +192,48 @@ class WorkingDir:
 
         except (FileNotFoundError, subprocess.CalledProcessError):
             return None, None
+
+    def snapshot(self) -> str | None:
+        """Commit entire working directory state. Returns commit hash or None.
+
+        No-op if nothing changed. Like Apple Time Machine — captures everything.
+        """
+        try:
+            subprocess.run(
+                ["git", "add", "-A"],
+                cwd=self._path, capture_output=True, check=True,
+            )
+            status = subprocess.run(
+                ["git", "diff", "--cached", "--quiet"],
+                cwd=self._path, capture_output=True,
+            )
+            if status.returncode == 0:
+                return None  # nothing staged
+
+            from datetime import datetime, timezone
+            ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            subprocess.run(
+                ["git", "commit", "-m", f"snapshot {ts}"],
+                cwd=self._path, capture_output=True, check=True,
+            )
+            result = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=self._path, capture_output=True, text=True,
+            )
+            return result.stdout.strip()
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            return None
+
+    def gc(self) -> None:
+        """Run git garbage collection to optimize repo storage."""
+        try:
+            subprocess.run(
+                ["git", "gc", "--auto"],
+                cwd=self._path, capture_output=True,
+                timeout=60,
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            pass
 
     # --- Manifest ---
 

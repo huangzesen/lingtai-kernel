@@ -42,11 +42,6 @@ def get_schema(lang: str = "en") -> dict:
     }
 
 
-# Backward compat
-SCHEMA = get_schema("en")
-DESCRIPTION = get_description("en")
-
-
 def handle(agent, args: dict) -> dict:
     """Handle eigen tool — memory and context management."""
     obj = args.get("object", "")
@@ -108,14 +103,12 @@ def _memory_load(agent, args: dict) -> dict:
     else:
         agent._prompt_manager.delete_section("memory")
     agent._token_decomp_dirty = True
-
-    if agent._chat is not None:
-        agent._chat.update_system_prompt(agent._build_system_prompt())
+    agent._flush_system_prompt()
 
     rel_path = "system/memory.md"
-    git_diff, commit_hash = agent._workdir.diff_and_commit(rel_path, "memory")
+    git_diff = agent._workdir.diff(rel_path)
 
-    agent._log("eigen_memory_load", size_bytes=size_bytes, changed=commit_hash is not None)
+    agent._log("eigen_memory_load", size_bytes=size_bytes, changed=bool(git_diff))
 
     return {
         "status": "ok",
@@ -123,9 +116,9 @@ def _memory_load(agent, args: dict) -> dict:
         "size_bytes": size_bytes,
         "content_preview": content[:200],
         "diff": {
-            "changed": commit_hash is not None,
+            "changed": bool(git_diff),
             "git_diff": git_diff or "",
-            "commit": commit_hash,
+            "commit": None,
         },
     }
 
