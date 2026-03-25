@@ -364,11 +364,11 @@ class BaseAgent:
         self._flush_system_prompt()
 
         # Restore chat session and token state from filesystem if available
-        chat_history_file = self._working_dir / "history" / "chat_history.json"
+        chat_history_file = self._working_dir / "history" / "chat_history.jsonl"
         if chat_history_file.is_file():
             try:
-                state = json.loads(chat_history_file.read_text())
-                self.restore_chat(state)
+                messages = [json.loads(line) for line in chat_history_file.read_text().splitlines() if line.strip()]
+                self.restore_chat({"messages": messages})
                 self._log("session_restored")
             except Exception as e:
                 logger.warning(f"[{self.agent_name}] Failed to restore chat history: {e}")
@@ -1234,10 +1234,9 @@ class BaseAgent:
         history_dir.mkdir(exist_ok=True)
         try:
             state = self.get_chat_state()
-            if state:
-                (history_dir / "chat_history.json").write_text(
-                    json.dumps(state, ensure_ascii=False)
-                )
+            if state and state.get("messages"):
+                lines = [json.dumps(entry, ensure_ascii=False) for entry in state["messages"]]
+                (history_dir / "chat_history.jsonl").write_text("\n".join(lines) + "\n")
         except Exception as e:
             logger.warning(f"[{self.agent_name}] Failed to save chat history: {e}")
 

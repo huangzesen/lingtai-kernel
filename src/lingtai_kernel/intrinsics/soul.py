@@ -152,7 +152,12 @@ def _build_soul_system_prompt(agent) -> str:
 
 def _soul_history_path(agent):
     """Path to the soul session's persisted history."""
-    return agent._working_dir / "history" / "soul_history.json"
+    return agent._working_dir / "history" / "soul_history.jsonl"
+
+
+def _soul_cursor_path(agent):
+    """Path to the soul cursor file."""
+    return agent._working_dir / "history" / "soul_cursor.json"
 
 
 def _save_soul_session(agent) -> None:
@@ -162,13 +167,15 @@ def _save_soul_session(agent) -> None:
         return
     try:
         import json
-        state = {
-            "messages": session.interface.to_dict(),
-            "cursor": getattr(agent, "_soul_cursor", 0),
-        }
+        entries = session.interface.to_dict()
         path = _soul_history_path(agent)
         path.parent.mkdir(exist_ok=True)
-        path.write_text(json.dumps(state, ensure_ascii=False))
+        lines = [json.dumps(entry, ensure_ascii=False) for entry in entries]
+        path.write_text("\n".join(lines) + "\n")
+        # Cursor saved separately — changes independently (e.g. on molt)
+        _soul_cursor_path(agent).write_text(
+            json.dumps({"cursor": getattr(agent, "_soul_cursor", 0)})
+        )
     except Exception:
         pass  # best-effort — snapshot will catch it
 
@@ -187,13 +194,19 @@ def _ensure_soul_session(agent):
         try:
             import json
             from ..llm.interface import ChatInterface
-            state = json.loads(path.read_text())
-            messages = state.get("messages")
+            messages = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
             if messages:
                 interface = ChatInterface.from_dict(messages)
-            agent._soul_cursor = state.get("cursor", 0)
         except Exception:
             interface = None  # start fresh
+    # Restore cursor from separate file
+    cursor_path = _soul_cursor_path(agent)
+    if cursor_path.is_file():
+        try:
+            import json
+            agent._soul_cursor = json.loads(cursor_path.read_text()).get("cursor", 0)
+        except Exception:
+            pass
 
     try:
         agent._soul_session = agent.service.create_session(
