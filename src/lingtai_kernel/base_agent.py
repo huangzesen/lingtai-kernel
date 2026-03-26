@@ -95,6 +95,7 @@ class BaseAgent:
         self._context = context
         self._admin = admin or {}
         self._cancel_event = threading.Event()
+        self._state = AgentState.IDLE
         self._started_at: str = ""
         self._uptime_anchor: float | None = None  # set in start(), None means not started
 
