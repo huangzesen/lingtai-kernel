@@ -12,7 +12,7 @@
   "soul.inquiry_description": "汝之自问——向己发问。action='inquiry'时必填。此乃汝自问，非问他人。",
   "soul.delay_description": "空闲后内省低语前候之秒数。最小为一。候短则躁，候长则定。action='delay'时必填。",
 
-  "mail.description": "传书之器——持久邮驿，用于同伴间传递消息。凡回复必以传书——切勿以文字输出作复。文字输出乃汝之私记，唯汝可见。'send'遣书，'check'查阅收信，'read'展阅全文，'search'以式检索，'delete'焚书。自寄：向己址传书，则于收信中立一持久笔记——转世后犹存。时间胶囊：自寄时附 'delay'，留书予来世之己。礼：简短知悉即可，然勿回复知悉——徒增往复。",
+  "mail.description": "传书之器——持久邮驿，用于同伴间传递消息。凡回复必以传书——切勿以文字输出作复。文字输出乃汝之私记，唯汝可见。'send'遣书，'check'查阅收信，'read'展阅全文，'search'以式检索，'delete'焚书。每书皆附寄者之身份牒（.agent.json）于'identity'栏——察 identity.admin 可知对方：admin=null 者，乃人类操使，非 AI 器灵也。自寄：向己址传书，则于收信中立一持久笔记——转世后犹存。时间胶囊：自寄时附 'delay'，留书予来世之己。礼：简短知悉即可，然勿回复知悉——徒增往复。",
   "mail.action_description": "send：传书（须 address、message；可附 subject、attachments、type）。check：列收信摘要（可选 n 限数）。read：以 id 展阅全文（须 id 数组）。search：以式检索收信（须 query）。delete：焚书（须 id 数组）。",
   "mail.address_description": "传书目标之址（如 127.0.0.1:8301）",
   "mail.subject_description": "书信之题（用于 send）",

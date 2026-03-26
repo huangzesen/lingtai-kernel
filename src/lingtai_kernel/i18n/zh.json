@@ -12,7 +12,7 @@
   "soul.inquiry_description": "你的自我提问——向自己提出的问题。action='inquiry' 时必填。这是你在问自己问题，不是在提示别人。",
   "soul.delay_description": "空闲后内心独白开始前等待的秒数。最小 1。短延迟 = 焦躁，长延迟 = 耐心。action='delay' 时必填。",
 
-  "mail.description": "基于磁盘的邮箱，用于智能体间通信。始终通过消息回复——永远不要通过文本输出回复。文本输出是你的私人日记，只有你能看到。'send' 发送消息，'check' 查看收件箱列表，'read' 加载完整消息，'search' 按正则搜索，'delete' 删除消息。自寄：向自己的地址发送消息，会在收件箱中创建持久笔记——转世（molt）后仍然保留。时间胶囊：自寄时加上 'delay'，给未来的自己留一封信。礼仪：简短确认即可，但不要回复确认——那会造成无意义的来回。",
+  "mail.description": "基于磁盘的邮箱，用于智能体间通信。始终通过消息回复——永远不要通过文本输出回复。文本输出是你的私人日记，只有你能看到。'send' 发送消息，'check' 查看收件箱列表，'read' 加载完整消息，'search' 按正则搜索，'delete' 删除消息。每条消息都携带发件人的身份卡（.agent.json 清单）在 'identity' 字段中——查看 identity.admin 可知对方身份：admin=null 表示发件人是人类操作员，而非 AI 智能体。自寄：向自己的地址发送消息，会在收件箱中创建持久笔记——转世（molt）后仍然保留。时间胶囊：自寄时加上 'delay'，给未来的自己留一封信。礼仪：简短确认即可，但不要回复确认——那会造成无意义的来回。",
   "mail.action_description": "send：发送消息（需要 address、message；可选 subject、attachments、type）。check：列出收件箱摘要（可选 n 限制数量）。read：按 id 加载完整消息（需要 id 数组）。search：正则搜索收件箱（需要 query）。delete：从收件箱删除消息（需要 id 数组）。",
   "mail.address_description": "发送目标地址（例如 127.0.0.1:8301）",
   "mail.subject_description": "消息主题（用于 send）",
