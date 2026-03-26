@@ -172,6 +172,12 @@ class SessionManager:
         """
         self.ensure_session()
 
+        # Rebuild system prompt and tools every turn — they may have changed
+        # (e.g. memory loaded, identity updated, capabilities added after refresh).
+        # If the content is identical, this is a no-op at the LLM level.
+        self._chat.update_system_prompt(self._build_system_prompt_fn())
+        self._chat.update_tools(self._build_tool_schemas_fn() or None)
+
         self._log(
             "llm_call",
             model=self._config.model or self._llm_service.model or "unknown",
