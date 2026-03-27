@@ -1,4 +1,4 @@
-"""Tests for BaseAgent — true name (immutable) and nickname (mutable)."""
+"""Tests for BaseAgent — true name (immutable) and nickname (mutable), messages."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -6,6 +6,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from lingtai_kernel.base_agent import BaseAgent
+from lingtai_kernel.message import Message, _make_message, MSG_REQUEST, MSG_USER_INPUT
+from lingtai_kernel.state import AgentState
+from lingtai_kernel.types import UnknownToolError
 
 
 def make_mock_service():
@@ -93,48 +96,67 @@ def test_nickname_in_manifest(tmp_path):
 # _perform_refresh — preserves chat history
 # ------------------------------------------------------------------
 
-def test_perform_refresh_preserves_chat_history(tmp_path):
-    """_perform_refresh rebuilds session with existing interface, not None."""
+def test_perform_refresh_persists_chat_history(tmp_path):
+    """_perform_refresh persists chat history before self-restart."""
     agent = BaseAgent(service=make_mock_service(), working_dir=tmp_path / "test")
 
-    # Simulate a live session with an interface
-    mock_interface = MagicMock()
-    mock_chat = MagicMock()
-    mock_chat.interface = mock_interface
-    agent._session.chat = mock_chat
+    persist_calls = []
+    agent._persist_chat_history = lambda: persist_calls.append(True)
 
-    # Mock _rebuild_session to track calls
-    rebuild_calls = []
-    original_rebuild = agent._session._rebuild_session
-
-    def fake_rebuild(interface, **kw):
-        rebuild_calls.append(interface)
-        # Simulate what _rebuild_session does: set chat to a new session
-        agent._session._chat = MagicMock()
-        agent._session._chat.interface = interface
-
-    agent._session._rebuild_session = fake_rebuild
-
-    # Seal and call refresh
-    agent._sealed = True
     with patch.object(agent, "_log"):
         agent._perform_refresh()
 
-    # Chat should NOT have been wiped
-    assert agent._session.chat is not None
-    # _rebuild_session was called with the old interface
-    assert len(rebuild_calls) == 1
-    assert rebuild_calls[0] is mock_interface
+    # _persist_chat_history was called
+    assert len(persist_calls) == 1
 
 
-def test_perform_refresh_no_session_stays_none(tmp_path):
-    """If no session exists, _perform_refresh leaves it as None."""
+def test_perform_refresh_no_launch_cmd_is_noop(tmp_path):
+    """_perform_refresh with no _build_launch_cmd returns None is a no-op."""
     agent = BaseAgent(service=make_mock_service(), working_dir=tmp_path / "test")
-    assert agent._session.chat is None
+    assert agent._build_launch_cmd() is None
 
-    agent._sealed = True
-    with patch.object(agent, "_log"):
-        agent._perform_refresh()
+    log_calls = []
+    original_log = agent._log
+    agent._log = lambda event, **kw: log_calls.append(event)
 
-    # Still None — ensure_session() will create one later
-    assert agent._session.chat is None
+    agent._perform_refresh()
+
+    assert "refresh_no_launch_cmd" in log_calls
+
+
+# ------------------------------------------------------------------
+# Message basics
+# ------------------------------------------------------------------
+
+def test_msg_constants():
+    assert MSG_REQUEST == "request"
+    assert MSG_USER_INPUT == "user_input"
+
+
+def test_make_message():
+    msg = _make_message(MSG_REQUEST, "user", "hello")
+    assert msg.type == "request"
+    assert msg.sender == "user"
+    assert "hello" in msg.content
+    assert msg.id.startswith("msg_")
+
+
+# ------------------------------------------------------------------
+# AgentState enum
+# ------------------------------------------------------------------
+
+def test_agent_state_values():
+    assert AgentState.ACTIVE.value == "active"
+    assert AgentState.IDLE.value == "idle"
+    assert AgentState.STUCK.value == "stuck"
+    assert AgentState.ASLEEP.value == "asleep"
+    assert AgentState.SUSPENDED.value == "suspended"
+
+
+# ------------------------------------------------------------------
+# UnknownToolError
+# ------------------------------------------------------------------
+
+def test_unknown_tool_error():
+    err = UnknownToolError("bad_tool")
+    assert "bad_tool" in str(err)
