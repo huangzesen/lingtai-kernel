@@ -159,8 +159,6 @@ def _nap(agent, args: dict) -> dict:
     if result:
         return result
 
-    agent._mail_arrived.clear()
-
     poll_interval = 0.5
     t0 = time.monotonic()
 
@@ -178,6 +176,10 @@ def _nap(agent, args: dict) -> dict:
         remaining = seconds - waited
         sleep_time = min(poll_interval, remaining)
 
+        # Clear right before wait to avoid TOCTOU: if mail arrives between
+        # clear and wait, the event is re-set and wait returns immediately.
+        # The loop then re-checks via _check_wake on the next iteration.
+        agent._mail_arrived.clear()
         agent._mail_arrived.wait(timeout=sleep_time)
 
 
