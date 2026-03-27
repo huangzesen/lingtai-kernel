@@ -87,6 +87,7 @@ class BaseAgent:
         streaming: bool = False,
         covenant: str = "",
         memory: str = "",
+        comment: str = "",
     ):
         self.agent_name = agent_name  # true name (真名) — immutable once set
         self.nickname: str | None = None  # mutable alias (别名)
@@ -153,6 +154,8 @@ class BaseAgent:
             self._prompt_manager.write_section("covenant", covenant, protected=True)
         if loaded_memory.strip():
             self._prompt_manager.write_section("memory", loaded_memory)
+        if comment:
+            self._prompt_manager.write_section("comment", comment)
 
         # Soul delay — needed before manifest build
         self._soul_delay = max(1.0, self._config.soul_delay)
@@ -166,8 +169,7 @@ class BaseAgent:
         self._agent_id: str = existing.get("agent_id", "")
         if not self._agent_id:
             now = datetime.now(timezone.utc)
-            ts = now.strftime("%Y%m%d%H%M%S") + f"{now.microsecond // 1000:03d}"
-            self._agent_id = ts + secrets.token_hex(2)
+            self._agent_id = now.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(2)
 
         # Write manifest — identity + construction recipe (no runtime state)
         self._started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
