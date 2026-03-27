@@ -1,6 +1,7 @@
 """ToolExecutor — sequential and parallel tool call execution."""
 from __future__ import annotations
 
+import json as _json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable
 
@@ -8,6 +9,43 @@ from .llm.base import ToolCall
 from .loop_guard import LoopGuard
 from .tool_timing import ToolTimer, stamp_tool_result
 from .types import UnknownToolError
+
+# Default max tool result size: 50 KB.
+_DEFAULT_MAX_RESULT_BYTES = 50_000
+
+
+def _truncate_result(result: Any, max_bytes: int) -> Any:
+    """Truncate a tool result if its serialized size exceeds max_bytes."""
+    if max_bytes <= 0:
+        return result
+    if isinstance(result, str):
+        if len(result) > max_bytes:
+            return result[:max_bytes] + f"\n\n[truncated — showing first {max_bytes} of {len(result)} bytes]"
+        return result
+    if isinstance(result, dict):
+        serialized = _json.dumps(result, ensure_ascii=False, default=str)
+        if len(serialized) <= max_bytes:
+            return result
+        # Truncate the largest string/list values
+        truncated = dict(result)
+        patches = {}
+        for key, val in truncated.items():
+            if isinstance(val, str) and len(val) > max_bytes // 2:
+                patches[key] = val[:max_bytes // 2] + f"\n[truncated — {len(val)} bytes total]"
+            elif isinstance(val, list) and len(_json.dumps(val, ensure_ascii=False, default=str)) > max_bytes // 2:
+                kept = []
+                size = 0
+                for item in val:
+                    item_size = len(_json.dumps(item, ensure_ascii=False, default=str))
+                    if size + item_size > max_bytes // 2:
+                        break
+                    kept.append(item)
+                    size += item_size
+                patches[key] = kept
+                patches[f"_{key}_truncated"] = f"showing {len(kept)} of {len(val)} items"
+        truncated.update(patches)
+        return truncated
+    return result
 
 
 class ToolExecutor:
@@ -21,6 +59,7 @@ class ToolExecutor:
         known_tools: set[str] | None = None,
         parallel_safe_tools: set[str] | None = None,
         logger_fn: Callable | None = None,
+        max_result_bytes: int = _DEFAULT_MAX_RESULT_BYTES,
     ) -> None:
         self._dispatch_fn = dispatch_fn
         self._make_tool_result_fn = make_tool_result_fn
@@ -28,6 +67,7 @@ class ToolExecutor:
         self._known_tools = known_tools or set()
         self._parallel_safe_tools = parallel_safe_tools or set()
         self._logger_fn = logger_fn
+        self._max_result_bytes = max_result_bytes
 
     @property
     def guard(self) -> LoopGuard:
@@ -97,10 +137,19 @@ class ToolExecutor:
                 "message": f"Execution skipped — duplicate call #{verdict.count}",
             }
             msg = self._make_tool_result_fn(tc.name, result, tool_call_id=tc_id)
-            self._log("tool_result", tool_name=tc.name, status="blocked", elapsed_ms=0)
+            self._log(
+                "tool_result",
+                tool_name=tc.name,
+                tool_call_id=tc_id,
+                tool_args=args,
+                status="blocked",
+                elapsed_ms=0,
+                result=result,
+                duplicate_count=verdict.count,
+            )
             return msg, False, ""
 
-        self._log("tool_call", tool_name=tc.name, tool_args=args)
+        self._log("tool_call", tool_name=tc.name, tool_call_id=tc_id, tool_args=args)
         timer = ToolTimer()
         try:
             # Pre-check for unknown tool (records in guard for limit tracking)
@@ -113,14 +162,21 @@ class ToolExecutor:
                     ToolCall(name=tc.name, args=args, id=tc_id)
                 )
 
+            result = _truncate_result(result, self._max_result_bytes)
+
             if isinstance(result, dict):
                 stamp_tool_result(result, timer.elapsed_ms)
 
             status = result.get("status", "success") if isinstance(result, dict) else "success"
-            log_fields: dict[str, Any] = {"tool_name": tc.name, "status": status, "elapsed_ms": timer.elapsed_ms}
-            if status == "error" and isinstance(result, dict):
-                log_fields["message"] = result.get("message", "unknown error")
-            self._log("tool_result", **log_fields)
+            self._log(
+                "tool_result",
+                tool_name=tc.name,
+                tool_call_id=tc_id,
+                tool_args=args,
+                status=status,
+                elapsed_ms=timer.elapsed_ms,
+                result=result,
+            )
 
             if verdict.warning and isinstance(result, dict):
                 result["_duplicate_warning"] = verdict.warning
@@ -148,7 +204,17 @@ class ToolExecutor:
             stamp_tool_result(err_result, timer.elapsed_ms)
             result_msg = self._make_tool_result_fn(tc.name, err_result, tool_call_id=tc_id)
             collected_errors.append(f"{tc.name}: {e}")
-            self._log("error", source=tc.name, message=str(e))
+            self._log(
+                "tool_result",
+                tool_name=tc.name,
+                tool_call_id=tc_id,
+                tool_args=args,
+                status="error",
+                elapsed_ms=timer.elapsed_ms,
+                result=err_result,
+                exception=type(e).__name__,
+                exception_message=str(e),
+            )
             return result_msg, False, ""
 
     def _execute_sequential(
@@ -205,6 +271,16 @@ class ToolExecutor:
                 tool_results.append((i, self._make_tool_result_fn(
                     tc.name, result, tool_call_id=tc_id,
                 )))
+                self._log(
+                    "tool_result",
+                    tool_name=tc.name,
+                    tool_call_id=tc_id,
+                    tool_args=args,
+                    status="blocked",
+                    elapsed_ms=0,
+                    result=result,
+                    duplicate_count=verdict.count,
+                )
             else:
                 to_execute.append((i, tc, args))
 
@@ -217,19 +293,26 @@ class ToolExecutor:
         errors_map: dict[int, str] = {}
 
         def _run_one(index: int, tc: ToolCall, args: dict):
-            self._log("tool_call", tool_name=tc.name, tool_args=args)
+            tc_id = getattr(tc, "id", None)
+            self._log("tool_call", tool_name=tc.name, tool_call_id=tc_id, tool_args=args)
             timer = ToolTimer()
             with timer:
                 result = self._dispatch_fn(
                     ToolCall(name=tc.name, args=args, id=tc.id)
                 )
+            result = _truncate_result(result, self._max_result_bytes)
             if isinstance(result, dict):
                 stamp_tool_result(result, timer.elapsed_ms)
             status = result.get("status", "success") if isinstance(result, dict) else "success"
-            log_fields: dict[str, Any] = {"tool_name": tc.name, "status": status, "elapsed_ms": timer.elapsed_ms}
-            if status == "error" and isinstance(result, dict):
-                log_fields["message"] = result.get("message", "unknown error")
-            self._log("tool_result", **log_fields)
+            self._log(
+                "tool_result",
+                tool_name=tc.name,
+                tool_call_id=tc_id,
+                tool_args=args,
+                status=status,
+                elapsed_ms=timer.elapsed_ms,
+                result=result,
+            )
             return index, result
 
         pool = ThreadPoolExecutor(max_workers=len(to_execute))
@@ -248,12 +331,38 @@ class ToolExecutor:
                 except Exception as e:
                     idx = futures[future]
                     errors_map[idx] = str(e)
-                    tc_name = next((tc.name for i, tc, _ in to_execute if i == idx), "unknown")
-                    self._log("error", source=tc_name, message=str(e))
+                    tc_entry = next(((tc, args) for i, tc, args in to_execute if i == idx), None)
+                    tc_name = tc_entry[0].name if tc_entry else "unknown"
+                    tc_id = getattr(tc_entry[0], "id", None) if tc_entry else None
+                    tc_args = tc_entry[1] if tc_entry else {}
+                    self._log(
+                        "tool_result",
+                        tool_name=tc_name,
+                        tool_call_id=tc_id,
+                        tool_args=tc_args,
+                        status="error",
+                        elapsed_ms=0,
+                        result={"status": "error", "message": str(e)},
+                        exception=type(e).__name__,
+                        exception_message=str(e),
+                    )
         except TimeoutError:
             for future, idx in futures.items():
                 if idx not in results_map and idx not in errors_map:
                     errors_map[idx] = "Timed out"
+                    tc_entry = next(((tc, args) for i, tc, args in to_execute if i == idx), None)
+                    tc_name = tc_entry[0].name if tc_entry else "unknown"
+                    tc_id_t = getattr(tc_entry[0], "id", None) if tc_entry else None
+                    tc_args_t = tc_entry[1] if tc_entry else {}
+                    self._log(
+                        "tool_result",
+                        tool_name=tc_name,
+                        tool_call_id=tc_id_t,
+                        tool_args=tc_args_t,
+                        status="error",
+                        elapsed_ms=0,
+                        result={"status": "error", "message": "Timed out"},
+                    )
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
 
