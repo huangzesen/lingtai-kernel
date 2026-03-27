@@ -587,7 +587,10 @@ class BaseAgent:
 
     def _stop_heartbeat(self) -> None:
         """Stop the heartbeat (called only by stop/shutdown)."""
-        self._heartbeat_thread = None
+        thread = self._heartbeat_thread
+        self._heartbeat_thread = None  # signals the loop to exit
+        if thread is not None:
+            thread.join(timeout=5.0)
         hb_file = self._working_dir / ".agent.heartbeat"
         try:
             hb_file.unlink(missing_ok=True)
@@ -770,50 +773,39 @@ class BaseAgent:
                     self._set_state(sleep_state)
                 self._persist_chat_history()
 
-            # Check for refresh (rebirth) before exiting — but not if suspended
+            # Check for refresh (self-restart) before exiting — but not if suspended
             if getattr(self, "_refresh_requested", False) and self._state != AgentState.SUSPENDED:
                 self._refresh_requested = False
+                self._set_state(AgentState.IDLE, reason="refresh")
                 self._perform_refresh()
-                self._shutdown.clear()
-                continue  # re-enter the message loop
-            break  # SUSPENDED — exit for real
+                # Fall through to break — stop() will release lock, new process takes over
+            break
 
     def _perform_refresh(self) -> None:
-        """Rebirth: close old MCP clients, reload from working dir, reset session."""
+        """Refresh by launching a replacement process and exiting.
+
+        Subclasses provide the launch command via _build_launch_cmd().
+        If no command is available, logs and returns (no-op).
+        """
+        import subprocess
         self._log("refresh_start")
+        self._persist_chat_history()
+        cmd = self._build_launch_cmd()
+        if cmd is None:
+            self._log("refresh_no_launch_cmd")
+            return
+        subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        self._log("refresh_launched", cmd=cmd[0])
 
-        # Close existing MCP clients
-        for client in getattr(self, "_mcp_clients", []):
-            try:
-                client.close()
-            except Exception:
-                pass
-        self._mcp_clients = []
-
-        # Temporarily unseal to allow tool modifications
-        self._sealed = False
-
-        # Remove old MCP tool registrations (keep intrinsics and capability tools)
-        cap_tool_names = {name for name, _ in getattr(self, "_capabilities", [])}
-        mcp_names = list(self._tool_handlers.keys())
-        for name in mcp_names:
-            if name not in self._intrinsics and name not in cap_tool_names:
-                self._tool_handlers.pop(name, None)
-                self._tool_schemas = [s for s in self._tool_schemas if s.name != name]
-
-        # Reload MCP servers from working dir
-        if hasattr(self, "_load_mcp_from_workdir"):
-            self._load_mcp_from_workdir()
-
-        # Re-seal
-        self._sealed = True
-
-        # Rebuild session with current config, preserving chat history
-        if self._session.chat is not None:
-            self._session._rebuild_session(self._session.chat.interface)
-        # If no session exists yet, ensure_session() will create one on next message
-
-        self._log("refresh_complete", tools=list(self._tool_handlers.keys()))
+    def _build_launch_cmd(self) -> list[str] | None:
+        """Return the command to relaunch this agent. Override in subclasses."""
+        return None
 
     def _concat_queued_messages(self, msg: Message) -> Message:
         """Drain any additional queued messages and concatenate into one.
