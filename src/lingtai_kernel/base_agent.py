@@ -195,7 +195,6 @@ class BaseAgent:
         except OSError:
             self._billboard_path = None
 
-        self._mail_arrived = threading.Event()  # DEPRECATED: kept for backward compat, use _nap_wake
         self._nap_wake = threading.Event()  # signalled to wake nap early
         self._nap_wake_reason = ""  # why the nap was woken
 
