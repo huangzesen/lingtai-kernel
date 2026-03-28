@@ -488,7 +488,7 @@ class BaseAgent:
         message = payload.get("message", "")
         sent_at = payload.get("sent_at") or payload.get("time") or ""
 
-        self._mail_arrived.set()
+        self._wake_nap("mail_arrived")
 
         preview = message[:100].replace("\n", " ")
         notification = _t(
@@ -553,6 +553,7 @@ class BaseAgent:
                 _save_soul_session(self)
                 msg = _make_message(MSG_REQUEST, "soul", voice)
                 self.inbox.put(msg)
+                self._wake_nap("soul_arrived")
         except Exception as e:
             self._log("soul_whisper_error", error=str(e))
 
@@ -1225,6 +1226,7 @@ class BaseAgent:
         """
         msg = _make_message(MSG_REQUEST, sender, content)
         self.inbox.put(msg)
+        self._wake_nap("message_received")
 
     # ------------------------------------------------------------------
     # Session persistence (delegates to SessionManager)

@@ -290,7 +290,7 @@ def _mailman(agent, msg_id: str, payload: dict, deliver_at: datetime,
     try:
         if _is_self_send(agent, address):
             _persist_to_inbox(agent, payload)
-            agent._mail_arrived.set()
+            agent._wake_nap("mail_arrived")
             status = "delivered"
         elif agent._mail_service is not None:
             err = agent._mail_service.send(address, payload)

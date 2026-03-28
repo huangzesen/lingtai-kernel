@@ -233,6 +233,8 @@ class TestIdentityInNotification:
         agent._config = MagicMock()
         agent._config.language = "en"
         agent._mail_arrived = threading.Event()
+        agent._nap_wake = threading.Event()
+        agent._nap_wake_reason = ""
         agent._mailbox_name = "mail box"
         agent._mailbox_tool = "mail"
         agent.inbox = MagicMock()
@@ -265,6 +267,8 @@ class TestIdentityInNotification:
         agent._config = MagicMock()
         agent._config.language = "en"
         agent._mail_arrived = threading.Event()
+        agent._nap_wake = threading.Event()
+        agent._nap_wake_reason = ""
         agent._mailbox_name = "mail box"
         agent._mailbox_tool = "mail"
         agent.inbox = MagicMock()
