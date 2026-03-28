@@ -195,7 +195,9 @@ class BaseAgent:
         except OSError:
             self._billboard_path = None
 
-        self._mail_arrived = threading.Event()  # set when mail arrives; nap uses this
+        self._mail_arrived = threading.Event()  # DEPRECATED: kept for backward compat, use _nap_wake
+        self._nap_wake = threading.Event()  # signalled to wake nap early
+        self._nap_wake_reason = ""  # why the nap was woken
 
         # Mailbox identity — capabilities override these to change notification text.
         # _mailbox_name: human label ("mail box", "email box", "gmail box")
@@ -532,6 +534,11 @@ class BaseAgent:
         if self._soul_timer is not None:
             self._soul_timer.cancel()
             self._soul_timer = None
+
+    def _wake_nap(self, reason: str) -> None:
+        """Signal the nap to wake up with a given reason."""
+        self._nap_wake_reason = reason
+        self._nap_wake.set()
 
     def _soul_whisper(self) -> None:
         """Called by soul timer — flow mode only. Inquiry is sync via tool handler."""
