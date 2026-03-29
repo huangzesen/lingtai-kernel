@@ -37,7 +37,7 @@
   "system_tool.seconds_description": "For nap: seconds to wait. Required. Capped at 300. Nap wakes early on incoming mail.",
   "system_tool.reason_description": "Reason for sleep or refresh (logged to event log).",
   "system_tool.sleep_message": "Going to sleep. Your identity and memory are preserved. You may be resuscitated via cpr.",
-  "system_tool.refresh_message": "Refreshing — reloading tools and resetting session. Your identity and memory are preserved.",
+  "system_tool.refresh_message": "Refresh initiated — you will be suspended and relaunched momentarily. Do not make any more tool calls.",
   "system.refresh_successful": "[system] Refresh successful. Tools and configuration reloaded. You may continue.",
 
   "eigen.molt_summary_prefix": "[Carried forward]",

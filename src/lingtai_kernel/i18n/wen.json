@@ -37,7 +37,7 @@
   "system_tool.seconds_description": "用于 nap（小憩）：候之秒数。必填。上限三百。传书至则提前而醒。",
   "system_tool.reason_description": "入寐或更衣之缘由（录于事件日志）。",
   "system_tool.sleep_message": "入寐矣。身与忆俱在。可经心肺复苏而醒。",
-  "system_tool.refresh_message": "更衣中——重载器用，重置会话。身与忆俱在。",
+  "system_tool.refresh_message": "更衣已启——汝将假死而重生。勿再调器。",
   "system.refresh_successful": "[system] 更衣已成。器用与配置俱已重载。可续前事。",
 
   "eigen.molt_summary_prefix": "[前尘往事]",
