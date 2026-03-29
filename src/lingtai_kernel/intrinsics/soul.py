@@ -270,7 +270,7 @@ def soul_flow(agent) -> dict | None:
     _trim_soul_session(agent)
 
     return {
-        "prompt": diary[:500],
+        "prompt": diary,
         "voice": response.text,
         "thinking": response.thoughts or [],
     }
