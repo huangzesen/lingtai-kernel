@@ -651,6 +651,21 @@ class BaseAgent:
                 self._asleep.set()
                 self._log("sleep_received", source="signal_file")
 
+            # .prompt = inject text input as [system] message
+            prompt_file = self._working_dir / ".prompt"
+            if prompt_file.is_file():
+                try:
+                    content = prompt_file.read_text().strip()
+                except OSError:
+                    content = ""
+                try:
+                    prompt_file.unlink()
+                except OSError:
+                    pass
+                if content:
+                    self.send(content, sender="system")
+                    self._log("prompt_received", source="signal_file")
+
             # Stamina enforcement — asleep when stamina expires
             if self._uptime_anchor is not None and self._state not in (AgentState.ASLEEP, AgentState.SUSPENDED):
                 elapsed = time.monotonic() - self._uptime_anchor
