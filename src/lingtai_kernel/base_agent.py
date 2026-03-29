@@ -1148,7 +1148,7 @@ class BaseAgent:
             "window_size": None,
             "usage_pct": None,
         }
-        if self._chat is not None:
+        if hasattr(self, "_session") and self._chat is not None:
             try:
                 window_size = self._chat.context_window()
                 context["window_size"] = window_size
