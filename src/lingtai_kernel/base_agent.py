@@ -550,9 +550,9 @@ class BaseAgent:
                 self._log("soul_whisper", length=len(voice))
                 self._persist_soul_entry(result)
                 _save_soul_session(self)
-                msg = _make_message(MSG_REQUEST, "soul", voice)
+                prefix = _t(self._config.language, "soul.flow_prefix")
+                msg = _make_message(MSG_REQUEST, "soul", f"{prefix} {voice}")
                 self.inbox.put(msg)
-                self._wake_nap("soul_arrived")
         except Exception as e:
             self._log("soul_whisper_error", error=str(e))
 
