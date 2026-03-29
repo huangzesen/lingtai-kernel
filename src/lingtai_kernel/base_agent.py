@@ -102,6 +102,7 @@ class BaseAgent:
         self._last_usage = None  # UsageMetadata from last LLM call, for ledger
         self._created_at: str = ""
         self._uptime_anchor: float | None = None  # set in start(), None means not started
+        self._refresh_requested: bool = False
 
         # Working directory (caller-owned path)
         self._workdir = WorkingDir(working_dir)
@@ -803,7 +804,7 @@ class BaseAgent:
                 self._save_chat_history()
 
             # Check for refresh (self-restart) before exiting — but not if suspended
-            if getattr(self, "_refresh_requested", False) and self._state != AgentState.SUSPENDED:
+            if self._refresh_requested and self._state != AgentState.SUSPENDED:
                 self._refresh_requested = False
                 self._set_state(AgentState.IDLE, reason="refresh")
                 self._perform_refresh()
@@ -900,8 +901,7 @@ class BaseAgent:
 
         # Molt pressure — warn agent when context is getting full
         # Needs eigen intrinsic (always present) or psyche capability to self-molt
-        cap_managers = getattr(self, "_capability_managers", {})
-        has_molt = "eigen" in self._intrinsics or "psyche" in cap_managers
+        has_molt = "eigen" in self._intrinsics or self.has_capability("psyche")
         pressure = self._session.get_context_pressure()
         if pressure >= self._config.molt_pressure and has_molt:
             max_warnings = self._config.molt_warnings
@@ -1159,6 +1159,10 @@ class BaseAgent:
     def mail(self, address: str, message: str, subject: str = "") -> dict:
         """Send a message to another agent (public API). Requires MailService."""
         return self._intrinsics["mail"]({"action": "send", "address": address, "message": message, "subject": subject})
+
+    def has_capability(self, name: str) -> bool:
+        """Check if a capability is registered. Subclasses override."""
+        return False
 
     def add_tool(
         self,
