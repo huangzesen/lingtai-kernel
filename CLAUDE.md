@@ -32,7 +32,7 @@ Zero hard dependencies. Optional LLM provider SDKs are lazy-imported.
 | Intrinsic | What it does |
 |-----------|-------------|
 | `mail` | Disk-backed mailbox: send, check, read, search, delete |
-| `system` | Runtime inspection, synchronization, lifecycle (show, shutdown, wait) |
+| `system` | Runtime inspection, synchronization, lifecycle (show, nap, sleep, refresh, lull, interrupt, suspend, cpr, nirvana) |
 | `eigen` | Memory (edit/load `system/memory.md`), context management (molt) |
 
 ### LLM Protocol
