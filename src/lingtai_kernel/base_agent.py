@@ -184,13 +184,9 @@ class BaseAgent:
         self._workdir.write_manifest(manifest_data)
 
         # Auto-inject identity into system prompt from manifest
-        # Strip volatile fields that change every LLM call (break caching)
         import json as _json
-        identity = {k: v for k, v in manifest_data.items() if k != "context"}
-        if "context" in manifest_data and manifest_data["context"].get("window_size"):
-            identity["context_window"] = manifest_data["context"]["window_size"]
         self._prompt_manager.write_section(
-            "identity", _json.dumps(identity, indent=2, ensure_ascii=False), protected=True
+            "identity", _json.dumps(manifest_data, indent=2, ensure_ascii=False), protected=True
         )
 
         # Post to billboard — ephemeral discovery index at ~/.lingtai/billboard/
@@ -1140,25 +1136,8 @@ class BaseAgent:
         Subclasses override to add fields (e.g. capabilities).
         Contains everything the agent knows about itself.
         address is always the current working_dir (hot-refreshed on every write).
+        Must not depend on _session or _chat — called during __init__.
         """
-        # Context window usage (live session state)
-        usage = self.get_token_usage()
-        context = {
-            "total_tokens": usage["ctx_total_tokens"],
-            "window_size": None,
-            "usage_pct": None,
-        }
-        if hasattr(self, "_session") and self._chat is not None:
-            try:
-                window_size = self._chat.context_window()
-                context["window_size"] = window_size
-                if window_size:
-                    context["usage_pct"] = round(
-                        usage["ctx_total_tokens"] / window_size * 100, 1
-                    )
-            except Exception:
-                pass
-
         data = {
             "agent_id": self._agent_id,
             "agent_name": self.agent_name,
@@ -1172,7 +1151,6 @@ class BaseAgent:
             "state": self._state.value,
             "soul_delay": self._soul_delay,
             "molt_count": self._molt_count,
-            "context": context,
         }
         if self._mail_service is not None and self._mail_service.address:
             data["address"] = self._mail_service.address
@@ -1319,6 +1297,29 @@ class BaseAgent:
             self._workdir.write_manifest(self._build_manifest())
         except Exception as e:
             logger.warning(f"[{self.agent_name}] Failed to update manifest: {e}")
+        # Write .context.json — ephemeral runtime gauge
+        try:
+            usage = self.get_token_usage()
+            context = {
+                "total_tokens": usage["ctx_total_tokens"],
+                "window_size": None,
+                "usage_pct": None,
+            }
+            if self._chat is not None:
+                try:
+                    window_size = self._chat.context_window()
+                    context["window_size"] = window_size
+                    if window_size:
+                        context["usage_pct"] = round(
+                            usage["ctx_total_tokens"] / window_size * 100, 1
+                        )
+                except Exception:
+                    pass
+            (self._working_dir / ".context.json").write_text(
+                json.dumps(context, ensure_ascii=False)
+            )
+        except Exception as e:
+            logger.warning(f"[{self.agent_name}] Failed to write .context.json: {e}")
         # Append per-call token usage to ledger (capture-and-null to avoid race
         # with heartbeat thread calling _save_chat_history on AED timeout)
         usage, self._last_usage = self._last_usage, None
