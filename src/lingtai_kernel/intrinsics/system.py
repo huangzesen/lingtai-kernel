@@ -72,58 +72,9 @@ def handle(agent, args: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def _show(agent, args: dict) -> dict:
-    mail_addr = None
-    if agent._mail_service is not None and agent._mail_service.address:
-        mail_addr = agent._mail_service.address
-
-    uptime = time.monotonic() - agent._uptime_anchor if agent._uptime_anchor is not None else 0.0
-    stamina_left = max(0.0, agent._config.stamina - uptime) if agent._uptime_anchor is not None else None
-
-    usage = agent.get_token_usage()
-
-    if agent._chat is not None:
-        try:
-            window_size = agent._chat.context_window()
-            ctx_total = usage["ctx_total_tokens"]
-            usage_pct = round(ctx_total / window_size * 100, 1) if window_size else 0.0
-        except Exception:
-            window_size = None
-            usage_pct = None
-    else:
-        window_size = None
-        usage_pct = None
-
-    return {
-        "status": "ok",
-        "identity": {
-            "address": str(agent._working_dir),
-            "agent_name": agent.agent_name,
-            "mail_address": mail_addr,
-        },
-        "runtime": {
-            "current_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "started_at": agent._started_at,
-            "uptime_seconds": round(uptime, 1),
-            "stamina": agent._config.stamina,
-            "stamina_left": round(stamina_left, 1) if stamina_left is not None else None,
-        },
-        "tokens": {
-            "input_tokens": usage["input_tokens"],
-            "output_tokens": usage["output_tokens"],
-            "thinking_tokens": usage["thinking_tokens"],
-            "cached_tokens": usage["cached_tokens"],
-            "total_tokens": usage["total_tokens"],
-            "api_calls": usage["api_calls"],
-            "context": {
-                "system_tokens": usage["ctx_system_tokens"],
-                "tools_tokens": usage["ctx_tools_tokens"],
-                "history_tokens": usage["ctx_history_tokens"],
-                "total_tokens": usage["ctx_total_tokens"],
-                "window_size": window_size,
-                "usage_pct": usage_pct,
-            },
-        },
-    }
+    result = agent.status()
+    result["status"] = "ok"
+    return result
 
 
 # ---------------------------------------------------------------------------

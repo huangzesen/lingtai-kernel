@@ -1297,29 +1297,13 @@ class BaseAgent:
             self._workdir.write_manifest(self._build_manifest())
         except Exception as e:
             logger.warning(f"[{self.agent_name}] Failed to update manifest: {e}")
-        # Write .context.json — ephemeral runtime gauge
+        # Write .status.json — live runtime snapshot (same as system("show"))
         try:
-            usage = self.get_token_usage()
-            context = {
-                "total_tokens": usage["ctx_total_tokens"],
-                "window_size": None,
-                "usage_pct": None,
-            }
-            if self._chat is not None:
-                try:
-                    window_size = self._chat.context_window()
-                    context["window_size"] = window_size
-                    if window_size:
-                        context["usage_pct"] = round(
-                            usage["ctx_total_tokens"] / window_size * 100, 1
-                        )
-                except Exception:
-                    pass
-            (self._working_dir / ".context.json").write_text(
-                json.dumps(context, ensure_ascii=False)
+            (self._working_dir / ".status.json").write_text(
+                json.dumps(self.status(), ensure_ascii=False, indent=2)
             )
         except Exception as e:
-            logger.warning(f"[{self.agent_name}] Failed to write .context.json: {e}")
+            logger.warning(f"[{self.agent_name}] Failed to write .status.json: {e}")
         # Append per-call token usage to ledger (capture-and-null to avoid race
         # with heartbeat thread calling _save_chat_history on AED timeout)
         usage, self._last_usage = self._last_usage, None
@@ -1342,23 +1326,61 @@ class BaseAgent:
     # ------------------------------------------------------------------
 
     def status(self) -> dict:
-        """Return agent status for monitoring."""
-        stamina_left = None
-        if self._uptime_anchor is not None:
-            elapsed = time.monotonic() - self._uptime_anchor
-            remaining = max(0.0, self._config.stamina - elapsed)
-            stamina_left = round(remaining, 1)
+        """Return live runtime status — written to .status.json, returned by system("show").
+
+        Contains identity, runtime metrics, and token/context usage.
+        Must only be called after _session exists (not during __init__).
+        """
+        from datetime import datetime, timezone
+
+        mail_addr = None
+        if self._mail_service is not None and self._mail_service.address:
+            mail_addr = self._mail_service.address
+
+        uptime = time.monotonic() - self._uptime_anchor if self._uptime_anchor is not None else 0.0
+        stamina_left = max(0.0, self._config.stamina - uptime) if self._uptime_anchor is not None else None
+
+        usage = self.get_token_usage()
+
+        window_size = None
+        usage_pct = None
+        if self._chat is not None:
+            try:
+                window_size = self._chat.context_window()
+                ctx_total = usage["ctx_total_tokens"]
+                usage_pct = round(ctx_total / window_size * 100, 1) if window_size else 0.0
+            except Exception:
+                pass
+
         return {
-            "address": str(self._working_dir),
-            "agent_name": self.agent_name,
-            "agent_type": self.agent_type,
-            "state": self._state.value,
-            "idle": self.is_idle,
-            "heartbeat": self._heartbeat,
-            "queue_depth": self.inbox.qsize(),
-            "stamina": self._config.stamina,
-            "stamina_left": stamina_left,
-            "tokens": self.get_token_usage(),
+            "identity": {
+                "address": str(self._working_dir),
+                "agent_name": self.agent_name,
+                "mail_address": mail_addr,
+            },
+            "runtime": {
+                "current_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "started_at": self._started_at,
+                "uptime_seconds": round(uptime, 1),
+                "stamina": self._config.stamina,
+                "stamina_left": round(stamina_left, 1) if stamina_left is not None else None,
+            },
+            "tokens": {
+                "input_tokens": usage["input_tokens"],
+                "output_tokens": usage["output_tokens"],
+                "thinking_tokens": usage["thinking_tokens"],
+                "cached_tokens": usage["cached_tokens"],
+                "total_tokens": usage["total_tokens"],
+                "api_calls": usage["api_calls"],
+                "context": {
+                    "system_tokens": usage["ctx_system_tokens"],
+                    "tools_tokens": usage["ctx_tools_tokens"],
+                    "history_tokens": usage["ctx_history_tokens"],
+                    "total_tokens": usage["ctx_total_tokens"],
+                    "window_size": window_size,
+                    "usage_pct": usage_pct,
+                },
+            },
         }
 
     # ------------------------------------------------------------------
