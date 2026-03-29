@@ -170,13 +170,13 @@ class BaseAgent:
         import secrets
         existing = self._workdir.read_full_manifest()
         self._agent_id: str = existing.get("agent_id", "")
-        if not self._agent_id:
+        self._created_at: str = existing.get("created_at", "")
+        if not self._agent_id or not self._created_at:
             now = datetime.now(timezone.utc)
-            self._agent_id = now.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(2)
-
-        self._created_at = existing.get("created_at", "")
-        if not self._created_at:
-            self._created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if not self._agent_id:
+                self._agent_id = now.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(2)
+            if not self._created_at:
+                self._created_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         # Write manifest — identity + construction recipe (no runtime state)
         self._started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1290,20 +1290,21 @@ class BaseAgent:
             self._workdir.write_manifest(self._build_manifest())
         except Exception as e:
             logger.warning(f"[{self.agent_name}] Failed to update manifest: {e}")
-        # Append per-call token usage to ledger
-        if self._last_usage is not None:
+        # Append per-call token usage to ledger (capture-and-null to avoid race
+        # with heartbeat thread calling _save_chat_history on AED timeout)
+        usage, self._last_usage = self._last_usage, None
+        if usage is not None:
             try:
                 ledger_path = self._working_dir / "logs" / "token_ledger.jsonl"
                 append_token_entry(
                     ledger_path,
-                    input=self._last_usage.input_tokens,
-                    output=self._last_usage.output_tokens,
-                    thinking=self._last_usage.thinking_tokens,
-                    cached=self._last_usage.cached_tokens,
+                    input=usage.input_tokens,
+                    output=usage.output_tokens,
+                    thinking=usage.thinking_tokens,
+                    cached=usage.cached_tokens,
                 )
             except Exception as e:
                 logger.warning(f"[{self.agent_name}] Failed to append token ledger: {e}")
-            self._last_usage = None
 
 
     # ------------------------------------------------------------------
