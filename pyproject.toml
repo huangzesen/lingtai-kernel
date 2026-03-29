@@ -13,5 +13,8 @@ license = "MIT"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+lingtai_kernel = ["i18n/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
