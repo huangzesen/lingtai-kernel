@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lingtai-kernel"
-version = "0.1.0"
+version = "0.2.0"
 requires-python = ">=3.11"
 dependencies = []
 description = "Minimal agent kernel — think, communicate, remember, host tools"
