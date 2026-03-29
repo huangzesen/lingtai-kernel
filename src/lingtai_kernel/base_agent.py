@@ -37,6 +37,7 @@ from .loop_guard import LoopGuard
 from .prompt import build_system_prompt
 from .session import SessionManager
 from .tool_executor import ToolExecutor
+from .token_ledger import append_token_entry, sum_token_ledger
 from .types import UnknownToolError
 
 logger = get_logger()
@@ -98,6 +99,8 @@ class BaseAgent:
         self._cancel_event = threading.Event()
         self._state = AgentState.IDLE
         self._started_at: str = ""
+        self._last_usage = None  # UsageMetadata from last LLM call, for ledger
+        self._created_at: str = ""
         self._uptime_anchor: float | None = None  # set in start(), None means not started
 
         # Working directory (caller-owned path)
@@ -170,6 +173,10 @@ class BaseAgent:
         if not self._agent_id:
             now = datetime.now(timezone.utc)
             self._agent_id = now.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(2)
+
+        self._created_at = existing.get("created_at", "")
+        if not self._created_at:
+            self._created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         # Write manifest — identity + construction recipe (no runtime state)
         self._started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -389,13 +396,13 @@ class BaseAgent:
                 self._log("session_restored")
             except Exception as e:
                 logger.warning(f"[{self.agent_name}] Failed to restore chat history: {e}")
-        status_file = self._working_dir / "history" / "status.json"
-        if status_file.is_file():
-            try:
-                status_state = json.loads(status_file.read_text())
-                self.restore_token_state(status_state.get("tokens", {}))
-            except Exception as e:
-                logger.warning(f"[{self.agent_name}] Failed to restore token state: {e}")
+        # Restore token state from ledger (lifetime accumulator)
+        try:
+            ledger_path = self._working_dir / "logs" / "token_ledger.jsonl"
+            totals = sum_token_ledger(ledger_path)
+            self.restore_token_state(totals)
+        except Exception as e:
+            logger.warning(f"[{self.agent_name}] Failed to restore token state from ledger: {e}")
 
         # Start MailService listener if configured
         if self._mail_service is not None:
@@ -682,7 +689,7 @@ class BaseAgent:
                 if now - self._aed_start > self._config.aed_timeout:
                     self._log("aed_timeout", seconds=now - self._aed_start)
                     self._set_state(AgentState.ASLEEP, reason="AED timeout")
-                    self._persist_chat_history()
+                    self._save_chat_history()
                     self._asleep.set()
             else:
                 self._aed_start = None
@@ -793,7 +800,7 @@ class BaseAgent:
 
                 if not self._asleep.is_set():
                     self._set_state(sleep_state)
-                self._persist_chat_history()
+                self._save_chat_history()
 
             # Check for refresh (self-restart) before exiting — but not if suspended
             if getattr(self, "_refresh_requested", False) and self._state != AgentState.SUSPENDED:
@@ -811,7 +818,7 @@ class BaseAgent:
         """
         import subprocess
         self._log("refresh_start")
-        self._persist_chat_history()
+        self._save_chat_history()
         # Signal the new process that this is a refresh boot
         (self._working_dir / ".refresh").touch()
         cmd = self._build_launch_cmd()
@@ -919,6 +926,7 @@ class BaseAgent:
         content = f"{_t(self._config.language, 'system.current_time', time=current_time)}\n\n{content}"
         self._log("text_input", text=content)
         response = self._session.send(content)
+        self._last_usage = response.usage
         self._save_chat_history()
         result = self._process_response(response)
         self._post_request(msg, result)
@@ -1004,6 +1012,7 @@ class BaseAgent:
                 break
 
             response = self._session.send(tool_results)
+            self._last_usage = response.usage
             self._save_chat_history()
 
         final_text = "\n".join(collected_text_parts)
@@ -1127,6 +1136,7 @@ class BaseAgent:
             "agent_name": self.agent_name,
             "nickname": self.nickname,
             "address": str(self._working_dir),
+            "created_at": self._created_at,
             "started_at": self._started_at,
             "admin": self._admin,
             "language": self._config.language,
@@ -1134,7 +1144,6 @@ class BaseAgent:
             "state": self._state.value,
             "soul_delay": self._soul_delay,
             "molt_count": self._molt_count,
-            "tokens": self.get_token_usage(),
         }
         if self._mail_service is not None and self._mail_service.address:
             data["address"] = self._mail_service.address
@@ -1276,23 +1285,26 @@ class BaseAgent:
                 (history_dir / "chat_history.jsonl").write_text("\n".join(lines) + "\n")
         except Exception as e:
             logger.warning(f"[{self.agent_name}] Failed to save chat history: {e}")
-        # Update .agent.json with current token usage
+        # Update .agent.json with current state
         try:
             self._workdir.write_manifest(self._build_manifest())
         except Exception as e:
-            logger.warning(f"[{self.agent_name}] Failed to update manifest tokens: {e}")
+            logger.warning(f"[{self.agent_name}] Failed to update manifest: {e}")
+        # Append per-call token usage to ledger
+        if self._last_usage is not None:
+            try:
+                ledger_path = self._working_dir / "logs" / "token_ledger.jsonl"
+                append_token_entry(
+                    ledger_path,
+                    input=self._last_usage.input_tokens,
+                    output=self._last_usage.output_tokens,
+                    thinking=self._last_usage.thinking_tokens,
+                    cached=self._last_usage.cached_tokens,
+                )
+            except Exception as e:
+                logger.warning(f"[{self.agent_name}] Failed to append token ledger: {e}")
+            self._last_usage = None
 
-    def _persist_chat_history(self) -> None:
-        """Save chat history and status to history/ — called on state transitions."""
-        self._save_chat_history()
-        history_dir = self._working_dir / "history"
-        history_dir.mkdir(exist_ok=True)
-        try:
-            (history_dir / "status.json").write_text(
-                json.dumps(self.status(), ensure_ascii=False, indent=2)
-            )
-        except Exception as e:
-            logger.warning(f"[{self.agent_name}] Failed to persist session state: {e}")
 
     # ------------------------------------------------------------------
     # Status / introspection

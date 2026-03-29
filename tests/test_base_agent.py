@@ -96,18 +96,18 @@ def test_nickname_in_manifest(tmp_path):
 # _perform_refresh — preserves chat history
 # ------------------------------------------------------------------
 
-def test_perform_refresh_persists_chat_history(tmp_path):
-    """_perform_refresh persists chat history before self-restart."""
+def test_perform_refresh_saves_chat_history(tmp_path):
+    """_perform_refresh saves chat history before self-restart."""
     agent = BaseAgent(service=make_mock_service(), working_dir=tmp_path / "test")
 
-    persist_calls = []
-    agent._persist_chat_history = lambda: persist_calls.append(True)
+    save_calls = []
+    agent._save_chat_history = lambda: save_calls.append(True)
 
     with patch.object(agent, "_log"):
         agent._perform_refresh()
 
-    # _persist_chat_history was called
-    assert len(persist_calls) == 1
+    # _save_chat_history was called
+    assert len(save_calls) == 1
 
 
 def test_perform_refresh_no_launch_cmd_is_noop(tmp_path):
