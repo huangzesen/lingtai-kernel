@@ -152,6 +152,9 @@ def _collect_new_diary(agent) -> str:
 
 def _build_soul_system_prompt(agent) -> str:
     """Build the soul session's system prompt."""
+    custom = getattr(agent, "_soul_flow_prompt", "")
+    if custom:
+        return custom
     from ..i18n import t
     return t(agent._config.language, "soul.system_prompt")
 
