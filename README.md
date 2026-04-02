@@ -12,12 +12,11 @@
 > *The soul holds something, yet knows not what it holds — and what it holds cannot be held.*
 > — Zhuangzi · Gengsang Chu (庄子 · 庚桑楚)
 
-[English](README.md) | [中文](README.zh.md) | [文言](README.wen.md) | [lingtai.ai](https://lingtai.ai)
-
-[![PyPI](https://img.shields.io/pypi/v/lingtai?color=%237dab8f)](https://pypi.org/project/lingtai/)
 [![Homebrew](https://img.shields.io/badge/brew-lingtai--tui-%237dab8f)](https://github.com/huangzesen/homebrew-lingtai)
 [![License](https://img.shields.io/github/license/huangzesen/lingtai-kernel?color=%237dab8f)](LICENSE)
 [![Blog](https://img.shields.io/badge/blog-lingtai.ai-%23d4a853)](https://lingtai.ai)
+
+[lingtai.ai](https://lingtai.ai)
 
 </div>
 
@@ -167,6 +166,6 @@ MIT — [Zesen Huang](https://github.com/huangzesen), 2025–2026
 
 <div align="center">
 
-[lingtai.ai](https://lingtai.ai) · [GitHub](https://github.com/huangzesen/lingtai-kernel) · [PyPI](https://pypi.org/project/lingtai/) · [TUI](https://github.com/huangzesen/lingtai)
+[lingtai.ai](https://lingtai.ai) · [GitHub](https://github.com/huangzesen/lingtai-kernel) · [TUI](https://github.com/huangzesen/lingtai)
 
 </div>
