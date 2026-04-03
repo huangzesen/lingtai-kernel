@@ -29,6 +29,7 @@ def _valid_init() -> dict:
         "covenant": "",
         "memory": "",
         "prompt": "",
+        "soul": "",
     }
 
 
@@ -64,6 +65,7 @@ def test_minimal_init_passes():
         "covenant": "",
         "memory": "",
         "prompt": "",
+        "soul": "",
     }
     validate_init(data)  # should not raise
 
@@ -131,6 +133,7 @@ def test_env_file_wrong_type():
 def test_api_key_env_optional():
     data = _valid_init()
     data["manifest"]["llm"]["api_key_env"] = "MY_KEY"
+    data["env_file"] = ".env"  # required when api_key_env is used without api_key
     validate_init(data)
 
 
@@ -219,4 +222,48 @@ def test_addons_telegram_missing_token():
         "telegram": {},
     }
     with pytest.raises(ValueError, match="bot_token"):
+        validate_init(data)
+
+
+def test_addons_feishu_valid():
+    data = _valid_init()
+    data["addons"] = {
+        "feishu": {
+            "config": "feishu.json",
+        },
+    }
+    validate_init(data)
+
+
+def test_addons_feishu_with_env():
+    data = _valid_init()
+    data["addons"] = {
+        "feishu": {
+            "app_id_env": "FEISHU_APP_ID",
+            "app_secret_env": "FEISHU_APP_SECRET",
+        },
+    }
+    warnings = validate_init(data)
+    # inline credentials without config file should produce a warning
+    assert any("feishu" in w and "config" in w for w in warnings)
+
+
+def test_addons_feishu_missing_config_warns():
+    data = _valid_init()
+    data["addons"] = {"feishu": {}}
+    warnings = validate_init(data)
+    assert any("feishu" in w for w in warnings)
+
+
+def test_addons_feishu_config_wrong_type():
+    data = _valid_init()
+    data["addons"] = {"feishu": {"config": 42}}
+    with pytest.raises(ValueError, match="feishu.config"):
+        validate_init(data)
+
+
+def test_addons_feishu_not_object():
+    data = _valid_init()
+    data["addons"] = {"feishu": "cli_xxx"}
+    with pytest.raises(ValueError, match="feishu"):
         validate_init(data)

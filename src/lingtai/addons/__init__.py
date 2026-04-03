@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 _BUILTIN: dict[str, str] = {
     "imap": ".imap",
     "telegram": ".telegram",
+    "feishu": ".feishu",
 }
 
 

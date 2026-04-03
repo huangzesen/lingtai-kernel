@@ -115,6 +115,8 @@ def validate_init(data: dict) -> list[str]:
             warnings.extend(_validate_imap_addon(addons["imap"]))
         if "telegram" in addons:
             warnings.extend(_validate_telegram_addon(addons["telegram"]))
+        if "feishu" in addons:
+            warnings.extend(_validate_feishu_addon(addons["feishu"]))
 
     return warnings
 
@@ -156,6 +158,26 @@ def _validate_telegram_addon(cfg: dict) -> list[str]:
     else:
         if not isinstance(cfg["config"], str):
             raise ValueError("addons.telegram.config: expected str")
+    return warnings
+
+
+def _validate_feishu_addon(cfg: dict) -> list[str]:
+    """Validate feishu addon config within init.json.
+
+    Expects ``{"config": "<path>"}``. Inline fields are accepted
+    but produce warnings (credentials belong in config files).
+    """
+    warnings: list[str] = []
+    if not isinstance(cfg, dict):
+        raise ValueError("addons.feishu: expected object")
+    if "config" not in cfg:
+        warnings.append(
+            "addons.feishu: missing 'config' — "
+            "use {\"config\": \"feishu.json\"} and put credentials in the config file"
+        )
+    else:
+        if not isinstance(cfg["config"], str):
+            raise ValueError("addons.feishu.config: expected str")
     return warnings
 
 
