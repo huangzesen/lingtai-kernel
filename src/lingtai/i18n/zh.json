@@ -116,5 +116,9 @@
   "daemon.tasks": "'emanate' 的任务列表。每项：{task: str（必填——包含保存位置的指令），tools: list[str]（必填——能力名称列表，如 ['file', 'bash']），model: str（可选——LLM 模型覆盖）}",
   "daemon.id": "'ask' 操作的分神 ID（如 'em-1'）",
   "daemon.message": "'ask' 操作的跟进消息",
-  "daemon.limit_reached": "分神过多（运行中：{running}，请求：{requested}，上限：{max}）"
+  "daemon.limit_reached": "分神过多（运行中：{running}，请求：{requested}，上限：{max}）",
+
+  "skills.description": "共享技能库，位于 .lingtai/.skills/（与智能体工作目录同级）。技能是包含 SKILL.md（YAML 前言含 name + description，后接 Markdown 指引）和可选辅助文件的文件夹。添加技能：用 bash 下载/克隆到 .lingtai/.skills/<技能名>/，确保有有效的 SKILL.md，然后调用 skills(action='register') 验证并提交。要获取其他智能体添加的技能，调用 skills(action='refresh')。SKILL.md 格式：\n---\nname: skill-name\ndescription: 一行描述\nversion: 1.0.0\n---\nMarkdown 格式的完整指引…\n技能文件夹本身可以是 git 仓库（从远程克隆）。外层 .skills 仓库统一追踪。用 bash 在单个技能文件夹内 git pull 更新，然后 register 提交变更。",
+  "skills.action": "register：验证所有技能文件夹，git add + commit 变更，刷新目录。在通过 bash 下载或修改技能后使用。\nrefresh：重新扫描技能库并将目录重新注入系统提示。用于获取其他智能体注册的技能。",
+  "skills.preamble": "以下技能为特定任务提供专门指引。当任务匹配某技能的描述时，用 read 工具加载该技能 location 字段所示路径的 SKILL.md，然后按其指引行事。每个技能文件夹可能包含辅助文件（脚本、模板、数据）——SKILL.md 中会引用它们。每次只加载一个技能。若无技能明确匹配，则不要加载任何技能。"
 }

@@ -28,6 +28,7 @@ _BUILTIN: dict[str, str] = {
     "edit": ".edit",
     "glob": ".glob",
     "grep": ".grep",
+    "skills": ".skills",
 }
 
 # Group names that expand to multiple capabilities.

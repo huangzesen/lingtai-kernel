@@ -116,5 +116,9 @@
   "daemon.tasks": "'emanate' 之任务列表。每项：{task: str（必填——含保存位置之指令），tools: list[str]（必填——能之名列表，如 ['file', 'bash']），model: str（可选——覆盖 LLM 之模型）}",
   "daemon.id": "'ask' 操作所用分神之 ID（如 'em-1'）",
   "daemon.message": "'ask' 操作之跟进之言",
-  "daemon.limit_reached": "分神过众（运行中：{running}，所请：{requested}，上限：{max}）"
+  "daemon.limit_reached": "分神过众（运行中：{running}，所请：{requested}，上限：{max}）",
+
+  "skills.description": "共享技艺库，居于 .lingtai/.skills/（与器灵工作目录同级）。技艺者，含 SKILL.md（YAML 前言载 name 与 description，后承 Markdown 指引）及辅助之卷的文件夹也。添技艺：以 bash 下载或克隆至 .lingtai/.skills/<技艺名>/，确有合格之 SKILL.md，再调 skills(action='register') 验之而提交。欲取他灵所添之技艺，调 skills(action='refresh')。SKILL.md 之式：\n---\nname: skill-name\ndescription: 一行之述\nversion: 1.0.0\n---\nMarkdown 格式之完整指引…\n技艺文件夹本身可为 git 之库（自远端克隆者）。外层 .skills 库统摄之。以 bash 于单技艺文件夹内 git pull 以更新，再 register 以提交。",
+  "skills.action": "register：验诸技艺文件夹，git add 而 commit 变更，刷新目录。以 bash 下载或修改技艺后用之。\nrefresh：重扫技艺库，将目录重注入系统之提示。用以取他灵所注册之技艺。",
+  "skills.preamble": "下列技艺为特定之务而设。若事合其述，以 read 器取该技艺 location 所示之路径而阅 SKILL.md，依其所教行事。技艺之目录或有辅助之卷（脚本、范式、数据）——SKILL.md 中自有引述。每次仅取一技。若无技艺明合，则勿取之。"
 }
