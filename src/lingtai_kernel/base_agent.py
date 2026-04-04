@@ -238,6 +238,7 @@ class BaseAgent:
         self._soul_prompt = ""       # non-empty during inquiry
         self._soul_oneshot = False    # True during pending inquiry
         self._soul_timer: threading.Timer | None = None
+        self._insight_turn_counter: int = 0
 
         # Heartbeat — always-on health monitor
         self._heartbeat: float = 0.0
@@ -508,6 +509,32 @@ class BaseAgent:
 
         self._log("mail_received", sender=sender, subject=subject, message=message)
         msg = _make_message(MSG_REQUEST, "system", notification)
+        self.inbox.put(msg)
+
+    # ------------------------------------------------------------------
+    # Public addon API
+    # ------------------------------------------------------------------
+
+    @property
+    def working_dir(self) -> Path:
+        """The agent's working directory (read-only)."""
+        return self._working_dir
+
+    def wake(self, reason: str) -> None:
+        """Wake the agent from nap. Call when external input arrives."""
+        self._wake_nap(reason)
+
+    def log(self, event_type: str, **fields) -> None:
+        """Write a structured event to the agent's event log."""
+        self._log(event_type, **fields)
+
+    def notify(self, sender: str, text: str) -> None:
+        """Put a system notification into the agent's inbox.
+
+        This is the primary way addons inform the agent about external events.
+        The message appears in the agent's conversation as a system message.
+        """
+        msg = _make_message(MSG_REQUEST, sender, text)
         self.inbox.put(msg)
 
     def _set_state(self, new_state: AgentState, reason: str = "") -> None:
@@ -831,6 +858,17 @@ class BaseAgent:
                 if not self._asleep.is_set():
                     self._set_state(sleep_state)
                 self._save_chat_history()
+
+                # Auto-insight: fire after N turns
+                if self._config.insights_interval > 0:
+                    self._insight_turn_counter += 1
+                    if self._insight_turn_counter >= self._config.insights_interval:
+                        self._insight_turn_counter = 0
+                        from .i18n import t as _ti
+                        self._run_inquiry(
+                            _ti(self._config.language, "insight.auto_question"),
+                            source="auto",
+                        )
 
             break
 

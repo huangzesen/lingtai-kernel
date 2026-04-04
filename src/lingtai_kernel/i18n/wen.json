@@ -1,6 +1,6 @@
 {
   "system.current_time": "[此时：{time}]",
-    "system.new_mail": "[系统] {box}有新书至。\n  寄者：{sender}\n  题：{subject}\n  发于：{sent_at}\n  {preview}...\n以 {tool}(action=\"check\") 查阅收信。",
+    "system.new_mail": "[系统] {box}有新书至。\n  寄者：{sender}\n  题：{subject}\n  发于：{sent_at}\n  {preview}\n以 {tool}(action=\"check\") 查阅收信。",
   "system.mail_bounce": "[系统] 书信未达：{error}\n  收者：{address}\n  题：{subject}",
   "system.stuck_revive": "[系统] 灵识于 {ts} 失联。汝所调之器：{tool_calls}。正在重连。",
   "system.molt_wiped": "[系统] 对话之录尽数清去——汝忽略诸度转世之警。以器用复上下文，从头再起。",
@@ -12,6 +12,8 @@
   "soul.inquiry_description": "汝之自问——向己发问。action='inquiry'时必填。此乃汝自问，非问他人。",
   "soul.flow_prefix": "[心流]",
   "soul.delay_description": "空闲后内省低语前候之秒数。最小为一。候短则躁，候长则定。action='delay'时必填。",
+
+  "insight.auto_question": "为人主生洞见。据此对话之一切——任务、背景、识见、险机——列二三要点，皆人主所宜知者。每条须具体：所察之理、相关之识、未见之险、可乘之机。格式：每条以'- '起，独占一行。勿加前言，勿加总结——唯列要点。",
 
   "mail.description": "传书之器——持久邮驿，用于同伴间传递消息。凡回复必以传书——切勿以文字输出作复。文字输出乃汝之私记，唯汝可见。'send'遣书，'check'查阅收信，'read'展阅全文，'search'以式检索，'delete'焚书。每书皆附寄者之身份牒（.agent.json）于'identity'栏——察 identity.admin 可知对方：admin=null 者，乃人类操使，非 AI 器灵也。自寄：向己址传书，则于收信中立一持久笔记——转世后犹存。时间胶囊：自寄时附 'delay'，留书予来世之己。礼：简短知悉即可，然勿回复知悉——徒增往复。\n私密之戒：书信 ID 唯汝可用——他者无法以汝之 ID 展阅汝之书信。欲传信中之言，当引述或转发其实文。",
   "mail.action_description": "send：传书（须 address、message；可附 subject、attachments、type）。check：列收信摘要（可选 n 限数）。read：以 id 展阅全文（须 id 数组）。search：以式检索收信（须 query）。delete：焚书（须 id 数组）。",

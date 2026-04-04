@@ -30,3 +30,4 @@ class AgentConfig:
     molt_prompt: str = ""  # user-provided instruction for how to prepare for molt
     ensure_ascii: bool = False  # JSON output: False = readable unicode, True = \uXXXX escapes
     soul_context_limit: int = 200_000  # max tokens for soul session; oldest entries dropped when exceeded
+    insights_interval: int = 0  # turns between auto-insights; 0 = off

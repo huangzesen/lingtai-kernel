@@ -1,6 +1,6 @@
 {
   "system.current_time": "[Current time: {time}]",
-    "system.new_mail": "[system] New message in {box}.\n  From: {sender}\n  Subject: {subject}\n  Sent at: {sent_at}\n  {preview}...\nUse {tool}(action=\"check\") to see your inbox.",
+    "system.new_mail": "[system] New message in {box}.\n  From: {sender}\n  Subject: {subject}\n  Sent at: {sent_at}\n  {preview}\nUse {tool}(action=\"check\") to see your inbox.",
   "system.mail_bounce": "[system] Mail delivery failed: {error}\n  To: {address}\n  Subject: {subject}",
   "system.stuck_revive": "[system] LLM call failed at {ts}. You called: {tool_calls}. Retrying.",
   "system.molt_wiped": "[system] Conversation wiped — you ignored all molt warnings. Use your tools to recover context. Start fresh.",
@@ -12,6 +12,8 @@
   "soul.inquiry_description": "Your self-inquiry — a question to yourself. Required for action='inquiry'. This is you asking yourself a question, not prompting someone else.",
   "soul.flow_prefix": "[soul flow]",
   "soul.delay_description": "Seconds to wait after going idle before the soul whispers. Min 1. Short delay = restless, long delay = patient. Required for action='delay'.",
+
+  "insight.auto_question": "You are producing insights for the human operator. Based on everything in this conversation — the task, the context, domain knowledge, risks, and opportunities — produce exactly 2-3 bullet points of things the human would benefit from knowing. Each bullet should be a concrete, specific insight: a pattern you've noticed, relevant background knowledge, a risk they may not see, or an opportunity to explore. Format: start each bullet with '- ' on its own line. No preamble, no summary — just the bullets.",
 
   "mail.description": "Disk-backed mailbox for inter-agent messaging. Always reply via mail — never reply via text output. Text output is your private diary that only you can see. Use 'send' for outgoing mail, 'check' to list inbox, 'read' to load full messages, 'search' to find by regex, 'delete' to remove messages. Every message carries the sender's identity card (their .agent.json manifest) in the 'identity' field — check identity.admin to know who you're talking to: admin=null means the sender is a human operator, not an AI agent. Self-send: send to your own address to create a persistent note in your inbox — survives context wipe (molt). Time capsule: self-send with 'delay' to leave a note for your future self. Etiquette: a short acknowledgement is fine, but do not reply to an acknowledgement — that creates pointless ping-pong.\nPRIVACY: Message IDs are private to your mailbox — other agents cannot read your messages by ID. When sharing information from a message, quote or forward the actual content.",
   "mail.action_description": "send: send a message (requires address, message; optional subject, attachments, type). check: list inbox summaries (optional n to limit count). read: load full message(s) by id (requires id array). search: regex search inbox (requires query). delete: remove message(s) from inbox (requires id array).",
