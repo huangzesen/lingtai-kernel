@@ -67,6 +67,7 @@ class SessionManager:
         self._system_prompt_tokens = 0
         self._tools_tokens = 0
         self._token_decomp_dirty = True
+        self._token_fallback_warned = False
         self._latest_input_tokens = 0
 
         # Compaction pressure tracking
@@ -256,9 +257,49 @@ class SessionManager:
         self._token_decomp_dirty = False
 
     def _track_usage(self, response: LLMResponse) -> None:
-        """Accumulate token usage from an LLMResponse."""
+        """Accumulate token usage from an LLMResponse.
+
+        If the provider returns all-zero usage, falls back to the local
+        tokenizer (tiktoken / gemini / char estimate) and sets
+        ``token_fallback_used`` so the TUI can warn the user.
+        """
         if self._token_decomp_dirty:
             self._update_token_decomposition()
+
+        # Detect zero-usage responses and estimate locally
+        usage = response.usage
+        fallback = False
+        if usage and usage.input_tokens == 0 and usage.output_tokens == 0:
+            estimated_output = count_tokens(response.text or "")
+            # Estimate input from interface history (last user message + system prompt)
+            estimated_input = self._system_prompt_tokens + self._tools_tokens
+            if self._chat and self._chat.interface:
+                last_entries = self._chat.interface.entries[-2:]  # last user + assistant
+                for entry in last_entries:
+                    for block in entry.content:
+                        if hasattr(block, "text"):
+                            estimated_input += count_tokens(block.text)
+            from .llm.base import UsageMetadata
+            usage = UsageMetadata(
+                input_tokens=estimated_input,
+                output_tokens=estimated_output,
+            )
+            response = LLMResponse(
+                text=response.text,
+                tool_calls=response.tool_calls,
+                usage=usage,
+                thoughts=response.thoughts,
+                raw=response.raw,
+            )
+            fallback = True
+            if not self._token_fallback_warned:
+                self._token_fallback_warned = True
+                logger.warning(
+                    f"[{self._display_name}] Provider returned 0 tokens — "
+                    f"using local tokenizer estimate"
+                )
+                self._log("token_fallback", reason="provider returned 0 tokens")
+
         token_state = {
             "input": self._total_input_tokens,
             "output": self._total_output_tokens,
@@ -287,6 +328,7 @@ class SessionManager:
                 output_tokens=response.usage.output_tokens,
                 thinking_tokens=response.usage.thinking_tokens,
                 cached_tokens=response.usage.cached_tokens,
+                estimated=fallback,
             )
 
     def get_token_usage(self) -> dict:

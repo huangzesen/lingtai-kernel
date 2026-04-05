@@ -1456,6 +1456,7 @@ class BaseAgent:
                 "cached_tokens": usage["cached_tokens"],
                 "total_tokens": usage["total_tokens"],
                 "api_calls": usage["api_calls"],
+                "estimated": self._session._token_fallback_warned,
                 "context": {
                     "system_tokens": usage["ctx_system_tokens"],
                     "tools_tokens": usage["ctx_tools_tokens"],
