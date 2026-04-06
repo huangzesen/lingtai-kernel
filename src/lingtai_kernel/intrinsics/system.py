@@ -16,6 +16,8 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
+from ..handshake import resolve_address
+
 def get_description(lang: str = "en") -> str:
     from ..i18n import t
     return t(lang, "system_tool.description")
@@ -163,10 +165,15 @@ def _check_karma_gate(agent, action: str, args: dict) -> dict | None:
     address = args.get("address")
     if not address:
         return {"error": True, "message": f"{action} requires an address"}
-    if str(agent._working_dir) == str(address):
+    # Resolve relative address to absolute path
+    base_dir = agent._working_dir.parent
+    resolved = resolve_address(address, base_dir)
+    if str(resolved) == str(agent._working_dir):
         return {"error": True, "message": f"Cannot {action} self"}
-    if not is_agent(address):
+    if not is_agent(resolved):
         return {"error": True, "message": f"No agent at {address}"}
+    # Store resolved path for downstream use
+    args["_resolved_address"] = resolved
     return None
 
 
@@ -187,30 +194,30 @@ def _sleep(agent, args: dict) -> dict:
 
 def _lull(agent, args: dict) -> dict:
     """Lull another agent to sleep — karma-gated."""
-    from pathlib import Path
     from ..handshake import is_alive
     err = _check_karma_gate(agent, "lull", args)
     if err:
         return err
     address = args["address"]
-    if not is_alive(address):
+    resolved = args["_resolved_address"]
+    if not is_alive(resolved):
         return {"error": True, "message": f"Agent at {address} is not running — already asleep?"}
-    (Path(address) / ".sleep").write_text("")
+    (resolved / ".sleep").write_text("")
     agent._log("karma_lull", target=address)
     return {"status": "asleep", "address": address}
 
 
 def _suspend(agent, args: dict) -> dict:
     """Suspend another agent — karma-gated."""
-    from pathlib import Path
     from ..handshake import is_alive
     err = _check_karma_gate(agent, "suspend", args)
     if err:
         return err
     address = args["address"]
-    if not is_alive(address):
+    resolved = args["_resolved_address"]
+    if not is_alive(resolved):
         return {"error": True, "message": f"Agent at {address} is not running — already suspended?"}
-    (Path(address) / ".suspend").write_text("")
+    (resolved / ".suspend").write_text("")
     agent._log("karma_suspend", target=address)
     return {"status": "suspended", "address": address}
 
@@ -221,9 +228,10 @@ def _cpr(agent, args: dict) -> dict:
     if err:
         return err
     address = args["address"]
-    if is_alive(address):
+    resolved = args["_resolved_address"]
+    if is_alive(resolved):
         return {"error": True, "message": f"Agent at {address} is already running"}
-    resuscitated = agent._cpr_agent(address)
+    resuscitated = agent._cpr_agent(str(resolved))
     if resuscitated is None:
         return {"error": True, "message": "CPR not supported — no _cpr_agent handler"}
     agent._log("karma_cpr", target=address)
@@ -231,38 +239,38 @@ def _cpr(agent, args: dict) -> dict:
 
 
 def _interrupt(agent, args: dict) -> dict:
-    from pathlib import Path
     from ..handshake import is_alive
     err = _check_karma_gate(agent, "interrupt", args)
     if err:
         return err
     address = args["address"]
-    if not is_alive(address):
+    resolved = args["_resolved_address"]
+    if not is_alive(resolved):
         return {"error": True, "message": f"Agent at {address} is not running"}
-    (Path(address) / ".interrupt").write_text("")
+    (resolved / ".interrupt").write_text("")
     agent._log("karma_interrupt", target=address)
     return {"status": "interrupted", "address": address}
 
 
 def _nirvana(agent, args: dict) -> dict:
     import shutil
-    from pathlib import Path
     from ..handshake import is_alive
     err = _check_karma_gate(agent, "nirvana", args)
     if err:
         return err
     address = args["address"]
-    if is_alive(address):
-        (Path(address) / ".sleep").write_text("")
+    resolved = args["_resolved_address"]
+    if is_alive(resolved):
+        (resolved / ".sleep").write_text("")
         import time as _time
         deadline = _time.time() + 10.0
         while _time.time() < deadline:
-            if not is_alive(address):
+            if not is_alive(resolved):
                 break
             _time.sleep(0.5)
         else:
-            if is_alive(address):
+            if is_alive(resolved):
                 return {"error": True, "message": f"Agent at {address} did not sleep within timeout"}
-    shutil.rmtree(address)
+    shutil.rmtree(resolved)
     agent._log("karma_nirvana", target=address)
     return {"status": "nirvana", "address": address}
