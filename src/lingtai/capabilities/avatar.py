@@ -201,7 +201,7 @@ class AvatarManager:
             pid=pid,
         )
 
-        # Auto-distribute rules to newborn — read from canonical system/rules.md
+        # Auto-distribute rules to all descendants (including newborn) — read from canonical system/rules.md
         parent_rules_md = parent._working_dir / "system" / "rules.md"
         if parent_rules_md.is_file():
             try:
