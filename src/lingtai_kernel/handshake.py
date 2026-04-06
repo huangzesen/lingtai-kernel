@@ -10,6 +10,18 @@ import time
 from pathlib import Path
 
 
+def resolve_address(address: str | Path, base_dir: str | Path) -> Path:
+    """Resolve an agent address to an absolute Path.
+
+    Relative names (e.g. "本我") are joined with base_dir.
+    Absolute paths are returned as-is.
+    """
+    p = Path(address)
+    if p.is_absolute():
+        return p
+    return Path(base_dir) / address
+
+
 def is_agent(path: str | Path) -> bool:
     """Check if an agent exists at *path* (has .agent.json)."""
     return (Path(path) / ".agent.json").is_file()

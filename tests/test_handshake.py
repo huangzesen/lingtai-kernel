@@ -58,3 +58,25 @@ def test_manifest_returns_dict(agent_dir):
 def test_manifest_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         manifest(tmp_path)
+
+
+def test_resolve_address_relative(tmp_path):
+    """Relative name resolves to base_dir / name."""
+    from lingtai_kernel.handshake import resolve_address
+    result = resolve_address("本我", tmp_path)
+    assert result == tmp_path / "本我"
+
+
+def test_resolve_address_absolute(tmp_path):
+    """Absolute path is returned as-is."""
+    from lingtai_kernel.handshake import resolve_address
+    abs_path = tmp_path / "other" / ".lingtai" / "agent"
+    result = resolve_address(str(abs_path), tmp_path)
+    assert result == abs_path
+
+
+def test_resolve_address_path_object(tmp_path):
+    """Path objects work too."""
+    from lingtai_kernel.handshake import resolve_address
+    result = resolve_address(tmp_path / "human", tmp_path)
+    assert result == tmp_path / "human"
