@@ -6,7 +6,7 @@ Design principles:
 - Fire-and-forget: send() returns immediately, no request/response coupling
 - Inbox model: listener polls for new messages in the agent's inbox directory
 - No registry: the caller must know the address (discovery is external)
-- Address = working directory path (full filesystem path)
+- Address = working directory name (relative basename, e.g. "本我")
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Callable
 
-from ..handshake import is_agent, is_alive, manifest
+from ..handshake import is_agent, is_alive, manifest, resolve_address
 
 
 class MailService(ABC):
@@ -44,7 +44,7 @@ class MailService(ABC):
         Parameters
         ----------
         address:
-            Recipient's address (working directory path).
+            Recipient's address (working directory name or absolute path).
         message:
             Payload dict to deliver.
         """
@@ -67,7 +67,7 @@ class MailService(ABC):
     @property
     @abstractmethod
     def address(self) -> str:
-        """This service's address (the agent's working directory path)."""
+        """This service's address (the agent's working directory name)."""
         ...
 
 
@@ -77,11 +77,11 @@ class FilesystemMailService(MailService):
     Delivers messages by writing files directly to the recipient's inbox
     directory.  Monitors its own inbox via polling.
 
-    Address = working directory path.  Example::
+    Address = working directory name (relative basename).  Example::
 
         svc = FilesystemMailService(Path("/agents/abc123"))
         svc.listen(on_message=lambda msg: print(msg))  # poll own inbox
-        svc.send("/agents/def456", {"message": "hello"})  # write to peer
+        svc.send("def456", {"message": "hello"})  # write to sibling agent
     """
 
     def __init__(
@@ -106,8 +106,8 @@ class FilesystemMailService(MailService):
 
     @property
     def address(self) -> str:
-        """Return the working directory path as this agent's mail address."""
-        return str(self._working_dir)
+        """Return the working directory name as this agent's mail address."""
+        return self._working_dir.name
 
     # ------------------------------------------------------------------
     # send
@@ -127,13 +127,14 @@ class FilesystemMailService(MailService):
         Then write ``message.json`` atomically into the recipient's inbox
         and copy any attachment files.
         """
-        recipient_dir = Path(address)
+        base_dir = self._working_dir.parent  # .lingtai/ directory
+        recipient_dir = resolve_address(address, base_dir)
 
         # --- handshake ------------------------------------------------
-        if not is_agent(address):
+        if not is_agent(recipient_dir):
             return f"No agent at {address}"
 
-        if not is_alive(address):
+        if not is_alive(recipient_dir):
             return f"Agent at {address} is not running"
 
         # --- create inbox entry ---------------------------------------

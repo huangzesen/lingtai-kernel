@@ -15,6 +15,7 @@ def _setup_agent_dir(path: Path) -> Path:
     (path / ".agent.json").write_text(json.dumps({
         "agent_id": path.name,
         "agent_name": path.name,
+        "admin": {},
     }))
     (path / ".agent.heartbeat").write_text(str(time.time()))
     return path
@@ -89,10 +90,10 @@ class TestFilesystemMailService:
         assert "not running" in result
 
     def test_address_property(self, tmp_path):
-        """Address should be the working directory path."""
+        """Address should be the working directory name (relative basename)."""
         agent_dir = _setup_agent_dir(tmp_path / "agent")
         svc = FilesystemMailService(working_dir=agent_dir)
-        assert svc.address == str(agent_dir)
+        assert svc.address == agent_dir.name
 
     def test_stop_is_idempotent(self, tmp_path):
         """Calling stop multiple times should not raise."""

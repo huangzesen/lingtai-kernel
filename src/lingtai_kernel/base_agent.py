@@ -801,7 +801,7 @@ class BaseAgent:
         if self._log_service:
             self._log_service.log({
                 "type": event_type,
-                "address": str(self._working_dir),
+                "address": self._working_dir.name,
                 "agent_name": self.agent_name,
                 "ts": time.time(),
                 **fields,
@@ -1253,7 +1253,7 @@ class BaseAgent:
             "agent_id": self._agent_id,
             "agent_name": self.agent_name,
             "nickname": self.nickname,
-            "address": str(self._working_dir),
+            "address": self._working_dir.name,
             "created_at": self._created_at,
             "started_at": self._started_at,
             "admin": self._admin,

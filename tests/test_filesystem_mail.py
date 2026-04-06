@@ -284,12 +284,12 @@ class TestListen:
 
 class TestAddress:
 
-    def test_address_returns_working_dir(self, tmp_path):
+    def test_address_returns_working_dir_name(self, tmp_path):
         from lingtai_kernel.services.mail import FilesystemMailService
 
         agent_dir = _make_agent_dir(tmp_path, "agent01")
         svc = FilesystemMailService(agent_dir, mailbox_rel="mailbox")
-        assert svc.address == str(agent_dir)
+        assert svc.address == agent_dir.name
 
     def test_address_is_str(self, tmp_path):
         from lingtai_kernel.services.mail import FilesystemMailService
