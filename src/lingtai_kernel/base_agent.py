@@ -1354,7 +1354,7 @@ class BaseAgent:
         try:
             rules_file.unlink()
         except OSError:
-            pass
+            return
         if not content:
             return
         # Diff against canonical system/rules.md
@@ -1368,8 +1368,12 @@ class BaseAgent:
         if content == existing:
             return
         # Content changed — persist and refresh
-        canonical.parent.mkdir(parents=True, exist_ok=True)
-        canonical.write_text(content)
+        try:
+            canonical.parent.mkdir(parents=True, exist_ok=True)
+            canonical.write_text(content)
+        except OSError:
+            self._log("rules_write_error", source="signal")
+            return
         self._prompt_manager.write_section("rules", content, protected=True)
         self._flush_system_prompt()
         self._log("rules_loaded", source="signal")

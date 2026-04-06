@@ -101,3 +101,23 @@ class TestRulesHeartbeatWatch:
 
         # Rules should be loaded from system/rules.md during init
         assert agent._prompt_manager.read_section("rules") == "Pre-existing rules."
+
+    def test_rules_unlink_failure_skips_processing(self, tmp_path, monkeypatch):
+        """If .rules cannot be unlinked, the function should return WITHOUT calling flush."""
+        agent = self._make_agent(tmp_path)
+        wd = agent._working_dir
+        (wd / ".rules").write_text("Some rules.")
+
+        # Make Path.unlink raise OSError
+        original_unlink = Path.unlink
+        def failing_unlink(self, *args, **kwargs):
+            if self.name == ".rules":
+                raise PermissionError("simulated unlink failure")
+            return original_unlink(self, *args, **kwargs)
+        monkeypatch.setattr(Path, "unlink", failing_unlink)
+
+        with patch.object(agent, "_flush_system_prompt") as mock_flush:
+            agent._check_rules_file()
+            mock_flush.assert_not_called()
+        # File should still exist (we couldn't unlink it)
+        assert (wd / ".rules").is_file()
