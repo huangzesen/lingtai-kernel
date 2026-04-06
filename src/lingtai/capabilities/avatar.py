@@ -201,6 +201,21 @@ class AvatarManager:
             pid=pid,
         )
 
+        # Auto-distribute rules to newborn — read from canonical system/rules.md
+        parent_rules_md = parent._working_dir / "system" / "rules.md"
+        if parent_rules_md.is_file():
+            try:
+                rules_content = parent_rules_md.read_text()
+                if rules_content.strip():
+                    # Write .rules signal to all descendants (newborn + existing)
+                    for child_dir in self._walk_avatar_tree(parent._working_dir):
+                        try:
+                            (child_dir / ".rules").write_text(rules_content)
+                        except OSError:
+                            pass
+            except OSError:
+                pass
+
         return {
             "status": "ok",
             "address": avatar_working_dir.name,

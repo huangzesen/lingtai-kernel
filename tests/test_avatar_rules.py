@@ -350,3 +350,59 @@ class TestAvatarRulesAction:
         # distributed_to should contain only child, not parent
         assert "parent" not in result["distributed_to"]
         assert "child" in result["distributed_to"]
+
+
+class TestAutoDistributeAfterSpawn:
+    """After avatar(action=spawn), parent's rules should be distributed to newborn.
+
+    These tests mock _launch to avoid actually spawning subprocesses, and
+    pre-create the parent's init.json so the spawn code path can proceed
+    to ledger append and rules distribution.
+    """
+
+    def _setup_spawnable_parent(self, tmp_path, with_rules: bool):
+        """Build a parent agent with init.json, optionally with system/rules.md."""
+        from lingtai.agent import Agent
+
+        parent_dir = tmp_path / "parent"
+        parent = Agent(
+            service=make_mock_service(),
+            agent_name="parent",
+            working_dir=parent_dir,
+            capabilities=["avatar"],
+            admin={"karma": True},
+        )
+        (parent_dir / "init.json").write_text(
+            json.dumps({"manifest": {"agent_name": "parent", "admin": {"karma": True}}})
+        )
+        if with_rules:
+            system_dir = parent_dir / "system"
+            system_dir.mkdir(parents=True, exist_ok=True)
+            (system_dir / "rules.md").write_text("Always be concise.")
+        return parent, parent_dir
+
+    def test_spawn_distributes_existing_rules(self, tmp_path):
+        """If parent has system/rules.md, spawning should write .rules to new avatar."""
+        parent, parent_dir = self._setup_spawnable_parent(tmp_path, with_rules=True)
+
+        mgr = parent.get_capability("avatar")
+        with patch.object(AvatarManager, "_launch", return_value=12345):
+            result = mgr.handle({"name": "child", "dir": "child"})
+        assert result["status"] == "ok"
+
+        # Child dir is a sibling of parent_dir (avatar_working_dir = parent.parent / dir_name)
+        child_dir = parent_dir.parent / "child"
+        # Child gets .rules signal file (heartbeat will consume and persist it)
+        assert (child_dir / ".rules").read_text() == "Always be concise."
+
+    def test_spawn_without_rules_no_distribution(self, tmp_path):
+        """If parent has no system/rules.md, spawn should not create .rules in child."""
+        parent, parent_dir = self._setup_spawnable_parent(tmp_path, with_rules=False)
+
+        mgr = parent.get_capability("avatar")
+        with patch.object(AvatarManager, "_launch", return_value=12345):
+            result = mgr.handle({"name": "child", "dir": "child"})
+        assert result["status"] == "ok"
+
+        child_dir = parent_dir.parent / "child"
+        assert not (child_dir / ".rules").is_file()
