@@ -2,7 +2,7 @@
 
 SystemPromptManager manages named sections of an agent's system prompt.
 Sections are rendered in a configurable order. The default order is:
-    principle (no header) → covenant → rules → tools → identity → memory
+    principle (no header) → covenant → rules → tools → skills → identity → memory → comment
 
 build_system_prompt() assembles base_prompt + rendered sections.
 """
