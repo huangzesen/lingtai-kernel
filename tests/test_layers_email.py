@@ -1236,11 +1236,102 @@ def test_email_schedule_list_shows_completed(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Schedule — startup reconciliation
+# ---------------------------------------------------------------------------
+
+def test_reconcile_flips_active_to_inactive_on_startup(tmp_path):
+    """A new EmailManager should flip all active schedules to inactive on startup."""
+    agent1 = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+                       capabilities=["email"])
+    mail_svc = MagicMock()
+    mail_svc.address = "me"
+    mail_svc.send.return_value = None
+    agent1._mail_service = mail_svc
+
+    # Manually write an active schedule.json
+    sched_id = "active1234"
+    sched_dir = agent1.working_dir / "mailbox" / "schedules" / sched_id
+    sched_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "schedule_id": sched_id,
+        "send_payload": {"address": "x", "subject": "", "message": "y", "cc": [], "bcc": [], "type": "normal"},
+        "interval": 60, "count": 5, "sent": 1,
+        "created_at": "2026-04-06T10:00:00Z",
+        "last_sent_at": "2026-04-06T10:00:00Z",
+        "status": "active",
+    }
+    (sched_dir / "schedule.json").write_text(json.dumps(record))
+    agent1.stop(timeout=1.0)
+
+    # Create a new agent at the same dir — reconciliation should flip to inactive
+    agent2 = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+                       mail_service=mail_svc, capabilities=["email"])
+
+    sched = json.loads((sched_dir / "schedule.json").read_text())
+    assert sched["status"] == "inactive"
+
+
+def test_reconcile_flips_legacy_record_to_inactive(tmp_path):
+    """A schedule.json with NO status field should be flipped to inactive on startup."""
+    agent1 = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+                       capabilities=["email"])
+    mail_svc = MagicMock()
+    mail_svc.address = "me"
+
+    sched_id = "legacy12345"
+    sched_dir = agent1.working_dir / "mailbox" / "schedules" / sched_id
+    sched_dir.mkdir(parents=True, exist_ok=True)
+    record = {  # NO status field
+        "schedule_id": sched_id,
+        "send_payload": {"address": "x", "subject": "", "message": "y", "cc": [], "bcc": [], "type": "normal"},
+        "interval": 60, "count": 5, "sent": 1,
+        "created_at": "2026-04-06T10:00:00Z",
+        "last_sent_at": "2026-04-06T10:00:00Z",
+    }
+    (sched_dir / "schedule.json").write_text(json.dumps(record))
+    agent1.stop(timeout=1.0)
+
+    agent2 = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+                       mail_service=mail_svc, capabilities=["email"])
+
+    sched = json.loads((sched_dir / "schedule.json").read_text())
+    assert sched["status"] == "inactive"
+
+
+def test_reconcile_leaves_completed_records_alone(tmp_path):
+    """Completed schedules should NOT be flipped — they stay completed."""
+    agent1 = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+                       capabilities=["email"])
+    mail_svc = MagicMock()
+    mail_svc.address = "me"
+
+    sched_id = "completed5678"
+    sched_dir = agent1.working_dir / "mailbox" / "schedules" / sched_id
+    sched_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "schedule_id": sched_id,
+        "send_payload": {"address": "x", "subject": "", "message": "y", "cc": [], "bcc": [], "type": "normal"},
+        "interval": 60, "count": 3, "sent": 3,
+        "created_at": "2026-04-06T10:00:00Z",
+        "last_sent_at": "2026-04-06T10:02:00Z",
+        "status": "completed",
+    }
+    (sched_dir / "schedule.json").write_text(json.dumps(record))
+    agent1.stop(timeout=1.0)
+
+    agent2 = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+                       mail_service=mail_svc, capabilities=["email"])
+
+    sched = json.loads((sched_dir / "schedule.json").read_text())
+    assert sched["status"] == "completed"
+
+
+# ---------------------------------------------------------------------------
 # Schedule — recovery
 # ---------------------------------------------------------------------------
 
 def test_email_schedule_recovery_on_setup(tmp_path):
-    """Incomplete schedules should resume when a new EmailManager is created."""
+    """After agent restart, in-flight schedules should pause (status=inactive), not auto-resume."""
     agent1 = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
                         capabilities=["email"])
     mail_svc = MagicMock()
@@ -1267,34 +1358,43 @@ def test_email_schedule_recovery_on_setup(tmp_path):
         "sent": 1,
         "created_at": "2026-03-18T10:00:00Z",
         "last_sent_at": "2026-03-18T10:00:00Z",
+        "status": "active",
     }
     (sched_dir / "schedule.json").write_text(json.dumps(record, indent=2))
 
-    # Release the first agent's lock so the second agent can use the same directory
     agent1.stop(timeout=1.0)
 
-    # Create a NEW agent at the same base_dir — setup() should auto-recover
+    # Create a NEW agent at the same base_dir — reconciliation flips to inactive
     agent2 = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
                         mail_service=mail_svc, capabilities=["email"])
-    # Recovery happens automatically in setup() — no manual call needed
+    mgr2 = agent2.get_capability("email")
 
-    # Wait for remaining 2 sends
+    # Wait — sends should NOT happen
+    time.sleep(2.5)
+    sched = json.loads((sched_dir / "schedule.json").read_text())
+    assert sched["sent"] == 1, "schedule should not have auto-resumed"
+    assert sched["status"] == "inactive"
+
+    # Now reactivate — sends should resume after one full interval
+    result = mgr2.handle({"schedule": {"action": "reactivate", "schedule_id": sched_id}})
+    assert result["status"] == "reactivated"
+
+    # Wait for the remaining 2 sends (interval=1, so ~2 more seconds)
     time.sleep(3.0)
     final = json.loads((sched_dir / "schedule.json").read_text())
     assert final["sent"] == 3
 
 
-def test_email_schedule_recovery_skips_cancelled(tmp_path):
-    """Cancelled schedules should not be resumed."""
+def test_email_schedule_recovery_skips_inactive(tmp_path):
+    """Inactive schedules should not be resumed and should not be flipped back to active."""
     mail_svc = MagicMock()
     mail_svc.address = "me"
     mail_svc.send.return_value = None
 
-    # First agent creates the schedule dir, then releases lock
     agent1 = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
                        capabilities=["email"])
 
-    sched_id = "cancelled1234"
+    sched_id = "inactive12345"
     sched_dir = agent1.working_dir / "mailbox" / "schedules" / sched_id
     sched_dir.mkdir(parents=True, exist_ok=True)
     record = {
@@ -1303,20 +1403,19 @@ def test_email_schedule_recovery_skips_cancelled(tmp_path):
         "interval": 1, "count": 5, "sent": 2,
         "created_at": "2026-03-18T10:00:00Z",
         "last_sent_at": "2026-03-18T10:00:00Z",
+        "status": "inactive",
     }
     (sched_dir / "schedule.json").write_text(json.dumps(record, indent=2))
-    (sched_dir / ".cancel").touch()
     agent1.stop(timeout=1.0)
 
-    # Second agent picks up the same working dir — recovery should skip cancelled
     agent2 = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
                        mail_service=mail_svc, capabilities=["email"])
 
     time.sleep(2.0)
 
-    # Should NOT have resumed — sent should still be 2
     final = json.loads((sched_dir / "schedule.json").read_text())
-    assert final["sent"] == 2
+    assert final["sent"] == 2, "inactive schedule should not have resumed"
+    assert final["status"] == "inactive", "inactive should not be flipped back to active"
 
 
 # ---------------------------------------------------------------------------

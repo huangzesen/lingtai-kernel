@@ -539,6 +539,37 @@ class EmailManager:
         self._write_schedule(sched_file, record)
         return True
 
+    def _reconcile_schedules_on_startup(self) -> None:
+        """Flip every non-completed schedule to inactive on agent startup.
+
+        Forces deliberate reactivation after restart — no schedule auto-resumes.
+        Called from setup() BEFORE start_scheduler().
+        """
+        schedules_dir = self._schedules_dir
+        if not schedules_dir.is_dir():
+            return
+        for sched_dir in schedules_dir.iterdir():
+            if not sched_dir.is_dir():
+                continue
+            sched_file = sched_dir / "schedule.json"
+            if not sched_file.is_file():
+                continue
+            try:
+                record = json.loads(sched_file.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+            status = record.get("status", "active")
+            if status == "completed":
+                continue
+            if status == "inactive":
+                continue  # already in safe state, no spurious write
+            # active, missing, or unknown — flip to inactive
+            record["status"] = "inactive"
+            try:
+                self._write_schedule(sched_file, record)
+            except OSError:
+                continue
+
     def _scheduler_loop(self) -> None:
         """Single polling loop that drives all schedules from disk state."""
         while not self._stop_event.is_set():
@@ -575,6 +606,11 @@ class EmailManager:
             try:
                 record = json.loads(sched_file.read_text())
             except (json.JSONDecodeError, OSError):
+                continue
+
+            # Only process active schedules
+            status = record.get("status", "active")
+            if status != "active":
                 continue
 
             sent = record.get("sent", 0)
@@ -1139,5 +1175,6 @@ def setup(agent: "BaseAgent", *, private_mode: bool = False) -> EmailManager:
     agent.add_tool(
         "email", schema=get_schema(lang), handler=mgr.handle, description=get_description(lang),
     )
+    mgr._reconcile_schedules_on_startup()  # NEW: must come before start_scheduler
     mgr.start_scheduler()
     return mgr
