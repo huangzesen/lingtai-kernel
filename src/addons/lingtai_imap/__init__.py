@@ -37,8 +37,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from lingtai_kernel.services.mail import FilesystemMailService
-from lingtai_imap.manager import IMAPMailManager, SCHEMA, DESCRIPTION
-from lingtai_imap.service import IMAPMailService
+from .manager import IMAPMailManager, SCHEMA, DESCRIPTION
+from .service import IMAPMailService
 
 if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent

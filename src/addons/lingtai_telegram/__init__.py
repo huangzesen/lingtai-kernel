@@ -33,8 +33,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from lingtai_telegram.manager import TelegramManager, SCHEMA, DESCRIPTION
-from lingtai_telegram.service import TelegramService
+from .manager import TelegramManager, SCHEMA, DESCRIPTION
+from .service import TelegramService
 
 if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent

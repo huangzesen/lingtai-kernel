@@ -46,8 +46,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from lingtai_feishu.manager import FeishuManager, SCHEMA, DESCRIPTION
-from lingtai_feishu.service import FeishuService
+from .manager import FeishuManager, SCHEMA, DESCRIPTION
+from .service import FeishuService
 
 if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
