@@ -585,18 +585,10 @@ class EmailManager:
         if not schedules_dir.is_dir():
             return
 
-        # Agent-level cancel
-        if (schedules_dir / ".cancel").is_file():
-            return
-
         now = datetime.now(timezone.utc)
 
         for sched_dir in schedules_dir.iterdir():
             if not sched_dir.is_dir():
-                continue
-
-            # Per-schedule cancel
-            if (sched_dir / ".cancel").is_file():
                 continue
 
             sched_file = sched_dir / "schedule.json"
@@ -690,8 +682,10 @@ class EmailManager:
             msg = _make_message(MSG_REQUEST, "system", note)
             self._agent.inbox.put(msg)
 
-            # Update last_sent_at
+            # Update last_sent_at and (if final send) set status to completed
             record["last_sent_at"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if seq >= count:
+                record["status"] = "completed"
             self._write_schedule(sched_file, record)
 
     # ------------------------------------------------------------------

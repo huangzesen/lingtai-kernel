@@ -1506,6 +1506,60 @@ def test_scheduler_service_sends_due_messages(tmp_path):
     assert sched["sent"] == 3
 
 
+def test_schedule_completion_sets_status_completed(tmp_path):
+    """When sent reaches count, the record's status should become 'completed'."""
+    agent = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+                       capabilities=["email"])
+    mail_svc = MagicMock()
+    mail_svc.address = "me"
+    mail_svc.send.return_value = None
+    agent._mail_service = mail_svc
+    mgr = agent.get_capability("email")
+
+    result = mgr.handle({
+        "address": "someone", "subject": "done", "message": "bye",
+        "schedule": {"action": "create", "interval": 1, "count": 2},
+    })
+    sid = result["schedule_id"]
+    time.sleep(3.0)  # both sends should complete
+
+    sched = json.loads(
+        (agent.working_dir / "mailbox" / "schedules" / sid / "schedule.json").read_text()
+    )
+    assert sched["sent"] == 2
+    assert sched["status"] == "completed"
+
+
+def test_scheduler_tick_skips_inactive_records(tmp_path):
+    """The scheduler tick should NOT send for records with status='inactive'."""
+    agent = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+                       capabilities=["email"])
+    mail_svc = MagicMock()
+    mail_svc.address = "me"
+    mail_svc.send.return_value = None
+    agent._mail_service = mail_svc
+    mgr = agent.get_capability("email")
+
+    # Create a schedule with status=inactive directly on disk (skipping reconciliation)
+    sched_id = "inactivetick1"
+    sched_dir = agent.working_dir / "mailbox" / "schedules" / sched_id
+    sched_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "schedule_id": sched_id,
+        "send_payload": {"address": "x", "subject": "", "message": "y", "cc": [], "bcc": [], "type": "normal"},
+        "interval": 1, "count": 5, "sent": 0,
+        "created_at": "2026-04-06T10:00:00Z",
+        "last_sent_at": None,  # would be due immediately if active
+        "status": "inactive",
+    }
+    (sched_dir / "schedule.json").write_text(json.dumps(record))
+
+    time.sleep(2.0)
+
+    sched = json.loads((sched_dir / "schedule.json").read_text())
+    assert sched["sent"] == 0, "scheduler should not tick inactive records"
+
+
 def test_scheduler_cancel_via_sentinel_file(tmp_path):
     """Touching .cancel in schedule folder should stop delivery."""
     agent = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
