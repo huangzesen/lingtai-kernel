@@ -397,6 +397,7 @@ class EmailManager:
             "sent": 0,
             "created_at": now,
             "last_sent_at": None,
+            "status": "active",
         }
 
         sched_dir = self._schedules_dir / schedule_id
@@ -509,6 +510,16 @@ class EmailManager:
             return json.loads(path.read_text())
         except (json.JSONDecodeError, OSError):
             return None
+
+    def _set_schedule_status(self, schedule_id: str, status: str) -> bool:
+        """Update the status of a schedule record on disk. Returns True on success, False if missing."""
+        record = self._read_schedule(schedule_id)
+        if record is None:
+            return False
+        record["status"] = status
+        sched_file = self._schedules_dir / schedule_id / "schedule.json"
+        self._write_schedule(sched_file, record)
+        return True
 
     def _scheduler_loop(self) -> None:
         """Single polling loop that drives all schedules from disk state."""

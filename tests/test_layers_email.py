@@ -947,6 +947,52 @@ def test_email_schedule_create_basic(tmp_path):
     assert sched["sent"] == 0
 
 
+def test_email_schedule_create_writes_status_active(tmp_path):
+    """Newly created schedules should have status='active' on disk."""
+    agent = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+                       capabilities=["email"])
+    mail_svc = MagicMock()
+    mail_svc.address = "me"
+    mail_svc.send.return_value = None
+    agent._mail_service = mail_svc
+    mgr = agent.get_capability("email")
+    result = mgr.handle({
+        "address": "someone",
+        "message": "x",
+        "schedule": {"action": "create", "interval": 60, "count": 5},
+    })
+    sid = result["schedule_id"]
+    sched = json.loads(
+        (agent.working_dir / "mailbox" / "schedules" / sid / "schedule.json").read_text()
+    )
+    assert sched["status"] == "active"
+
+
+def test_set_schedule_status_helper_updates_record(tmp_path):
+    """_set_schedule_status should update the on-disk status field."""
+    agent = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+                       capabilities=["email"])
+    mail_svc = MagicMock()
+    mail_svc.address = "me"
+    mail_svc.send.return_value = None
+    agent._mail_service = mail_svc
+    mgr = agent.get_capability("email")
+    result = mgr.handle({
+        "address": "someone", "message": "x",
+        "schedule": {"action": "create", "interval": 60, "count": 5},
+    })
+    sid = result["schedule_id"]
+    # Use the helper directly
+    ok = mgr._set_schedule_status(sid, "inactive")
+    assert ok is True
+    sched = json.loads(
+        (agent.working_dir / "mailbox" / "schedules" / sid / "schedule.json").read_text()
+    )
+    assert sched["status"] == "inactive"
+    # Returns False on missing record
+    assert mgr._set_schedule_status("nonexistent", "inactive") is False
+
+
 def test_email_schedule_create_sends_messages(tmp_path):
     """schedule.create should send count messages with interval between them."""
     agent = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
