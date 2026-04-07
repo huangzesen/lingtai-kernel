@@ -1149,13 +1149,13 @@ def test_email_schedule_list_shows_active(tmp_path):
     assert entry["count"] == 10
     assert entry["to"] == "someone"
     assert entry["subject"] == "Status"
-    assert entry["active"] is True
+    assert entry["status"] == "active"
     # Cleanup
     mgr.handle({"schedule": {"action": "cancel", "schedule_id": sid}})
 
 
 def test_email_schedule_list_shows_completed(tmp_path):
-    """list should show completed schedules with active=False."""
+    """list should show completed schedules with status='completed'."""
     agent = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
                        capabilities=["email"])
     mail_svc = MagicMock()
@@ -1171,7 +1171,7 @@ def test_email_schedule_list_shows_completed(tmp_path):
     time.sleep(2.0)
     listing = mgr.handle({"schedule": {"action": "list"}})
     entry = listing["schedules"][0]
-    assert entry["active"] is False
+    assert entry["status"] == "completed"
     assert entry["sent"] == 1
 
 
@@ -1363,7 +1363,7 @@ def test_email_schedule_recovery_skips_inactive(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_email_schedule_end_to_end(tmp_path):
-    """Full lifecycle: create → sends happen → list shows progress → cancel → list shows cancelled."""
+    """Full lifecycle: create → sends happen → list shows progress → cancel → record is inactive."""
     agent = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
                        capabilities=["email"])
     mail_svc = MagicMock()
@@ -1388,7 +1388,7 @@ def test_email_schedule_end_to_end(tmp_path):
     # List — should be active with some progress
     listing = mgr.handle({"schedule": {"action": "list"}})
     entry = [s for s in listing["schedules"] if s["schedule_id"] == sid][0]
-    assert entry["active"] is True
+    assert entry["status"] == "active"
     assert entry["sent"] >= 2
 
     # Cancel
@@ -1812,3 +1812,39 @@ def test_schedule_cancel_already_completed_returns_noop(tmp_path):
 
     result = agent.get_capability("email").handle({"schedule": {"action": "cancel", "schedule_id": sched_id}})
     assert result["status"] == "already_completed"
+
+
+def test_schedule_list_returns_status_field(tmp_path):
+    """list should return a status field on each entry, not the legacy active/cancelled booleans."""
+    agent = Agent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+                       capabilities=["email"])
+    mail_svc = MagicMock()
+    mail_svc.address = "me"
+    mail_svc.send.return_value = None
+    agent._mail_service = mail_svc
+    mgr = agent.get_capability("email")
+
+    # Create one schedule and cancel it; create another and leave it active
+    r1 = mgr.handle({
+        "address": "a", "message": "x",
+        "schedule": {"action": "create", "interval": 60, "count": 5},
+    })
+    mgr.handle({"schedule": {"action": "cancel", "schedule_id": r1["schedule_id"]}})
+
+    r2 = mgr.handle({
+        "address": "b", "message": "y",
+        "schedule": {"action": "create", "interval": 60, "count": 5},
+    })
+
+    listing = mgr.handle({"schedule": {"action": "list"}})
+    assert listing["status"] == "ok"
+    assert len(listing["schedules"]) == 2
+
+    by_id = {s["schedule_id"]: s for s in listing["schedules"]}
+    # New status field present
+    assert by_id[r1["schedule_id"]]["status"] == "inactive"
+    assert by_id[r2["schedule_id"]]["status"] == "active"
+    # Legacy boolean fields gone
+    for entry in listing["schedules"]:
+        assert "cancelled" not in entry
+        assert "active" not in entry

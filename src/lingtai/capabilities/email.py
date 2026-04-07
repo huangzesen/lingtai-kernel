@@ -499,8 +499,6 @@ class EmailManager:
 
             sent = record.get("sent", 0)
             count = record.get("count", 0)
-            cancelled = (sched_dir / ".cancel").is_file() or (schedules_dir / ".cancel").is_file()
-            active = sent < count and not cancelled
 
             entries.append({
                 "schedule_id": record.get("schedule_id", sched_dir.name),
@@ -509,10 +507,9 @@ class EmailManager:
                 "interval": record.get("interval", 0),
                 "count": count,
                 "sent": sent,
-                "cancelled": cancelled,
+                "status": record.get("status", "active"),
                 "created_at": record.get("created_at", ""),
                 "last_sent_at": record.get("last_sent_at"),
-                "active": active,
             })
 
         entries.sort(key=lambda e: e.get("created_at", ""), reverse=True)
