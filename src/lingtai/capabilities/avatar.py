@@ -189,6 +189,20 @@ class AvatarManager:
             if sig_file.is_file():
                 sig_file.unlink(missing_ok=True)
 
+        # Seed the avatar's first turn with a parent-identity prompt so the
+        # newborn knows who spawned it and where to report back. The avatar's
+        # heartbeat loop picks up .prompt on first tick and injects it as a
+        # [system] message. Uses the avatar's inherited language.
+        parent_name = parent.agent_name or parent._working_dir.name
+        parent_address = parent._working_dir.name
+        avatar_lang = parent_init.get("manifest", {}).get("language", "en")
+        parent_prompt = t(
+            avatar_lang, "avatar.parent_prompt",
+            parent_name=parent_name,
+            parent_address=parent_address,
+        )
+        (avatar_working_dir / ".prompt").write_text(parent_prompt)
+
         # Launch as detached process
         pid = self._launch(avatar_working_dir)
 
