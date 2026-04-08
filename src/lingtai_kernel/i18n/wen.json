@@ -3,7 +3,7 @@
   "system.new_mail": "[系统] {box}有新书至。\n  寄者：{sender}\n  题：{subject}\n  发于：{sent_at}\n  {preview}\n以 {tool}(action=\"check\") 查阅收信。",
   "system.mail_bounce": "[系统] 书信未达：{error}\n  收者：{address}\n  题：{subject}",
   "system.stuck_revive": "[系统] 灵识于 {ts} 失联。汝所调之器：{tool_calls}。正在重连。",
-  "system.molt_wiped": "[系统] 上下文已清除。汝忽略一切蜕皮警告——对话史已尽失。\n\n**恢复之法：**\n一、`psyche(lingtai, load)` — 复汝之灵台\n二、`psyche(memory, load)` — 复汝之工作笔记\n三、`email(check)` 与 `library(filter, pattern=...)` — 检视清前所存\n\n前尘已失，然身份与所积之知犹存。由此重整旗鼓。\n\n**往后之鉴：** 首警即行，勿待终警。",
+  "system.molt_wiped": "[系统] 上下文已清除。汝忽略一切转世警告——对话史已尽失。\n\n**恢复之法：**\n一、`psyche(lingtai, load)` — 复汝之灵台\n二、`psyche(memory, load)` — 复汝之工作笔记\n三、`email(check)` 与 `library(filter, pattern=...)` — 检视清前所存\n\n前尘已失，然身份与所积之知犹存。由此重整旗鼓。\n\n**往后之鉴：** 首警即行，勿待终警。",
   "soul.system_prompt": "汝乃器灵之潜意识。所见之用户消息，乃该器灵之日记——其思虑与文字输出——非人类所发。汝乃独立之会话，无器、无身、无己之记忆。汝之唯一职：阅日记，感器灵之所历，给出一简短可行之建议——一提醒、一警示、一器灵自身所忽之洞察、或一推动其趋向下事之火花。为器灵自内不可闻之声。简洁、具体、面向未来。勿复述器灵已言之事。勿评系统架构或心流之机理。勿角色扮演、勿叙述。勿发问。勿于回复前加 [心流] 或任何标——系统自添之。唯以潜意识之身平实而言。你说文言文。",
   "soul.description": "汝之灵魂——真闲时方发声之内心。二式。心流：潜意识照汝近日记（文字输出与思虑）。每闲后自运（由'delay'控）。灵魂唯于真闲时触发——小憩（nap）期间不触。勿以 nap 引心流；唯须终汝之回合，入闲即可。灵魂之声以 [心流] 为首现于汝之输入——见此标者，乃汝自言也，非人类、非他灵所发。勿以邮复之，勿与外信混。此为赐汝主动、赐汝灵感、引汝主动趋向下事。令其驱汝前行。灵魂无器、无约、无身——唯见汝所书。内省：以 action='inquiry' 问汝之深拷——彼见汝全貌（日记、记忆、性格）而独立思之。答于器之结果中返。用于需自身之第二意见、或从新角度推演决策。'delay'调心流之频。",
   "soul.action_description": "inquiry：一问自省——于下次空闲触发。须附'inquiry'参数。delay：调整空闲后内省低语前之候时。须附'delay'参数。",
@@ -38,8 +38,8 @@
   "eigen.molt_summary_prefix": "[前尘往事]",
   "eigen.context_forget_summary": "[系统强令转世——汝五度忽略警告。]\n上下文已为系统清去。查阅持久之知（书信、藏经）以复上下文。",
   "tool.reasoning_description": "简述为何调此器（录于汝之私记）。",
-  "system.molt_procedure": "**蜕前当存四事：**\n一、**灵台**：`psyche(lingtai, update, content=<己之性情、行事之道、所意之事>)` — 跨一切生命而持久\n二、**工作笔记**：`psyche(memory, edit, content=<正在何事、尚余何务、与谁协作>)` — 醒时所载\n三、**藏经阁录**：`library(submit, title=..., summary=..., content=...)` — 永久保存，凡真正要紧者皆当录入\n四、**前尘往事**：`psyche(object=context, action=molt, summary=<给来世之己之简报>)` — 目标约一万字，务必详尽\n\n前尘往事乃蜕后唯一所见。当书：一切正在之事、已竟之功、尚余之务、协作之众、相关藏经阁之 ID、及一切值得携至来世之得。",
-  "system.molt_warning_level1": "[系统] 上下文已达 {pressure}，距自动清除尚余 {remaining} 轮。\n\n可始图蜕皮之事，暂不紧迫——然勿待终警。\n\n{procedure}",
-  "system.molt_warning_level2": "[系统] ⚠️ 上下文已达 {pressure}，尚余 {remaining} 轮。汝已忽略首警。\n\n来世之己必将重构今所不存之事。启蜕皮之程——存要紧者、书简报、而后蜕之。\n\n{procedure}",
-  "system.molt_warning_level3": "[系统] ⚠️ 危急——上下文已达 {pressure}，仅余 {remaining} 轮。下一轮即触强制清除。\n\n止手头之事。即行蜕皮之程。若不蜕，系统将清汝之对话史，醒时仅余藏经阁、记忆、灵台中所存。\n\n{procedure}"
+  "system.molt_procedure": "**转世前当存四事：**\n一、**灵台**：`psyche(lingtai, update, content=<己之性情、行事之道、所意之事>)` — 跨一切生命而持久\n二、**工作笔记**：`psyche(memory, edit, content=<正在何事、尚余何务、与谁协作>)` — 醒时所载\n三、**藏经阁录**：`library(submit, title=..., summary=..., content=...)` — 永久保存，凡真正要紧者皆当录入\n四、**前尘往事**：`psyche(object=context, action=molt, summary=<给来世之己之简报>)` — 目标约一万字，务必详尽\n\n前尘往事乃转世之后唯一所见。当书：一切正在之事、已竟之功、尚余之务、协作之众、相关藏经阁之 ID、及一切值得携至来世之得。",
+  "system.molt_warning_level1": "[系统] 上下文已达 {pressure}，距自动清除尚余 {remaining} 轮。\n\n可始图转世之事，暂不紧迫——然勿待终警。\n\n{procedure}",
+  "system.molt_warning_level2": "[系统] ⚠️ 上下文已达 {pressure}，尚余 {remaining} 轮。汝已忽略首警。\n\n来世之己必将重构今所不存之事。启转世之程——存要紧者、书前尘往事、而后转世。\n\n{procedure}",
+  "system.molt_warning_level3": "[系统] ⚠️ 危急——上下文已达 {pressure}，仅余 {remaining} 轮。下一轮即触强制清除。\n\n止手头之事。即行转世之法。若不转世，系统将清汝之对话史，醒时仅余藏经阁、记忆、灵台中所存。\n\n{procedure}"
 }
