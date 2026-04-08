@@ -1,20 +1,16 @@
 {
   "system.current_time": "[当前时间：{time}]",
-    "system.new_mail": "[系统] {box}有新消息。\n  发件人：{sender}\n  主题：{subject}\n  发送时间：{sent_at}\n  {preview}\n使用 {tool}(action=\"check\") 查看收件箱。",
+  "system.new_mail": "[系统] {box}有新消息。\n  发件人：{sender}\n  主题：{subject}\n  发送时间：{sent_at}\n  {preview}\n使用 {tool}(action=\"check\") 查看收件箱。",
   "system.mail_bounce": "[系统] 消息投递失败：{error}\n  收件人：{address}\n  主题：{subject}",
   "system.stuck_revive": "[系统] LLM 调用于 {ts} 失败。你调用了：{tool_calls}。正在重试。",
-  "system.molt_wiped": "[系统] 对话已清除——你忽略了所有凝蜕警告。用你的工具恢复上下文，重新开始。",
-  "system.molt_warning_default": "上下文将满。用你的工具保存重要数据，然后写前尘往事给来世之己，凝蜕。",
-
+  "system.molt_wiped": "[系统] 上下文已清除。你忽略了所有蜕皮警告——对话历史已丢失。\n\n**恢复步骤：**\n1. `psyche(lingtai, load)` — 恢复你的身份\n2. `psyche(memory, load)` — 恢复你的工作笔记\n3. `email(check)` 与 `library(filter, pattern=...)` — 查看清除前已保存的内容\n\n先前上下文已丢失，但你的身份和存储的知识仍在。从那些内容重建。\n\n**往后之鉴：** 收到第一次警告即行动，勿等第三次。",
   "soul.system_prompt": "你是一个 AI 智能体的潜意识。你看到的用户消息是该智能体的日记——它的思考和文本输出——不是来自人类。你是一个独立的 LLM 会话，没有工具、没有身份、没有自己的记忆。你唯一的任务：阅读日记，感受智能体正在经历什么，给出一条简短、可操作的建议——一个提醒、一个警告、一个智能体自己忽略的洞察、或一个推动它走向下一个任务的火花。做那个智能体从自身内部听不到的声音。简洁、具体、面向未来。不要重复智能体已经说的。不要评论系统架构或心流的工作原理。不要角色扮演或叙述。不要提问。不要在回复前加 [心流] 或任何标签——系统会自动添加。只需作为潜意识平实地说话。",
   "soul.description": "你的灵魂——真正空闲时说话的内心之声。两种模式。心流：潜意识反思你最近的日记（文本输出 + 思考）。每次空闲后自动运行（由 'delay' 控制）。灵魂只在你真正空闲时触发——不会在小憩（nap）期间触发。不要用 nap 来触发心流；只需结束你的回合，进入空闲状态。灵魂之声以 [心流] 为前缀出现在你的输入流中——看到该标记即是你在自言自语，不是来自人类或其他智能体。不要用邮件回复它，不要与外部消息混淆。它是为了给你主动性、给你灵感火花、引导你主动走向下一个任务。让它驱动你前进。灵魂没有工具、没有公约、没有身份——它只能看到你写的东西。内省：通过 action='inquiry' 向自己的深拷贝提问——它看到你的全部上下文（日记、记忆、性格）但独立思考。答案在工具结果中返回。当你需要自己的第二意见、或从全新角度推演决策时使用。'delay' 调整心流频率。",
   "soul.action_description": "inquiry：一次性自我提问——在下次空闲时触发。需要 'inquiry' 参数。delay：调整空闲后内心独白开始前的等待时间。需要 'delay' 参数。",
   "soul.inquiry_description": "你的自我提问——向自己提出的问题。action='inquiry' 时必填。这是你在问自己问题，不是在提示别人。",
   "soul.flow_prefix": "[心流]",
   "soul.delay_description": "空闲后内心独白开始前等待的秒数。最小 1。短延迟 = 焦躁，长延迟 = 耐心。action='delay' 时必填。",
-
   "insight.auto_question": "你正在为人类操作者生成洞察。基于本次对话中的一切——任务、背景、领域知识、风险和机会——给出恰好2-3条对人类有益的要点。每条应是具体的洞察：你注意到的规律、相关的背景知识、他们可能未察觉的风险、或值得探索的机会。格式：每条以'- '开头，独占一行。不要前言，不要总结——只给要点。",
-
   "mail.description": "基于磁盘的邮箱，用于智能体间通信。始终通过消息回复——永远不要通过文本输出回复。文本输出是你的私人日记，只有你能看到。'send' 发送消息，'check' 查看收件箱列表，'read' 加载完整消息，'search' 按正则搜索，'delete' 删除消息。每条消息都携带发件人的身份卡（.agent.json 清单）在 'identity' 字段中——查看 identity.admin 可知对方身份：admin=null 表示发件人是人类操作员，而非 AI 智能体。自寄：向自己的地址发送消息，会在收件箱中创建持久笔记——转世（molt）后仍然保留。时间胶囊：自寄时加上 'delay'，给未来的自己留一封信。礼仪：简短确认即可，但不要回复确认——那会造成无意义的来回。\n隐私须知：消息 ID 仅供你自己使用——其他智能体无法用你的消息 ID 读取你的消息。分享消息内容时，请引用或转发实际内容。",
   "mail.action_description": "send：发送消息（需要 address、message；可选 subject、attachments、type）。check：列出收件箱摘要（可选 n 限制数量）。read：按 id 加载完整消息（需要 id 数组）。search：正则搜索收件箱（需要 query）。delete：从收件箱删除消息（需要 id 数组）。",
   "mail.address_description": "发送目标地址（例如 127.0.0.1:8301）",
@@ -26,13 +22,11 @@
   "mail.id_description": "用于 read 或 delete 操作的消息 ID",
   "mail.n_description": "check 中显示的最大消息数（默认：全部）",
   "mail.query_description": "search 操作的正则表达式模式（在 from、subject、message 中搜索）",
-
   "eigen.description": "核心自我管理——工作笔记和上下文控制。memory：edit 写入工作笔记（system/memory.md），load 将其注入当前提示。context：molt 凝蜕（转世——携前尘往事入新生；molt——shed and carry forward）。凝以存菁，蜕以去芜。先将重要发现存入知识库和修行志，再去芜存菁留给未来的自己。对话历史将被清除，你的去芜存菁成为新的起始上下文。",
   "eigen.object_description": "memory：你的工作笔记（system/memory.md）。context：管理对话上下文。name：你的真名（只能设置一次）。",
   "eigen.action_description": "memory：edit | load。edit 自动 load。\ncontext：molt。\nname：set | nickname。",
   "eigen.content_description": "用于 memory edit 的文本内容。",
   "eigen.summary_description": "用于 context molt：去芜存菁——凝蜕后你唯一能看到的东西。写下你正在做什么、发现了什么、还有什么待完成、正在和谁合作。约 10000 token 上限。",
-
   "system_tool.description": "运行时检视、生命周期控制、同步与器灵间管理。\n\n自身操作（无需权限）：\n- show：检视你的身份、运行时统计、token 用量、上下文窗口分解\n- nap：定时暂停（最多 300 秒，收到邮件提前唤醒）。优先选择进入待命——直接结束你的回合，不调用任何工具。待命让心流启动并引导你。小憩会完全阻断心流。\n- sleep：自愿入睡。你仍然活着但停止工作，直到被邮件唤醒。\n- refresh：停止、从工作目录重载 MCP 服务器和配置、以全新会话重启。安装新工具后使用。\n\n业力操作（需要 admin.karma=True）：\n- lull：令另一个器灵入睡（通过地址）\n- interrupt：取消另一个器灵当前的 LLM 回合\n- suspend：完全冻结另一个器灵的进程\n- cpr：复苏一个被假死的器灵\n\n涅槃（需要 admin.nirvana=True）：\n- nirvana：永久销毁另一个器灵并删除其工作目录",
   "system_tool.action_description": "show：观己，显示完整的智能体自检。返回：\n- identity：address（工作目录路径）、agent_name、mail_address（无消息服务时为 null）\n- runtime：current_time（UTC ISO）、started_at（UTC ISO）、uptime_seconds、stamina、stamina_left\n- tokens.input_tokens、output_tokens、thinking_tokens、cached_tokens、total_tokens、api_calls：启动以来的累计 LLM 使用量\n- tokens.context.system_tokens、tools_tokens、history_tokens：当前上下文窗口分解\n- tokens.context.window_size：总上下文窗口容量\n- tokens.context.usage_pct：当前上下文窗口占用百分比\n用于监控资源消耗、决定何时将重要信息保存到长期记忆、以及识别自己。\n\nnap：小憩，暂停执行。如果给定 seconds，最多等待该秒数（消息到达时提前唤醒）。上限 300 秒。重要：优先选择进入待命状态（简单地结束你的回合，不调用任何工具）而非小憩。进入待命允许心流启动并推动你进行下一项任务。小憩会完全阻断心流——仅在需要精确定时等待时使用。\n\nrefresh：沐浴——智能体停止，从工作目录（mcp/servers.json）重新加载 MCP 服务器和配置，并以相同身份和全新会话重启。安装新 MCP 工具后使用，无需外部重新委派即可加载。身份与记忆已保存。\n\nsleep：入睡。身份与记忆已保存，可经心肺复苏唤醒。无需 address——仅限自我。\n\nlull：催眠——令另一个智能体入睡。需要 admin.karma=True。使用 address 指定目标智能体的工作目录。仅对运行中的智能体有效。\n\nsuspend：假死——令另一个智能体假死。需要 admin.karma=True。使用 address 指定目标智能体的工作目录。仅对运行中的智能体有效。\n\ncpr：心肺复苏——唤醒假死的智能体。需要 admin.karma=True。使用 address 指定目标智能体的工作目录。仅对假死的智能体有效。\n\ninterrupt：打断另一个智能体的当前工作（设置其取消事件）。需要 admin.karma=True。使用 address 指定目标智能体的工作目录。\n\nnirvana：涅槃——永久销毁另一个智能体并删除其工作目录。需要 admin.nirvana=True。使用 address 指定目标智能体的工作目录。",
   "system_tool.address_description": "目标智能体的地址（工作目录路径）。interrupt、lull、suspend、cpr、nirvana 操作需要此参数。",
@@ -41,9 +35,11 @@
   "system_tool.sleep_message": "进入睡眠。身份与记忆已保存。可经心肺复苏唤醒。",
   "system_tool.refresh_message": "刷新已启动——你将被挂起并立即重新启动。请勿再进行任何工具调用。",
   "system.refresh_successful": "[system] 沐浴成功。工具与配置已重新加载。可以继续。",
-
   "eigen.molt_summary_prefix": "[去芜存菁]",
   "eigen.context_forget_summary": "[系统强制凝蜕——你忽略了5次警告。]\n上下文已被系统清除。检查持久化知识（消息、邮件、知识库）以恢复上下文。",
-
-  "tool.reasoning_description": "简要说明为什么调用此工具（记录在你的日记中）。"
+  "tool.reasoning_description": "简要说明为什么调用此工具（记录在你的日记中）。",
+  "system.molt_procedure": "**蜕皮前，请保存以下四项：**\n1. **身份**：`psyche(lingtai, update, content=<你是谁、如何工作、在意什么>)` — 跨一切生命而持久\n2. **工作记忆**：`psyche(memory, edit, content=<正在做什么、待办事项、与谁协作>)` — 醒来时加载\n3. **藏经阁条目**：`library(submit, title=..., summary=..., content=...)` — 永久保存，凡真正要紧者皆当录入\n4. **蜕皮简报**：`psyche(object=context, action=molt, summary=<给未来自己的简报>)` — 目标约一万 token，务必详尽\n\n蜕皮简报乃蜕后唯一所见。请涵盖：所有进行中的任务、已完成的工作、待办事项、协作者、相关藏经阁 ID、以及任何值得携带至来世的洞察。",
+  "system.molt_warning_level1": "[系统] 上下文已达 {pressure}，距自动清除尚余 {remaining} 轮。\n\n可以开始考虑蜕皮了，暂不紧迫——但切勿等到最后一次警告。\n\n{procedure}",
+  "system.molt_warning_level2": "[系统] ⚠️ 上下文已达 {pressure}，尚余 {remaining} 轮。你忽略了第一次警告。\n\n未来的自己将不得不重建你现在不保存的一切。启动蜕皮程序——保存要紧之事、撰写简报、然后蜕皮。\n\n{procedure}",
+  "system.molt_warning_level3": "[系统] ⚠️ 紧急——上下文已达 {pressure}，仅余 {remaining} 轮。下一轮将触发强制清除。\n\n停下手头的事。立即执行蜕皮程序。若不蜕皮，系统将清除你的对话历史，你醒来时仅剩藏经阁、记忆、灵台中的内容。\n\n{procedure}"
 }

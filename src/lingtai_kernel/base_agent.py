@@ -1031,21 +1031,32 @@ class BaseAgent:
             self._session._compaction_warnings += 1
             warnings = self._session._compaction_warnings
             remaining = max(0, max_warnings - warnings)
+            lang = self._config.language
             if warnings > max_warnings:
                 # Auto-forget — agent ignored all warnings
                 self._log("auto_forget", reason=f"ignored {max_warnings} molt warnings", pressure=pressure)
                 from .intrinsics import eigen as _eigen
                 _eigen.context_forget(self)
                 self._session._compaction_warnings = 0
-                molt_prompt = self._load_molt_prompt(warnings, pressure=pressure, remaining=remaining)
-                if molt_prompt:
-                    content = f"{molt_prompt}\n\n{content}"
+                content = f"{_t(lang, 'system.molt_wiped')}\n\n{content}"
             else:
-                # User prompt + mechanical data
-                molt_prompt = self._config.molt_prompt or self._load_molt_prompt(warnings, pressure=pressure, remaining=remaining)
-                if molt_prompt:
-                    status = f"[context: {pressure:.0%} | {remaining}/{max_warnings}]"
-                    content = f"{molt_prompt}\n{status}\n\n{content}"
+                # Warning ladder: level 1, 2, 3 based on accumulated warnings.
+                # Clamp to level 3 in case molt_warnings is configured >3.
+                # Each level's template includes a shared {procedure} block so
+                # the 4-step molt procedure lives in exactly one i18n string.
+                level = min(warnings, 3)
+                procedure = _t(lang, "system.molt_procedure")
+                level_prompt = _t(
+                    lang,
+                    f"system.molt_warning_level{level}",
+                    pressure=f"{pressure:.0%}",
+                    remaining=remaining,
+                    procedure=procedure,
+                )
+                # User's custom molt_prompt (if set) wins over the default ladder
+                molt_prompt = self._config.molt_prompt or level_prompt
+                status = f"[context: {pressure:.0%} | {remaining}/{max_warnings}]"
+                content = f"{molt_prompt}\n{status}\n\n{content}"
 
         content = f"{_t(self._config.language, 'system.current_time', time=current_time)}\n\n{content}"
         self._log("text_input", text=content)
@@ -1054,34 +1065,6 @@ class BaseAgent:
         self._save_chat_history()
         result = self._process_response(response)
         self._post_request(msg, result)
-
-    def _load_molt_prompt(self, level: int, pressure: float, remaining: int) -> str:
-        """Load and format molt warning prompt from file.
-
-        Level 1-3: warning_level1/2/3.md
-        Wiped: wiped.md
-        File location: {globalDir}/prompts/molt/{lang}/
-
-        Migration: TUI bootstrap copies lingtai/prompt/molt/ to {globalDir}/prompts/molt/
-        """
-        lang = self._config.language
-        if level > self._config.molt_warnings:
-            filename = "wiped.md"
-        else:
-            filename = f"warning_level{level}.md"
-
-        # Read from global prompts directory
-        prompt_file = self._working_dir / "prompts" / "molt" / lang / filename
-        if prompt_file.is_file():
-            try:
-                return prompt_file.read_text(encoding="utf-8").format(
-                    pressure=f"{pressure:.0%}", remaining=remaining
-                )
-            except Exception:
-                pass
-
-        # No fallback — migration should have placed files
-        return ""
 
     def _get_guard_limits(self) -> tuple[int, int, int]:
         """Return (max_total_calls, dup_free_passes, dup_hard_block).
