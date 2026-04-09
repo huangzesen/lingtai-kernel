@@ -38,7 +38,11 @@ def test_provider_dependent_capabilities():
     result = get_all_providers()
     assert result["vision"]["default"] is None
     assert "minimax" in result["vision"]["providers"]
-    assert "local" in result["vision"]["providers"]
+    assert "gemini" in result["vision"]["providers"]
+    # "local" is intentionally NOT advertised in PROVIDERS yet — it works
+    # via explicit opt-in (add_capability(..., provider="local")) but
+    # should not appear in check-caps output. See capabilities/vision.py.
+    assert "local" not in result["vision"]["providers"]
     assert result["listen"]["default"] == "whisper"
     assert result["compose"]["providers"] == ["minimax"]
 

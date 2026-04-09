@@ -6,8 +6,12 @@ created either explicitly or via the ``provider``/``api_key`` factory.
 Usage:
     agent.add_capability("vision", vision_service=my_svc)
     agent.add_capability("vision", provider="anthropic", api_key="sk-...")
-    agent.add_capability("vision", provider="local")  # mlx-vlm, no API key
-    agent.add_capability("vision", provider="local", model="mlx-community/Qwen2-VL-2B-Instruct-4bit")
+
+Note: a local mlx-vlm provider exists (``provider="local"``) and works
+on Apple Silicon, but it is intentionally NOT exposed in ``PROVIDERS``
+below so that first-run wizards and check-caps don't advertise it yet.
+Users who want it can opt in explicitly via ``add_capability`` with
+``provider="local"``; see ``services/vision/local.py``.
 """
 from __future__ import annotations
 
@@ -21,7 +25,7 @@ if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
 
 PROVIDERS = {
-    "providers": ["minimax", "gemini", "anthropic", "openai", "local"],
+    "providers": ["minimax", "gemini", "anthropic", "openai"],
     "default": None,
 }
 
