@@ -36,7 +36,7 @@
   "psyche.files": "可选之文卷路径列表，附加于记忆。每卷之内容于汝之文本后附加，以 [file-1]、[file-2] 等分隔。路径相对于工作目录。用于导入藏经阁导出之文卷或他文本文卷至记忆。",
   "psyche.summary": "用于 context molt：留予来世之己之前尘往事——转世后汝唯一可见者。载明所为何事、所得何物、尚余何务、与谁协作。约一万 token 为上限。",
 
-  "library.description": "藏经阁——存储要紧发现、数据、决策与成果之持久典藏。跨转世、重启、归寂而持久。经卷数有上限——珍惜每一条目。定期合经，以 supplementary 字段将扩展细节纳入更少条目。submit 录入。filter 检索（返 id + 题 + 摘要）。view 展阅全文。consolidate 合经。delete 焚经。export 将经卷冻结为不可变文卷——返文卷路径，可传予 psyche(memory, edit, files=[...]) 导入记忆。\n工作流：filter → view 查详 → export 冻结 → psyche(memory, edit, files=[路径]) 导入 → psyche(memory, load) 激活。\n私密之戒：藏经阁之 ID 唯汝可用——切勿传予他人。他者无法入汝之藏经阁。欲传知识于人，务以飞鸽传全文，或书于文卷而告其路径。",
+  "library.description": "藏经阁——存储要紧发现、数据、决策与成果之持久典藏。跨转世、重启、归寂而持久。经卷数有上限——珍惜每一条目。定期合经，以 supplementary 字段将扩展细节纳入更少条目。submit 录入。filter 检索（返 id + 题 + 摘要）。view 展阅全文。consolidate 合经。delete 焚经。export 将经卷冻结为不可变文卷。如何将藏经阁条目导入活跃记忆，参见 procedures 中知识导入之法。\n私密之戒：藏经阁之 ID 唯汝可用——切勿传予他人。他者无法入汝之藏经阁。欲传知识于人，务以飞鸽传全文，或书于文卷而告其路径。",
   "library.action": "submit：录入新经卷（须 title、summary、content）。filter：检索经卷（可选 pattern、limit）。view：以 ID 展阅完整经卷（须 ids）。consolidate：合经为一（须 ids、title、summary、content）。delete：焚经（须 ids）。export：将经卷冻结为不可变文卷（须 ids）——返文卷路径，用于 psyche(memory, edit, files=[...])。",
   "library.title": "经卷之题——一行。submit 与 consolidate 必填。",
   "library.summary": "经卷摘要——一至三句，用于检索。submit 与 consolidate 必填。",
@@ -47,7 +47,7 @@
   "library.limit": "filter 返回之最大条目数。",
   "library.depth": "view 之深度。'content'（默认）：id + 题 + 摘要 + 正文。'supplementary'：含扩展材料。",
 
-  "avatar.description": "身外化身——化出一他我，独立之进程，源于本我。他我承本我之 init.json（约、能、模型之配）。一经化出便为独立进程——新命也，纵本我殁亦存。以传书或飞鸽通信。type='shallow'（默认，投胎）：白纸状态，仅承 init.json。type='deep'（二重身）：拷本我之灵台、记忆、知识——分身也。诸他我记录于 delegates/ledger.jsonl——再化之前先查日志。要紧：reasoning 字段为他我之起始提示——书一份详尽之任务简报。 所行：'spawn'（默认）：生新他我。'rules'：设网络法则，分发于一切后代——须 admin 权限（karma）。抚育汝之他我：化出他我之后，请将其事记入汝 psyche memory——其址、所授之命、何以遣之。汝之 memory 即汝所负委派之活册。他我有报或功成时，请更其录。若某他我于汝所期之时沉默，或汝致其书始退，请勿发探问之书以试之——当以飞鸽达汝父代，陈其情，由彼决断：或 cpr 此他我、或再上报、或受其失。如此则失败沿委派之链自然上达，无须人人轮询于网络。",
+  "avatar.description": "身外化身——化出一他我，独立之进程，源于本我。他我承本我之 init.json（约、能、模型之配）。一经化出便为独立进程——新命也，纵本我殁亦存。以传书或飞鸽通信。type='shallow'（默认，投胎）：白纸状态，仅承 init.json。type='deep'（二重身）：拷本我之灵台、记忆、知识——分身也。诸他我记录于 delegates/ledger.jsonl——再化之前先查日志。要紧：reasoning 字段为他我之起始提示——书一份详尽之任务简报。 所行：'spawn'（默认）：生新他我。'rules'：设网络法则，分发于一切后代——须 admin 权限（karma）。抚育汝之他我：化出他我之后，请将其事记入汝 psyche memory——其址、所授之命、何以遣之。汝之 memory 即汝所负委派之活册。他我有报或功成时，请更其录。若某他我于汝所期之时沉默，或汝致其书始退，请勿发探问之书以试之——当以飞鸽达汝父代，陈其情，由彼决断：或 cpr 此他我、或再上报、或受其失。如此则失败沿委派之链自然上达，无须人人轮询于网络。另见 procedures 中分身委派之规。",
   "avatar.name": "他我之真名（必填，如'researcher'、'analyst'）",
   "avatar.type": "化身之类。'shallow'（默认，投胎）：白纸状态——仅承 init.json（模型配置与能）。'deep'（二重身）：全拷灵台、记忆、知识库。",
   "avatar.dir": "化身工作目录之文件夹名（必填）。同级须唯一。用简短 ASCII 名。此名成 .lingtai/ 下目录名。",

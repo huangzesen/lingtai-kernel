@@ -430,7 +430,7 @@ class Agent(BaseAgent):
             load_env_file(env_file)
 
         # Resolve *_file fields for top-level text content
-        for key in ("covenant", "principle", "memory", "prompt", "comment", "soul"):
+        for key in ("covenant", "principle", "procedures", "memory", "prompt", "comment", "soul"):
             file_key = f"{key}_file"
             if file_key in data:
                 data[key] = resolve_file(data.get(key), data.pop(file_key))
@@ -568,6 +568,16 @@ class Agent(BaseAgent):
             principle = principle_file.read_text()
         if principle:
             self._prompt_manager.write_section("principle", principle, protected=True)
+
+        # Reload procedures (same pattern as covenant/principle)
+        procedures = data.get("procedures", "")
+        procedures_file = system_dir / "procedures.md"
+        if procedures:
+            procedures_file.write_text(procedures)
+        elif procedures_file.is_file():
+            procedures = procedures_file.read_text()
+        if procedures:
+            self._prompt_manager.write_section("procedures", procedures, protected=True)
 
         # Reload comment (app-level, always last, not inherited by avatars)
         comment = data.get("comment", "")

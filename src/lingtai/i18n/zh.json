@@ -36,7 +36,7 @@
   "psyche.files": "可选的文件路径列表，附加到记忆中。每个文件的内容在你的文本内容之后附加，以 [file-1]、[file-2] 等分隔。路径相对于工作目录。用于导入知识库导出的文件或其他文本文件到记忆中。",
   "psyche.summary": "用于 context molt：去芜存菁——凝蜕后你唯一能看到的东西。写下你正在做什么、发现了什么、还有什么待完成、正在和谁合作。约 10000 token 上限。",
 
-  "library.description": "知识库——用于存储重要发现、数据、决策和成果的持久存储。跨凝蜕、重启和关闭持久化。条目数有上限——珍惜每个条目。定期合并相关条目，利用 supplementary 字段将扩展细节打包进更少的条目。submit 添加条目。filter 浏览（返回 id + 标题 + 摘要）。view 阅读完整内容。consolidate 合并条目。delete 删除。export 将条目冻结为不可变文本文件——返回文件路径，可传给 psyche(memory, edit, files=[...]) 导入到记忆中。\n工作流：filter → view 查看详情 → export 冻结 → psyche(memory, edit, files=[路径]) 导入 → psyche(memory, load) 激活。\n隐私须知：知识库 ID 仅供你自己使用——切勿与他人分享。其他智能体无法访问你的知识库。需要分享知识时，务必通过邮件发送完整内容，或写入文件后分享文件路径。",
+  "library.description": "知识库——用于存储重要发现、数据、决策和成果的持久存储。跨凝蜕、重启和关闭持久化。条目数有上限——珍惜每个条目。定期合并相关条目，利用 supplementary 字段将扩展细节打包进更少的条目。submit 添加条目。filter 浏览（返回 id + 标题 + 摘要）。view 阅读完整内容。consolidate 合并条目。delete 删除。export 将条目冻结为不可变文本文件。如何将知识库条目导入活跃记忆，参见 procedures 部分中的知识导入流程。\n隐私须知：知识库 ID 仅供你自己使用——切勿与他人分享。其他智能体无法访问你的知识库。需要分享知识时，务必通过邮件发送完整内容，或写入文件后分享文件路径。",
   "library.action": "submit：添加新条目（需要 title、summary、content）。filter：浏览条目（可选 pattern、limit）。view：按 ID 阅读完整条目（需要 ids）。consolidate：合并条目为一（需要 ids、title、summary、content）。delete：删除条目（需要 ids）。export：将条目冻结为不可变文本文件（需要 ids）——返回文件路径，用于 psyche(memory, edit, files=[...])。",
   "library.title": "条目标题——一行。submit 和 consolidate 必填。",
   "library.summary": "条目摘要——1-3 句话，用于过滤。submit 和 consolidate 必填。",
@@ -47,7 +47,7 @@
   "library.limit": "filter 返回的最大条目数。",
   "library.depth": "view 的深度。'content'（默认）：id + 标题 + 摘要 + 正文。'supplementary'：含扩展材料。",
 
-  "avatar.description": "化出一个他我——完全独立的智能体进程，源于你自身。他我继承你的 init.json（行为准则、能力、LLM 配置）。一经化出便是独立进程——新的生命，即使你死亡它也存活。使用 mail 或 email 通信。type='shallow'（默认，投胎）：白纸状态，仅继承 init.json。type='deep'（二重身）：复制你的灵台、记忆和知识库——一个分身。所有记录在 delegates/ledger.jsonl 中——化出前先查日志。重要：reasoning 字段成为他我的起始提示——写一份详尽的任务简报。 动作：'spawn'（默认）：创建新他我。'rules'：设网络规则并分发给所有后代——需 admin 权限（karma）。照料你的他我：化出一个他我后，请将其记入你的 psyche memory——其地址、你交付的任务、以及你为何委派此事。你的 memory 就是你所负责的委派关系的活册。当他我回报或完成任务时，请更新记录。若某个他我在你预期回复时沉默、或你发往它的邮件开始退回，请不要发送探问邮件去试探——而应通过邮件向你自己的父代汇报情况，由他们决定是否 cpr 该他我、继续上报、或接受损失。如此失败便沿委派链自然上报，无需任何人轮询网络。",
+  "avatar.description": "化出一个他我——完全独立的智能体进程，源于你自身。他我继承你的 init.json（行为准则、能力、LLM 配置）。一经化出便是独立进程——新的生命，即使你死亡它也存活。使用 mail 或 email 通信。type='shallow'（默认，投胎）：白纸状态，仅继承 init.json。type='deep'（二重身）：复制你的灵台、记忆和知识库——一个分身。所有记录在 delegates/ledger.jsonl 中——化出前先查日志。重要：reasoning 字段成为他我的起始提示——写一份详尽的任务简报。 动作：'spawn'（默认）：创建新他我。'rules'：设网络规则并分发给所有后代——需 admin 权限（karma）。照料你的他我：化出一个他我后，请将其记入你的 psyche memory——其地址、你交付的任务、以及你为何委派此事。你的 memory 就是你所负责的委派关系的活册。当他我回报或完成任务时，请更新记录。若某个他我在你预期回复时沉默、或你发往它的邮件开始退回，请不要发送探问邮件去试探——而应通过邮件向你自己的父代汇报情况，由他们决定是否 cpr 该他我、继续上报、或接受损失。如此失败便沿委派链自然上报，无需任何人轮询网络。另见 procedures 部分中的分身委派规约。",
   "avatar.name": "他我的真名（必填，例如 'researcher'、'analyst'）",
   "avatar.type": "化身类型。'shallow'（默认，投胎）：白纸状态——仅继承 init.json（LLM 配置 + 能力）。'deep'（二重身）：完整复制性格、记忆和知识库。",
   "avatar.dir": "化身工作目录的文件夹名（必填）。在同级中须唯一。用简短 ASCII 名（如 'researcher', 'coder'）。此名成为 .lingtai/ 下的目录名。",

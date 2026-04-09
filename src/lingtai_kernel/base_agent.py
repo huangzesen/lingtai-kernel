@@ -88,6 +88,7 @@ class BaseAgent:
         streaming: bool = False,
         covenant: str = "",
         principle: str = "",
+        procedures: str = "",
         memory: str = "",
         comment: str = "",
     ):
@@ -130,11 +131,12 @@ class BaseAgent:
         # Set by psyche capability to prevent stop() from overwriting memory.md
         self._eigen_owns_memory = False
 
-        # Covenant, principle, and memory file paths
+        # Covenant, principle, procedures, and memory file paths
         system_dir = self._working_dir / "system"
         memory_file = system_dir / "memory.md"
         covenant_file = system_dir / "covenant.md"
         principle_file = system_dir / "principle.md"
+        procedures_file = system_dir / "procedures.md"
 
         system_dir.mkdir(exist_ok=True)
 
@@ -152,6 +154,12 @@ class BaseAgent:
         elif principle_file.is_file():
             principle = principle_file.read_text()
 
+        # Procedures: same pattern as covenant/principle
+        if procedures:
+            procedures_file.write_text(procedures)
+        elif procedures_file.is_file():
+            procedures = procedures_file.read_text()
+
         # Memory: constructor value seeds the file if it doesn't exist
         if memory and not memory_file.is_file():
             memory_file.write_text(memory)
@@ -167,6 +175,8 @@ class BaseAgent:
             self._prompt_manager.write_section("principle", principle, protected=True)
         if covenant:
             self._prompt_manager.write_section("covenant", covenant, protected=True)
+        if procedures:
+            self._prompt_manager.write_section("procedures", procedures, protected=True)
         # Load existing rules from system/rules.md (survives molts, refreshes, and resumes)
         rules_md = system_dir / "rules.md"
         if rules_md.is_file():
@@ -1058,16 +1068,14 @@ class BaseAgent:
             else:
                 # Warning ladder: level 1, 2, 3 based on accumulated warnings.
                 # Clamp to level 3 in case molt_warnings is configured >3.
-                # Each level's template includes a shared {procedure} block so
-                # the 4-step molt procedure lives in exactly one i18n string.
+                # The molt procedure is in the system prompt (## procedures),
+                # so warnings only need urgency framing.
                 level = min(warnings, 3)
-                procedure = _t(lang, "system.molt_procedure")
                 level_prompt = _t(
                     lang,
                     f"system.molt_warning_level{level}",
                     pressure=f"{pressure:.0%}",
                     remaining=remaining,
-                    procedure=procedure,
                 )
                 # User's custom molt_prompt (if set) wins over the default ladder
                 molt_prompt = self._config.molt_prompt or level_prompt
