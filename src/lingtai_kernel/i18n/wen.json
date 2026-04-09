@@ -1,6 +1,6 @@
 {
   "system.current_time": "[此时：{time}]",
-  "system.new_mail": "[系统] {box}有新书至。\n  寄者：{sender}\n  题：{subject}\n  发于：{sent_at}\n  {preview}\n以 {tool}(action=\"check\") 查阅收信。",
+  "system.new_mail": "[系统] {box}有新书至。\n  寄者：{sender}\n  题：{subject}\n  发于：{sent_at}\n  {preview}\n若上方预览末有 \"... (N more chars)\"，以 {tool}(action=\"check\") 展其全文。",
   "system.mail_bounce": "[系统] 书信未达：{error}\n  收者：{address}\n  题：{subject}",
   "system.stuck_revive": "[系统] 灵识于 {ts} 失联。汝所调之器：{tool_calls}。正在重连。",
   "system.molt_wiped": "[系统] 上下文已清除。汝忽略一切转世警告——对话史已尽失。\n\n**恢复之法：**\n一、`psyche(lingtai, load)` — 复汝之灵台\n二、`psyche(memory, load)` — 复汝之工作笔记\n三、`email(check)` 与 `library(filter, pattern=...)` — 检视清前所存\n\n前尘已失，然身份与所积之知犹存。由此重整旗鼓。\n\n**往后之鉴：** 首警即行，勿待终警。",

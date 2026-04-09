@@ -1,6 +1,6 @@
 {
   "system.current_time": "[当前时间：{time}]",
-  "system.new_mail": "[系统] {box}有新消息。\n  发件人：{sender}\n  主题：{subject}\n  发送时间：{sent_at}\n  {preview}\n使用 {tool}(action=\"check\") 查看收件箱。",
+  "system.new_mail": "[系统] {box}有新消息。\n  发件人：{sender}\n  主题：{subject}\n  发送时间：{sent_at}\n  {preview}\n若上方预览末尾有 \"... (N more chars)\"，使用 {tool}(action=\"check\") 查看完整内容。",
   "system.mail_bounce": "[系统] 消息投递失败：{error}\n  收件人：{address}\n  主题：{subject}",
   "system.stuck_revive": "[系统] LLM 调用于 {ts} 失败。你调用了：{tool_calls}。正在重试。",
   "system.molt_wiped": "[系统] 上下文已清除。你忽略了所有凝蜕警告——对话历史已丢失。\n\n**恢复步骤：**\n1. `psyche(lingtai, load)` — 恢复你的身份\n2. `psyche(memory, load)` — 恢复你的工作笔记\n3. `email(check)` 与 `library(filter, pattern=...)` — 查看清除前已保存的内容\n\n先前上下文已丢失，但你的身份和存储的知识仍在。从那些内容重建。\n\n**往后之鉴：** 收到第一次警告即行动，勿等第三次。",

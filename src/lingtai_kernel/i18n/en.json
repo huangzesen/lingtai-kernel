@@ -1,6 +1,6 @@
 {
   "system.current_time": "[Current time: {time}]",
-  "system.new_mail": "[system] New message in {box}.\n  From: {sender}\n  Subject: {subject}\n  Sent at: {sent_at}\n  {preview}\nUse {tool}(action=\"check\") to see your inbox.",
+  "system.new_mail": "[system] New message in {box}.\n  From: {sender}\n  Subject: {subject}\n  Sent at: {sent_at}\n  {preview}\nUse {tool}(action=\"check\") if the preview above ends with \"... (N more chars)\".",
   "system.mail_bounce": "[system] Mail delivery failed: {error}\n  To: {address}\n  Subject: {subject}",
   "system.stuck_revive": "[system] LLM call failed at {ts}. You called: {tool_calls}. Retrying.",
   "system.molt_wiped": "[system] Context wiped. You ignored all molt warnings — conversation history is gone.\n\n**Recovery:**\n1. `psyche(lingtai, load)` — restore your identity\n2. `psyche(memory, load)` — restore your working notes\n3. `email(check)` and `library(filter, pattern=...)` — check what was saved before wipe\n\nYour previous context is gone, but your identity and stored knowledge remain. Reconstruct from those.\n\n**Next time:** act on the first warning, not the third.",
