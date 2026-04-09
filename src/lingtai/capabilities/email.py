@@ -28,6 +28,7 @@ from lingtai_kernel.intrinsics.mail import (
     _persist_to_outbox, _mailman,
 )
 from lingtai_kernel.message import _make_message, MSG_REQUEST
+from lingtai_kernel.token_counter import count_tokens
 
 from ..i18n import t
 
@@ -35,10 +36,16 @@ if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
 
 
-def _preview(body: str) -> str:
-    if len(body) > 500:
-        return body[:500] + f"... ({len(body) - 500} more chars)"
+def _preview(body: str, limit: int = 500) -> str:
+    if limit <= 0:
+        return body
+    if len(body) > limit:
+        return body[:limit] + f"... ({len(body) - limit} more chars)"
     return body
+
+def _email_time(e: dict) -> str:
+    """Extract the best timestamp from an email dict for filtering."""
+    return e.get("received_at") or e.get("sent_at") or e.get("time") or ""
 
 PROVIDERS = {"providers": [], "default": "builtin"}
 
@@ -118,6 +125,50 @@ def get_schema(lang: str = "en") -> dict:
             "note": {
                 "type": "string",
                 "description": t(lang, "email.note"),
+            },
+            "filter": {
+                "type": "object",
+                "description": t(lang, "email.filter"),
+                "properties": {
+                    "sort": {
+                        "type": "string",
+                        "enum": ["newest", "oldest"],
+                        "description": t(lang, "email.filter_sort"),
+                    },
+                    "from": {
+                        "type": "string",
+                        "description": t(lang, "email.filter_from"),
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": t(lang, "email.filter_subject"),
+                    },
+                    "contains": {
+                        "type": "string",
+                        "description": t(lang, "email.filter_contains"),
+                    },
+                    "after": {
+                        "type": "string",
+                        "description": t(lang, "email.filter_after"),
+                    },
+                    "before": {
+                        "type": "string",
+                        "description": t(lang, "email.filter_before"),
+                    },
+                    "unread_only": {
+                        "type": "boolean",
+                        "description": t(lang, "email.filter_unread_only"),
+                    },
+                    "has_attachments": {
+                        "type": "boolean",
+                        "description": t(lang, "email.filter_has_attachments"),
+                    },
+                    "truncate": {
+                        "type": "integer",
+                        "description": t(lang, "email.filter_truncate"),
+                        "default": 500,
+                    },
+                },
             },
             "schedule": {
                 "type": "object",
@@ -245,18 +296,16 @@ class EmailManager:
                     emails.append(data)
                 except (json.JSONDecodeError, OSError):
                     continue
-        def sort_key(e):
-            return e.get("received_at") or e.get("sent_at") or e.get("time") or ""
-        emails.sort(key=sort_key, reverse=True)
+        emails.sort(key=_email_time, reverse=True)
         return emails
 
-    def _email_summary(self, e: dict, read_set: set[str] | None = None) -> dict:
+    def _email_summary(self, e: dict, read_set: set[str] | None = None, truncate: int = 500) -> dict:
         """Build a summary dict from a raw email dict."""
         if read_set is None:
             read_set = _read_ids(self._agent)
         if e.get("_folder") == "inbox":
             # Delegate to mail intrinsic helper for base fields
-            summary = _message_summary(e, read_set)
+            summary = _message_summary(e, read_set, truncate=truncate)
             # Add email-capability extras
             summary["folder"] = "inbox"
             if e.get("cc"):
@@ -264,7 +313,7 @@ class EmailManager:
             self._inject_identity(summary, e)
             return summary
         if e.get("_folder") == "archive":
-            summary = _message_summary(e, read_set)
+            summary = _message_summary(e, read_set, truncate=truncate)
             summary["folder"] = "archive"
             if e.get("cc"):
                 summary["cc"] = e["cc"]
@@ -277,7 +326,7 @@ class EmailManager:
             "from": e.get("from", ""),
             "to": e.get("to", []),
             "subject": e.get("subject", "(no subject)"),
-            "preview": _preview(e.get("message", "")),
+            "preview": _preview(e.get("message", ""), limit=truncate),
             "time": e.get("received_at") or e.get("sent_at") or e.get("time") or "",
             "folder": e.get("_folder", ""),
         }
@@ -835,12 +884,51 @@ class EmailManager:
     def _check(self, args: dict) -> dict:
         folder = args.get("folder", "inbox")
         n = args.get("n", 10)
+        f = args.get("filter") or {}
+        sort = f.get("sort", "newest")
+        truncate = f.get("truncate", 500)
+
         emails = self._list_emails(folder)
+        read_set = _read_ids(self._agent)
+
+        # Filters
+        if f.get("from"):
+            ff = f["from"].lower()
+            emails = [e for e in emails if ff in (e.get("from") or "").lower()]
+        if f.get("subject"):
+            sf = f["subject"].lower()
+            emails = [e for e in emails if sf in (e.get("subject") or "").lower()]
+        if f.get("contains"):
+            cf = f["contains"].lower()
+            emails = [e for e in emails if cf in (e.get("message") or "").lower()]
+        if f.get("after"):
+            emails = [e for e in emails if _email_time(e) >= f["after"]]
+        if f.get("before"):
+            emails = [e for e in emails if _email_time(e) <= f["before"]]
+        if f.get("unread_only"):
+            emails = [e for e in emails if e.get("_mailbox_id", "") not in read_set]
+        if f.get("has_attachments"):
+            emails = [e for e in emails if e.get("attachments")]
+
+        # Sort
+        if sort == "oldest":
+            emails = list(reversed(emails))
+
         total = len(emails)
         recent = emails[:n] if n > 0 else emails
-        read_set = _read_ids(self._agent)
-        summaries = [self._email_summary(e, read_set) for e in recent]
-        return {"status": "ok", "total": total, "showing": len(summaries), "emails": summaries}
+        summaries = [self._email_summary(e, read_set, truncate=truncate) for e in recent]
+
+        # Token budget — cap total response at 10k tokens
+        result = {"status": "ok", "total": total, "showing": len(summaries), "emails": summaries}
+        tokens = count_tokens(json.dumps(result, ensure_ascii=False))
+        if tokens > 10_000:
+            while summaries and count_tokens(json.dumps(result, ensure_ascii=False)) > 10_000:
+                summaries.pop()
+                result["emails"] = summaries
+                result["showing"] = len(summaries)
+            result["truncated_by_budget"] = total - len(summaries)
+
+        return result
 
     # ------------------------------------------------------------------
     # Read — load full email by ID

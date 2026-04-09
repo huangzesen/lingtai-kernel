@@ -170,12 +170,12 @@ def _mark_read(agent, msg_id: str) -> None:
     _save_read_ids(agent, ids)
 
 
-def _message_summary(msg: dict, read_ids: set[str]) -> dict:
+def _message_summary(msg: dict, read_ids: set[str], truncate: int = 500) -> dict:
     """Build a summary dict for check output."""
     msg_id = msg.get("_mailbox_id", "")
     body = msg.get("message", "")
-    if len(body) > 500:
-        preview = body[:500] + f"... ({len(body) - 500} more chars)"
+    if truncate > 0 and len(body) > truncate:
+        preview = body[:truncate] + f"... ({len(body) - truncate} more chars)"
     else:
         preview = body
     identity = msg.get("identity")
