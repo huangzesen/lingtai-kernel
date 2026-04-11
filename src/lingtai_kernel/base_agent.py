@@ -976,10 +976,18 @@ class BaseAgent:
         working_dir = self._working_dir
         (working_dir / ".refresh").touch()
 
-        # Deferred relaunch: sleep 3s then start new process
+        # Deferred relaunch: wait for lock file to disappear (old process
+        # died), then start new process. Polls every 0.5s, gives up after
+        # 60s to avoid orphaned relaunch scripts.
+        lock_path = str(working_dir / ".agent.lock")
         relaunch_script = (
-            "import time, subprocess\n"
-            "time.sleep(3)\n"
+            "import time, subprocess, os\n"
+            f"lock = {lock_path!r}\n"
+            "deadline = time.time() + 60\n"
+            "time.sleep(1)\n"  # brief grace period
+            "while os.path.exists(lock) and time.time() < deadline:\n"
+            "    time.sleep(0.5)\n"
+            "time.sleep(0.5)\n"  # extra settle time after lock gone
             f"subprocess.Popen({cmd!r},\n"
             "    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,\n"
             "    stderr=subprocess.DEVNULL, start_new_session=True)\n"
