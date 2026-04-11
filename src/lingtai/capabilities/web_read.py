@@ -15,7 +15,7 @@ from ..i18n import t
 if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
 
-PROVIDERS = {"providers": [], "default": "builtin"}
+PROVIDERS = {"providers": ["zhipu"], "default": "builtin"}
 
 
 def get_description(lang: str = "en") -> str:
@@ -62,15 +62,21 @@ class WebReadManager:
         try:
             result = self._service.read(url, output_format=output_format)
             return {"status": "ok", "url": url, "content": result.content, "title": result.title}
-        except ImportError as e:
-            return {"status": "error", "message": str(e)}
-        except RuntimeError as e:
+        except Exception as e:
             return {"status": "error", "message": str(e)}
 
 
 def setup(agent: "BaseAgent", web_read_service: Any | None = None,
+          provider: str | None = None, api_key: str | None = None,
           **kwargs: Any) -> WebReadManager:
-    """Set up the web_read capability on an agent."""
+    """Set up the web_read capability on an agent.
+
+    If ``provider="zhipu"`` and ``api_key`` is given, uses Z.AI's reader API
+    instead of the default trafilatura fallback.
+    """
+    if web_read_service is None and provider == "zhipu" and api_key:
+        from ..services.web_read import ZhipuWebReadService
+        web_read_service = ZhipuWebReadService(api_key=api_key)
     lang = agent._config.language
     mgr = WebReadManager(web_read_service=web_read_service)
     agent.add_tool("web_read", schema=get_schema(lang), handler=mgr.handle, description=get_description(lang))

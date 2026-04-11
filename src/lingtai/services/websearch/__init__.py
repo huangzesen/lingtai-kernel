@@ -105,7 +105,11 @@ def create_search_service(
         from .minimax import MiniMaxSearchService
         return MiniMaxSearchService(api_key=_require_key(), api_host=api_host)
 
+    if name == "zhipu":
+        from .zhipu import ZhipuSearchService
+        return ZhipuSearchService(api_key=_require_key())
+
     raise ValueError(
         f"Unknown web search provider: {provider!r}. "
-        f"Supported: duckduckgo, anthropic, openai, gemini, minimax."
+        f"Supported: duckduckgo, anthropic, openai, gemini, minimax, zhipu."
     )

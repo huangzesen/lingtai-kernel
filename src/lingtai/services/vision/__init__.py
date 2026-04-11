@@ -96,8 +96,11 @@ def create_vision_service(provider: str, *, api_key: str | None = None, **kwargs
     elif provider == "minimax":
         from .minimax import MiniMaxVisionService
         return MiniMaxVisionService(api_key=api_key, **kwargs)
+    elif provider == "zhipu":
+        from .zhipu import ZhipuVisionService
+        return ZhipuVisionService(api_key=api_key, **kwargs)
     else:
         raise ValueError(
             f"Unsupported vision provider: {provider!r}. "
-            f"Supported: anthropic, openai, gemini, minimax, local."
+            f"Supported: anthropic, openai, gemini, minimax, zhipu, local."
         )

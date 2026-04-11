@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
 
 PROVIDERS = {
-    "providers": ["minimax", "gemini", "anthropic", "openai"],
+    "providers": ["minimax", "zhipu", "gemini", "anthropic", "openai"],
     "default": None,
 }
 
