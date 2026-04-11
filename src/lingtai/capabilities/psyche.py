@@ -3,7 +3,8 @@
 Upgrades the eigen intrinsic with:
 - Evolving identity (covenant + character)
 - Enhanced memory.edit with file import (files param)
-- memory.load delegation to eigen
+- memory.append — pin files as read-only reference (persisted in system/memory_append.json)
+- memory.load delegation to eigen (auto-appends pinned files)
 - Context molt delegation to eigen
 
 Library is a separate standalone capability.
@@ -13,6 +14,7 @@ Usage:
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -39,7 +41,7 @@ def get_schema(lang: str = "en") -> dict:
             },
             "action": {
                 "type": "string",
-                "enum": ["update", "load", "edit", "molt"],
+                "enum": ["update", "load", "edit", "append", "molt"],
                 "description": t(lang, "psyche.action"),
             },
             "content": {
@@ -80,7 +82,7 @@ class PsycheManager:
 
     _VALID_ACTIONS: dict[str, set[str]] = {
         "lingtai": {"update", "load"},
-        "memory": {"edit", "load"},
+        "memory": {"edit", "load", "append"},
         "context": {"molt"},
     }
 
@@ -189,9 +191,135 @@ class PsycheManager:
             "object": "memory", "action": "edit", "content": combined,
         })
 
+    # ------------------------------------------------------------------
+    # Memory append — pin files as read-only reference
+    # ------------------------------------------------------------------
+
+    _APPEND_LIST_PATH = "system/memory_append.json"
+    _APPEND_TOKEN_LIMIT = 100_000
+
+    @property
+    def _append_list_file(self) -> Path:
+        return self._working_dir / self._APPEND_LIST_PATH
+
+    def _load_append_list(self) -> list[str]:
+        """Read the persisted append file list (empty list if missing)."""
+        if not self._append_list_file.is_file():
+            return []
+        try:
+            data = json.loads(self._append_list_file.read_text())
+            if isinstance(data, list):
+                return [str(p) for p in data]
+        except (json.JSONDecodeError, OSError):
+            pass
+        return []
+
+    def _save_append_list(self, files: list[str]) -> None:
+        """Persist the append file list to disk."""
+        self._append_list_file.parent.mkdir(exist_ok=True)
+        self._append_list_file.write_text(json.dumps(files, ensure_ascii=False))
+
+    def _resolve_path(self, fpath: str) -> Path:
+        if os.path.isabs(fpath):
+            return Path(fpath)
+        return self._working_dir / fpath
+
+    def _read_append_content(self, files: list[str]) -> tuple[str, list[str]]:
+        """Read all append files. Returns (combined content, not_found list)."""
+        parts: list[str] = []
+        not_found: list[str] = []
+        for fpath in files:
+            resolved = self._resolve_path(fpath)
+            if not resolved.is_file():
+                not_found.append(fpath)
+                continue
+            parts.append(f"[append: {fpath}]\n{resolved.read_text()}")
+        return "\n\n".join(parts), not_found
+
+    @staticmethod
+    def _is_text_file(path: Path, sample_size: int = 8192) -> bool:
+        """Check if a file is a text file by reading the first chunk."""
+        try:
+            chunk = path.read_bytes()[:sample_size]
+        except OSError:
+            return False
+        # Null bytes are a strong binary indicator
+        if b"\x00" in chunk:
+            return False
+        try:
+            chunk.decode("utf-8")
+            return True
+        except UnicodeDecodeError:
+            return False
+
+    def _memory_append(self, args: dict) -> dict:
+        """Set the list of files pinned as read-only memory reference.
+
+        Pass files=[] to clear. Persisted to system/memory_append.json.
+        Automatically reloads memory after updating the list.
+        Only text files are accepted.
+        """
+        files = args.get("files")
+        if files is None:
+            # No files param — return current list
+            current = self._load_append_list()
+            return {"status": "ok", "files": current, "count": len(current)}
+
+        # Validate all files exist and are text
+        not_found: list[str] = []
+        not_text: list[str] = []
+        for fpath in files:
+            resolved = self._resolve_path(fpath)
+            if not resolved.is_file():
+                not_found.append(fpath)
+            elif not self._is_text_file(resolved):
+                not_text.append(fpath)
+        if not_found:
+            return {"error": f"Files not found: {', '.join(not_found)}"}
+        if not_text:
+            return {"error": f"Only text files are accepted. Binary files: {', '.join(not_text)}"}
+
+        if files:
+            # Token guard
+            from lingtai_kernel.token_counter import count_tokens
+            combined, _ = self._read_append_content(files)
+            tokens = count_tokens(combined)
+            if tokens > self._APPEND_TOKEN_LIMIT:
+                return {
+                    "error": f"Append files total {tokens:,} tokens, "
+                    f"exceeding the {self._APPEND_TOKEN_LIMIT:,} token limit. "
+                    f"Reduce the number or size of files.",
+                }
+
+        # Persist and reload
+        self._save_append_list(files)
+        self._memory_load({})
+
+        action = "cleared" if not files else "set"
+        return {"status": "ok", "action": action, "files": files, "count": len(files)}
+
     def _memory_load(self, args: dict) -> dict:
-        """Delegate to eigen's memory load."""
-        return self._eigen_handler({"object": "memory", "action": "load"})
+        """Load memory.md + appended reference files into prompt."""
+        # First, delegate to eigen for the base memory.md load
+        result = self._eigen_handler({"object": "memory", "action": "load"})
+
+        # Then append pinned files (read-only) to the memory section
+        append_files = self._load_append_list()
+        if append_files:
+            append_content, not_found = self._read_append_content(append_files)
+            if append_content:
+                existing = self._agent._prompt_manager.read_section("memory") or ""
+                combined = existing + "\n\n---\n# 📎 Reference (read-only)\n\n" + append_content
+                self._agent._prompt_manager.write_section("memory", combined)
+                self._agent._token_decomp_dirty = True
+                self._agent._flush_system_prompt()
+            if not_found:
+                result["append_not_found"] = not_found
+
+            result["append_files"] = append_files
+            result["append_count"] = len(append_files)
+
+        return result
 
     # ------------------------------------------------------------------
     # Context actions — delegate to eigen

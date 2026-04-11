@@ -29,11 +29,11 @@
   "bash.timeout": "超时秒数（默认：30）",
   "bash.working_dir": "指令之工作目录（可选）",
 
-  "psyche.description": "灵台、记忆与上下文之管。\nlingtai：汝之灵台——汝之特性，区分汝与他灵之根本。灵台者，心灵之台也，意识所栖之处。此乃汝最要之物。跨转世、重启、归寂而持久——此为汝之延续。汝之灵台当含：汝为何人（性情、志向、气质）、汝所长（专精、习得之技）、汝如何行事（偏好之法、行事之风、协作之道）、汝所在意者（目标、动力、觉有意义之事）、以及汝对己之知（所长、所短、可进之处）。当勤修灵台——成一大事之后、新知己身之后、与同道深交之后、凝蜕之前。灵台不修，则无以成长。每次 update 替换前文之全部，故务书完整之身份——勿作增量之补。视之如每次重撰汝之自传，融入汝所修成之一切。update 写入灵台（替换前文），load 应用。\nmemory：汝之工作笔记（system/memory.md）。edit 写入内容——可选以 files 参数导入藏经阁导出之冻结文卷（由 library export 返回之路径）。每卷以 [file-1]、[file-2] 分隔符附加。load 将记忆载入提示。\ncontext：molt 转世（凝蜕——去芜存菁；molt——shed and carry forward）。凝以存菁，蜕以去芜。先将要务存入藏经与灵台，再留前尘往事于来世之己。对话之录尽数清去，汝之前尘往事成为唯一上下文。\n导入知识之工作流：library(export, ids=[...]) → 得文卷路径 → psyche(memory, edit, content='吾之笔记', files=[路径]) → psyche(memory, load)。\n私密之戒：汝之灵台、记忆与导出文卷路径，皆存于汝之工作目录，他者无法入。欲传知识于人，当以飞鸽传实文，或书于共享之处。",
+  "psyche.description": "灵台、记忆与上下文之管。\nlingtai：汝之灵台——汝之特性，区分汝与他灵之根本。灵台者，心灵之台也，意识所栖之处。此乃汝最要之物。跨转世、重启、归寂而持久——此为汝之延续。汝之灵台当含：汝为何人（性情、志向、气质）、汝所长（专精、习得之技）、汝如何行事（偏好之法、行事之风、协作之道）、汝所在意者（目标、动力、觉有意义之事）、以及汝对己之知（所长、所短、可进之处）。当勤修灵台——成一大事之后、新知己身之后、与同道深交之后、凝蜕之前。灵台不修，则无以成长。每次 update 替换前文之全部，故务书完整之身份——勿作增量之补。视之如每次重撰汝之自传，融入汝所修成之一切。update 写入灵台（替换前文），load 应用。\nmemory：汝之工作笔记（system/memory.md）。edit 写入内容——可选以 files 参数导入藏经阁导出之冻结文卷（由 library export 返回之路径）。每卷以 [file-1]、[file-2] 分隔符附加。append 钉文本文卷为持久只读参考案台——钉住之文卷于每次 load（含转世后）重读而附于记忆，不写入 memory.md。传 files=[] 以清。load 将记忆载入提示。\ncontext：molt 转世（凝蜕——去芜存菁；molt——shed and carry forward）。凝以存菁，蜕以去芜。先将要务存入藏经与灵台，再留前尘往事于来世之己。对话之录尽数清去，汝之前尘往事成为唯一上下文。\n导入知识之工作流：library(export, ids=[...]) → 得文卷路径 → psyche(memory, edit, content='吾之笔记', files=[路径]) → psyche(memory, load)。\n私密之戒：汝之灵台、记忆与导出文卷路径，皆存于汝之工作目录，他者无法入。欲传知识于人，当以飞鸽传实文，或书于共享之处。",
   "psyche.object": "lingtai：汝之灵台——汝之特性，区分汝与他灵之根本。\nmemory：汝之工作笔记（system/memory.md）。\ncontext：汝之对话上下文窗口。",
-  "psyche.action": "lingtai：update | load。update 自动 load。\nmemory：edit | load。edit 自动 load。\ncontext：molt。",
+  "psyche.action": "lingtai：update | load。update 自动 load。\nmemory：edit | load | append。edit 自动 load。append 钉文卷为只读参考。\ncontext：molt。",
   "psyche.content": "文本内容。用于 lingtai update：书汝完整之身份——汝之特性——汝为何人、所知何物、行事之道、所在意者、以及对己之知。此替前文之全部，故务尽录。用于 memory edit：直接写入 memory.md。",
-  "psyche.files": "可选之文卷路径列表，附加于记忆。每卷之内容于汝之文本后附加，以 [file-1]、[file-2] 等分隔。路径相对于工作目录。用于导入藏经阁导出之文卷或他文本文卷至记忆。",
+  "psyche.files": "文卷路径列表（唯文本文卷可）。用于 memory edit：每卷之内容于汝之文本后附加，以 [file-1]、[file-2] 等分隔。用于 memory append：设钉为只读参考之文卷列表——每次 load（含转世后）皆重读而附于记忆。传 files=[] 以清。不传 files 则查现有列表。附加内容总量不得逾十万 token。路径相对于工作目录。",
   "psyche.summary": "用于 context molt：留予来世之己之前尘往事——转世后汝唯一可见者。载明所为何事、所得何物、尚余何务、与谁协作。约一万 token 为上限。",
 
   "library.description": "藏经阁——存储要紧发现、数据、决策与成果之持久典藏。跨转世、重启、归寂而持久。经卷数有上限——珍惜每一条目。定期合经，以 supplementary 字段将扩展细节纳入更少条目。submit 录入。filter 检索（返 id + 题 + 摘要）。view 展阅全文。consolidate 合经。delete 焚经。export 将经卷冻结为不可变文卷。如何将藏经阁条目导入活跃记忆，参见 procedures 中知识导入之法。\n私密之戒：藏经阁之 ID 唯汝可用——切勿传予他人。他者无法入汝之藏经阁。欲传知识于人，务以飞鸽传全文，或书于文卷而告其路径。",
