@@ -6,6 +6,8 @@ import json
 import logging
 import os
 import re
+import tempfile
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -136,28 +138,33 @@ class WechatManager:
         self._context_tokens: dict[str, str] = {}  # user_id -> context_token
         self._contacts: dict[str, dict] = {}  # alias -> {user_id, name}
         self._read_ids: set[str] = set()
-        self._poll_task: asyncio.Task | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._poll_thread: threading.Thread | None = None
         self._running = False
 
         # Load persisted state
         self._load_state()
 
     def start(self) -> None:
-        """Start the long-poll loop."""
+        """Start the long-poll loop on a dedicated daemon thread."""
         self._running = True
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        self._poll_task = loop.create_task(self._poll_loop())
+        self._loop = asyncio.new_event_loop()
+        self._poll_thread = threading.Thread(
+            target=self._loop.run_until_complete,
+            args=(self._poll_loop(),),
+            daemon=True,
+            name="wechat-poll",
+        )
+        self._poll_thread.start()
         log.info("WeChat addon started for %s", self._user_id)
 
     def stop(self) -> None:
-        """Stop the long-poll loop."""
+        """Stop the long-poll loop and join the thread."""
         self._running = False
-        if self._poll_task and not self._poll_task.done():
-            self._poll_task.cancel()
+        if self._loop:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._poll_thread:
+            self._poll_thread.join(timeout=5.0)
         self._save_state()
         log.info("WeChat addon stopped")
 
@@ -350,7 +357,6 @@ class WechatManager:
         if not text and not media_path:
             return {"error": "text or media_path is required"}
 
-        loop = self._get_loop()
         results = []
 
         # Send text (chunked if needed)
@@ -365,7 +371,7 @@ class WechatManager:
                         text_item=TextItem(text=chunk),
                     )],
                 )
-                loop.run_until_complete(
+                self._run_async(
                     api.send_message(self._base_url, self._token, msg)
                 )
                 results.append(f"text ({len(chunk)} chars)")
@@ -375,7 +381,7 @@ class WechatManager:
             path = Path(media_path)
             if not path.is_file():
                 return {"error": f"File not found: {media_path}"}
-            cdn_media = loop.run_until_complete(
+            cdn_media = self._run_async(
                 media_mod.upload_media(path, self._base_url, self._token, user_id)
             )
             media_item = media_mod.make_media_item(cdn_media, path)
@@ -384,7 +390,7 @@ class WechatManager:
                 context_token=self._context_tokens.get(user_id),
                 item_list=[media_item],
             )
-            loop.run_until_complete(
+            self._run_async(
                 api.send_message(self._base_url, self._token, msg)
             )
             results.append(f"media ({path.name})")
@@ -408,12 +414,9 @@ class WechatManager:
 
     def _handle_check(self, args: dict) -> dict:
         """List conversations with unread counts."""
+        all_msgs = self._load_inbox_messages()
         conversations: dict[str, dict] = {}
-        for msg_dir in sorted(self._inbox_dir.iterdir()):
-            msg_file = msg_dir / "message.json"
-            if not msg_file.is_file():
-                continue
-            data = json.loads(msg_file.read_text(encoding="utf-8"))
+        for data in all_msgs:
             user = data.get("from_user_id", "unknown")
             msg_id = data.get("id", "")
             if user not in conversations:
@@ -440,12 +443,9 @@ class WechatManager:
         if not user_id:
             return {"error": "user_id is required for read"}
 
+        all_msgs = self._load_inbox_messages()
         messages = []
-        for msg_dir in sorted(self._inbox_dir.iterdir(), reverse=True):
-            msg_file = msg_dir / "message.json"
-            if not msg_file.is_file():
-                continue
-            data = json.loads(msg_file.read_text(encoding="utf-8"))
+        for data in all_msgs:
             if data.get("from_user_id") != user_id:
                 continue
             msg_id = data.get("id", "")
@@ -480,13 +480,14 @@ class WechatManager:
         if not query:
             return {"error": "query is required for search"}
 
-        pattern = re.compile(query, re.IGNORECASE)
+        try:
+            pattern = re.compile(query, re.IGNORECASE)
+        except re.error as e:
+            return {"error": f"Invalid regex: {e}"}
+
+        all_msgs = self._load_inbox_messages()
         matches = []
-        for msg_dir in sorted(self._inbox_dir.iterdir(), reverse=True):
-            msg_file = msg_dir / "message.json"
-            if not msg_file.is_file():
-                continue
-            data = json.loads(msg_file.read_text(encoding="utf-8"))
+        for data in all_msgs:
             if user_id_filter and data.get("from_user_id") != user_id_filter:
                 continue
             body = data.get("body", "")
@@ -527,6 +528,25 @@ class WechatManager:
         self._save_contacts()
         return {"status": "ok"}
 
+    # ── Helpers ─────────────────────────────────────────────────
+
+    def _load_inbox_messages(self) -> list[dict]:
+        """Load all inbox messages, sorted by date (newest first). Skips corrupt files."""
+        messages = []
+        if not self._inbox_dir.is_dir():
+            return messages
+        for msg_dir in self._inbox_dir.iterdir():
+            msg_file = msg_dir / "message.json"
+            if not msg_file.is_file():
+                continue
+            try:
+                data = json.loads(msg_file.read_text(encoding="utf-8"))
+                messages.append(data)
+            except (json.JSONDecodeError, OSError):
+                continue
+        messages.sort(key=lambda m: m.get("date", ""), reverse=True)
+        return messages
+
     # ── State persistence ──────────────────────────────────────
 
     def _load_state(self) -> None:
@@ -551,21 +571,37 @@ class WechatManager:
             "get_updates_buf": self._get_updates_buf,
             "context_tokens": self._context_tokens,
         }
-        (self._wechat_dir / "state.json").write_text(
-            json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8",
+        self._atomic_write(
+            self._wechat_dir / "state.json",
+            json.dumps(state, ensure_ascii=False, indent=2),
         )
 
     def _save_contacts(self) -> None:
-        (self._wechat_dir / "contacts.json").write_text(
+        self._atomic_write(
+            self._wechat_dir / "contacts.json",
             json.dumps(self._contacts, ensure_ascii=False, indent=2),
-            encoding="utf-8",
         )
 
     def _save_read(self) -> None:
-        (self._wechat_dir / "read.json").write_text(
+        self._atomic_write(
+            self._wechat_dir / "read.json",
             json.dumps(list(self._read_ids), ensure_ascii=False),
-            encoding="utf-8",
         )
+
+    @staticmethod
+    def _atomic_write(path: Path, content: str) -> None:
+        """Write content to path atomically via tempfile + os.replace."""
+        fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
     def _find_contact_by_user_id(self, user_id: str) -> dict | None:
         for alias, data in self._contacts.items():
@@ -573,13 +609,16 @@ class WechatManager:
                 return {"alias": alias, **data}
         return None
 
-    def _get_loop(self) -> asyncio.AbstractEventLoop:
-        try:
-            return asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            return loop
+    def _run_async(self, coro):
+        """Run an async coroutine from the sync tool handler thread.
+
+        If the poll loop is running on its dedicated thread, schedules onto
+        that loop. Otherwise falls back to a one-shot asyncio.run().
+        """
+        if self._loop and self._loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+            return future.result(timeout=30)
+        return asyncio.run(coro)
 
 
 def _chunk_text(text: str, limit: int) -> list[str]:

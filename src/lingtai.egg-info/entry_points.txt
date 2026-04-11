@@ -1,0 +1,2 @@
+[console_scripts]
+lingtai = lingtai.cli:main

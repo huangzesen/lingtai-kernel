@@ -1,11 +1,7 @@
 """HTTP wrappers for the 5 iLink Bot API endpoints."""
 from __future__ import annotations
 
-import json
 import logging
-import struct
-from importlib.metadata import version as pkg_version
-from pathlib import Path
 from typing import Any
 
 import httpx
