@@ -184,17 +184,25 @@ class Agent(BaseAgent):
     def _load_mcp_from_workdir(self) -> None:
         """Auto-load MCP servers declared in working_dir/mcp/servers.json.
 
-        Format:
+        Supports both stdio and HTTP MCP servers:
+
             {
-              "server-name": {
-                "command": "xhelio-spice-mcp",
-                "args": [],
-                "env": {}
+              "vision-server": {
+                "type": "stdio",
+                "command": "npx",
+                "args": ["-y", "@z_ai/mcp-server"],
+                "env": {"Z_AI_API_KEY": "...", "Z_AI_MODE": "ZAI"}
+              },
+              "web-search": {
+                "type": "http",
+                "url": "https://api.z.ai/api/mcp/web_search_prime/mcp",
+                "headers": {"Authorization": "Bearer ..."}
               }
             }
 
-        The file is created by setup agents or manually. Each server's
-        tools are auto-registered via connect_mcp().
+        The ``type`` field defaults to ``"stdio"`` if omitted (backward
+        compatible). Each server's tools are auto-registered via
+        connect_mcp() or connect_mcp_http().
         """
         import json
 
@@ -214,14 +222,25 @@ class Agent(BaseAgent):
         logger = get_logger()
 
         for name, cfg in servers.items():
-            if not isinstance(cfg, dict) or "command" not in cfg:
+            if not isinstance(cfg, dict):
                 continue
             try:
-                tools = self.connect_mcp(
-                    command=cfg["command"],
-                    args=cfg.get("args"),
-                    env=cfg.get("env"),
-                )
+                server_type = cfg.get("type", "stdio")
+                if server_type == "http":
+                    if "url" not in cfg:
+                        continue
+                    tools = self.connect_mcp_http(
+                        url=cfg["url"],
+                        headers=cfg.get("headers"),
+                    )
+                else:
+                    if "command" not in cfg:
+                        continue
+                    tools = self.connect_mcp(
+                        command=cfg["command"],
+                        args=cfg.get("args"),
+                        env=cfg.get("env"),
+                    )
                 logger.info("[%s] MCP %s: loaded %d tools (%s)",
                             self.agent_name, name, len(tools), ", ".join(tools))
             except Exception as e:
@@ -340,6 +359,52 @@ class Agent(BaseAgent):
             # Extract schema properties (MCP uses inputSchema with JSON Schema)
             schema = tool.get("schema", {})
             # Remove top-level keys that aren't valid for our FunctionSchema
+            schema.pop("additionalProperties", None)
+
+            self.add_tool(
+                name,
+                schema=schema,
+                handler=_make_handler(client, name),
+                description=tool.get("description", ""),
+            )
+            registered.append(name)
+
+        return registered
+
+    def connect_mcp_http(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+    ) -> list[str]:
+        """Connect to a remote HTTP MCP server and auto-register all its tools.
+
+        Args:
+            url: HTTP endpoint of the MCP server.
+            headers: HTTP headers (e.g., {"Authorization": "Bearer ..."}).
+
+        Returns:
+            List of registered tool names.
+        """
+        from .services.mcp import HTTPMCPClient
+
+        client = HTTPMCPClient(url=url, headers=headers)
+        client.start()
+
+        if not hasattr(self, "_mcp_clients"):
+            self._mcp_clients: list = []
+        self._mcp_clients.append(client)
+
+        tools = client.list_tools()
+        registered = []
+        for tool in tools:
+            name = tool["name"]
+
+            def _make_handler(c: HTTPMCPClient, tool_name: str):
+                def handler(tool_args: dict) -> dict:
+                    return c.call_tool(tool_name, tool_args)
+                return handler
+
+            schema = tool.get("schema", {})
             schema.pop("additionalProperties", None)
 
             self.add_tool(
