@@ -25,6 +25,7 @@ _BUILTIN: dict[str, str] = {
     "imap": ".imap",
     "telegram": ".telegram",
     "feishu": ".feishu",
+    "wechat": ".wechat",
 }
 
 
