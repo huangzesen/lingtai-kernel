@@ -97,7 +97,7 @@ def build_agent(data: dict, working_dir: Path) -> Agent:
 
 def _clean_signal_files(working_dir: Path) -> None:
     """Remove stale .suspend / .sleep files left over from a previous run."""
-    for name in (".suspend", ".sleep"):
+    for name in (".suspend", ".sleep", ".refresh"):
         f = working_dir / name
         if f.is_file():
             try:
@@ -140,11 +140,11 @@ def run(working_dir: Path) -> None:
     agent._asleep.set()
     agent._state = AgentState.ASLEEP
 
-    # Detect refresh boot — old process wrote .refresh before spawning us
-    refresh_file = working_dir / ".refresh"
-    is_refresh = refresh_file.is_file()
+    # Detect refresh boot — old process renamed .refresh → .refresh.taken
+    taken_file = working_dir / ".refresh.taken"
+    is_refresh = taken_file.is_file()
     if is_refresh:
-        refresh_file.unlink()
+        taken_file.unlink()
 
     try:
         agent.start()

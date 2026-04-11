@@ -1,0 +1,29 @@
+{
+  "_help": [
+    "Feishu (Lark) bot config. Copy to feishu.json and fill in.",
+    "",
+    "Prerequisites (Feishu Open Platform — https://open.feishu.cn/app):",
+    "  1. Create an enterprise self-built app",
+    "  2. Permissions & Scopes: add im:message",
+    "  3. Event Subscriptions: choose 'Use long connection to receive events'",
+    "     and add the event: im.message.receive_v1",
+    "  4. Publish the app version",
+    "",
+    "Credentials:",
+    "  - App ID and App Secret: Credentials & Basic Info page (starts with cli_)",
+    "  - Add to your .env file:",
+    "      FEISHU_APP_ID=cli_xxxxxxxxxx",
+    "      FEISHU_APP_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "",
+    "Finding a user's open_id (for allowed_users):",
+    "  - Send a message to the bot first, then check the agent's feishu inbox",
+    "    for the 'from_open_id' field (format: ou_xxx...)",
+    "",
+    "Leave allowed_users empty/null to accept messages from all users."
+  ],
+
+  "app_id_env": "FEISHU_APP_ID",
+  "app_secret_env": "FEISHU_APP_SECRET",
+  "allowed_users": ["ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"],
+  "alias": "default"
+}

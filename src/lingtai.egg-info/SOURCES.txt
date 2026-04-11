@@ -43,6 +43,12 @@ src/lingtai/addons/telegram/account.py
 src/lingtai/addons/telegram/config.example.json
 src/lingtai/addons/telegram/manager.py
 src/lingtai/addons/telegram/service.py
+src/lingtai/addons/wechat/__init__.py
+src/lingtai/addons/wechat/api.py
+src/lingtai/addons/wechat/login.py
+src/lingtai/addons/wechat/manager.py
+src/lingtai/addons/wechat/media.py
+src/lingtai/addons/wechat/types.py
 src/lingtai/capabilities/__init__.py
 src/lingtai/capabilities/_media_host.py
 src/lingtai/capabilities/_zhipu_mode.py
@@ -234,4 +240,7 @@ tests/test_tool_executor.py
 tests/test_types.py
 tests/test_vision_capability.py
 tests/test_web_search_capability.py
+tests/test_wechat_api.py
+tests/test_wechat_manager.py
+tests/test_wechat_types.py
 tests/test_workdir.py

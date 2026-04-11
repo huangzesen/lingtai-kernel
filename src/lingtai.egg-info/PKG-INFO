@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: lingtai
-Version: 0.5.17
+Version: 0.5.19
 Summary: Generic research agent with intrinsic tools and MCP-compatible extension interface
 License-Expression: MIT
 Classifier: Programming Language :: Python :: 3.11

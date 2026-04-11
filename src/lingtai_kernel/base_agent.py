@@ -725,6 +725,19 @@ class BaseAgent:
                 self._cancel_event.set()
                 self._log("interrupt_received", source="signal_file")
 
+            # .refresh = self-initiated restart (handshake: rename to .refresh.taken)
+            refresh_file = self._working_dir / ".refresh"
+            if refresh_file.is_file():
+                taken_file = self._working_dir / ".refresh.taken"
+                try:
+                    refresh_file.rename(taken_file)
+                except OSError:
+                    pass
+                self._cancel_event.set()
+                self._set_state(AgentState.SUSPENDED, reason="refresh")
+                self._shutdown.set()
+                self._log("refresh_taken", source="signal_file")
+
             # .suspend = SUSPENDED (full process death, external only)
             suspend_file = self._working_dir / ".suspend"
             if suspend_file.is_file():
@@ -955,15 +968,16 @@ class BaseAgent:
             break
 
     def _perform_refresh(self) -> None:
-        """Refresh = self-suspend + deferred relaunch.
+        """Refresh = .refresh handshake + deferred relaunch.
 
-        1. Launch a detached process that sleeps 3 seconds then runs
-           ``lingtai run <dir>``
-        2. Touch .suspend — the heartbeat loop picks it up and cleanly
-           kills this process via the normal suspend path
-
-        The 3-second delay is enough for the old process to die.
-        No two agent processes overlap on the same working directory.
+        Handshake protocol:
+        1. Touch ``.refresh`` — request a refresh
+        2. Heartbeat loop sees ``.refresh`` → renames to ``.refresh.taken``
+           → shuts down cleanly (like suspend, but logged as refresh)
+        3. Deferred watcher polls for ``.refresh.taken`` (handshake ack),
+           then waits for lock file to disappear, then relaunches
+        4. New process sees ``.refresh.taken`` → deletes it → sends
+           "refresh successful" system message
         """
         import subprocess, sys
         self._log("refresh_start")
@@ -976,20 +990,27 @@ class BaseAgent:
         working_dir = self._working_dir
         (working_dir / ".refresh").touch()
 
-        # Deferred relaunch: wait for lock file to disappear (old process
-        # died), then start new process. Polls every 0.5s, gives up after
-        # 60s to avoid orphaned relaunch scripts.
+        # Deferred relaunch: wait for .refresh.taken (heartbeat ack'd),
+        # then wait for lock file to disappear (old process died), then
+        # start new process. Gives up after 60s total.
+        taken_path = str(working_dir / ".refresh.taken")
         lock_path = str(working_dir / ".agent.lock")
         relaunch_script = (
             "import time, subprocess, os, sys\n"
+            f"taken = {taken_path!r}\n"
             f"lock = {lock_path!r}\n"
             "deadline = time.time() + 60\n"
-            "time.sleep(1)\n"  # brief grace period
+            # Phase 1: wait for heartbeat to ack (.refresh.taken)
+            "while not os.path.exists(taken) and time.time() < deadline:\n"
+            "    time.sleep(0.5)\n"
+            "if not os.path.exists(taken):\n"
+            "    sys.exit(1)\n"  # heartbeat never ack'd — abort
+            # Phase 2: wait for lock file to disappear (process exited)
             "while os.path.exists(lock) and time.time() < deadline:\n"
             "    time.sleep(0.5)\n"
             "if os.path.exists(lock):\n"
             "    sys.exit(1)\n"  # timed out — do not relaunch
-            "time.sleep(0.5)\n"  # extra settle time after lock gone
+            "time.sleep(0.5)\n"  # settle time
             f"subprocess.Popen({cmd!r},\n"
             "    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,\n"
             "    stderr=subprocess.DEVNULL, start_new_session=True)\n"
@@ -1002,9 +1023,6 @@ class BaseAgent:
             start_new_session=True,
         )
         self._log("refresh_deferred_relaunch", cmd=cmd[0])
-
-        # Self-suspend — heartbeat loop picks this up cleanly
-        (working_dir / ".suspend").touch()
 
     def _build_launch_cmd(self) -> list[str] | None:
         """Return the command to relaunch this agent. Override in subclasses."""
