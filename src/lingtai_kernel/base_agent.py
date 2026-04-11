@@ -995,22 +995,40 @@ class BaseAgent:
         # start new process. Gives up after 60s total.
         taken_path = str(working_dir / ".refresh.taken")
         lock_path = str(working_dir / ".agent.lock")
+        events_path = str(working_dir / "logs" / "events.jsonl")
+        agent_name = self.agent_name
+        address = self._working_dir.name
         relaunch_script = (
-            "import time, subprocess, os, sys\n"
+            "import time, subprocess, os, sys, json\n"
             f"taken = {taken_path!r}\n"
             f"lock = {lock_path!r}\n"
+            f"events = {events_path!r}\n"
+            f"name = {agent_name!r}\n"
+            f"addr = {address!r}\n"
+            "def log(typ, **kw):\n"
+            "    entry = {'type': typ, 'address': addr, 'agent_name': name, 'ts': time.time(), **kw}\n"
+            "    try:\n"
+            "        with open(events, 'a') as f:\n"
+            "            f.write(json.dumps(entry) + '\\n')\n"
+            "    except OSError:\n"
+            "        pass\n"
             "deadline = time.time() + 60\n"
             # Phase 1: wait for heartbeat to ack (.refresh.taken)
+            "log('refresh_watcher_start')\n"
             "while not os.path.exists(taken) and time.time() < deadline:\n"
             "    time.sleep(0.5)\n"
             "if not os.path.exists(taken):\n"
-            "    sys.exit(1)\n"  # heartbeat never ack'd — abort
+            "    log('refresh_watcher_timeout', phase='ack')\n"
+            "    sys.exit(1)\n"
+            "log('refresh_watcher_ack')\n"
             # Phase 2: wait for lock file to disappear (process exited)
             "while os.path.exists(lock) and time.time() < deadline:\n"
             "    time.sleep(0.5)\n"
             "if os.path.exists(lock):\n"
-            "    sys.exit(1)\n"  # timed out — do not relaunch
+            "    log('refresh_watcher_timeout', phase='lock')\n"
+            "    sys.exit(1)\n"
             "time.sleep(0.5)\n"  # settle time
+            "log('refresh_watcher_relaunch')\n"
             f"subprocess.Popen({cmd!r},\n"
             "    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,\n"
             "    stderr=subprocess.DEVNULL, start_new_session=True)\n"
