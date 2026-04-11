@@ -1,9 +1,7 @@
 """Zhipu vision service — standalone image analysis via Z.AI MCP server."""
 from __future__ import annotations
 
-import base64
-
-from . import VisionService, _read_image
+from . import VisionService
 
 from lingtai_kernel.logging import get_logger
 
@@ -63,15 +61,14 @@ class ZhipuVisionService(VisionService):
         self._client.start()
 
     def analyze_image(self, image_path: str, prompt: str | None = None) -> str:
-        """Analyze an image using Z.AI's image_analysis MCP tool."""
-        image_bytes, mime_type = _read_image(image_path)
+        """Analyze an image using Z.AI's analyze_image MCP tool."""
         question = prompt or "Describe this image."
 
         self._ensure_client()
 
-        b64 = base64.b64encode(image_bytes).decode("ascii")
-        result = self._client.call_tool("image_analysis", {
-            "image_source": f"data:{mime_type};base64,{b64}",
+        # The MCP server reads the file directly by path
+        result = self._client.call_tool("analyze_image", {
+            "image_source": image_path,
             "prompt": question,
         })
         if result.get("status") == "error":
