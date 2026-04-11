@@ -138,6 +138,7 @@ class WechatManager:
         self._context_tokens: dict[str, str] = {}  # user_id -> context_token
         self._contacts: dict[str, dict] = {}  # alias -> {user_id, name}
         self._read_ids: set[str] = set()
+        self._lock = threading.Lock()  # guards shared mutable state
         self._loop: asyncio.AbstractEventLoop | None = None
         self._poll_thread: threading.Thread | None = None
         self._running = False
@@ -161,10 +162,8 @@ class WechatManager:
     def stop(self) -> None:
         """Stop the long-poll loop and join the thread."""
         self._running = False
-        if self._loop:
-            self._loop.call_soon_threadsafe(self._loop.stop)
         if self._poll_thread:
-            self._poll_thread.join(timeout=5.0)
+            self._poll_thread.join(timeout=40.0)  # long-poll is 35s
         self._save_state()
         log.info("WeChat addon stopped")
 
@@ -217,13 +216,18 @@ class WechatManager:
         """Process an incoming WeChat message."""
         from_user = msg.from_user_id or ""
 
+        # Skip messages from the bot itself (echo prevention)
+        if from_user == self._user_id:
+            return
+
         # Filter by allowed_users
         if self._allowed_users and from_user not in self._allowed_users:
             return
 
-        # Cache context token
+        # Cache context token (lock for cross-thread safety)
         if msg.context_token:
-            self._context_tokens[from_user] = msg.context_token
+            with self._lock:
+                self._context_tokens[from_user] = msg.context_token
 
         # Build text representation
         body_parts: list[str] = []
@@ -357,7 +361,15 @@ class WechatManager:
         if not text and not media_path:
             return {"error": "text or media_path is required"}
 
+        # Validate media_path before sending text to avoid partial sends
+        if media_path and not Path(media_path).is_file():
+            return {"error": f"File not found: {media_path}"}
+
         results = []
+
+        # Snapshot context token under lock (poll thread may update it)
+        with self._lock:
+            ctx_token = self._context_tokens.get(user_id)
 
         # Send text (chunked if needed)
         if text:
@@ -365,7 +377,7 @@ class WechatManager:
             for chunk in chunks:
                 msg = WeixinMessage(
                     to_user_id=user_id,
-                    context_token=self._context_tokens.get(user_id),
+                    context_token=ctx_token,
                     item_list=[MessageItem(
                         type=int(MessageItemType.TEXT),
                         text_item=TextItem(text=chunk),
@@ -376,18 +388,16 @@ class WechatManager:
                 )
                 results.append(f"text ({len(chunk)} chars)")
 
-        # Send media
+        # Send media (already validated above)
         if media_path:
             path = Path(media_path)
-            if not path.is_file():
-                return {"error": f"File not found: {media_path}"}
             cdn_media = self._run_async(
                 media_mod.upload_media(path, self._base_url, self._token, user_id)
             )
             media_item = media_mod.make_media_item(cdn_media, path)
             msg = WeixinMessage(
                 to_user_id=user_id,
-                context_token=self._context_tokens.get(user_id),
+                context_token=ctx_token,
                 item_list=[media_item],
             )
             self._run_async(
@@ -432,8 +442,8 @@ class WechatManager:
             conversations[user]["total"] += 1
             if msg_id not in self._read_ids:
                 conversations[user]["unread"] += 1
-            conversations[user]["latest"] = data.get("body", "")[:100]
-            conversations[user]["date"] = data.get("date", "")
+            # Don't overwrite latest — messages are sorted newest-first,
+            # so the first entry per user (set in the if-block above) is correct.
 
         return {"conversations": list(conversations.values())}
 
@@ -612,13 +622,13 @@ class WechatManager:
     def _run_async(self, coro):
         """Run an async coroutine from the sync tool handler thread.
 
-        If the poll loop is running on its dedicated thread, schedules onto
-        that loop. Otherwise falls back to a one-shot asyncio.run().
+        Schedules onto the poll loop's event loop via run_coroutine_threadsafe.
+        Raises RuntimeError if the addon has not been started.
         """
-        if self._loop and self._loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-            return future.result(timeout=30)
-        return asyncio.run(coro)
+        if not self._loop or not self._loop.is_running():
+            raise RuntimeError("WeChat addon not started — call start() first")
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result(timeout=30)
 
 
 def _chunk_text(text: str, limit: int) -> list[str]:
