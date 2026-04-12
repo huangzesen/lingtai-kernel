@@ -624,10 +624,12 @@ class OpenAIAdapter(LLMAdapter):
         base_url: str | None = None,
         timeout_ms: int = 300_000,
         use_responses: bool = False,
+        force_responses: bool = False,
         max_rpm: int = 0,
     ):
         self.base_url = base_url
         self._use_responses = use_responses
+        self._force_responses = force_responses
         kwargs: dict[str, Any] = {"api_key": api_key}
         if base_url:
             kwargs["base_url"] = base_url
@@ -660,7 +662,7 @@ class OpenAIAdapter(LLMAdapter):
         use_responses = self._use_responses
 
         # Only use Responses API for actual OpenAI (not compatible providers)
-        if use_responses and not self.base_url:
+        if use_responses and (not self.base_url or self._force_responses):
             return self._create_responses_session(
                 model,
                 system_prompt,
