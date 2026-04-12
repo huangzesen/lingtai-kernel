@@ -120,7 +120,8 @@ class CodexTokenManager:
             )
 
             tmp_path = self._path.with_suffix(".json.tmp")
-            with open(tmp_path, "w", encoding="utf-8") as f:
+            fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(fresh, f, indent=2)
             tmp_path.replace(self._path)
 

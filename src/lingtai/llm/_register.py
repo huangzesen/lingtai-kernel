@@ -52,12 +52,26 @@ def register_all_adapters() -> None:
         kw.pop("api_key", None)  # ignore env-resolved key
         kw.pop("base_url", None)  # we set our own
         mgr = CodexTokenManager()
-        return OpenAIAdapter(
+        adapter = OpenAIAdapter(
             api_key=mgr.get_access_token(),
             base_url="https://chatgpt.com/backend-api",
             use_responses=True,
             force_responses=True,
         )
+        # Store the token manager so we can refresh before each API call.
+        # The openai SDK's client.api_key is mutable — we update it in-place.
+        adapter._codex_token_mgr = mgr
+        _orig_create_chat = adapter.create_chat
+        def _refreshing_create_chat(*a, **kwa):
+            adapter._client.api_key = mgr.get_access_token()
+            return _orig_create_chat(*a, **kwa)
+        adapter.create_chat = _refreshing_create_chat
+        _orig_generate = adapter.generate
+        def _refreshing_generate(*a, **kwa):
+            adapter._client.api_key = mgr.get_access_token()
+            return _orig_generate(*a, **kwa)
+        adapter.generate = _refreshing_generate
+        return adapter
 
     LLMService.register_adapter("codex", _codex)
 
