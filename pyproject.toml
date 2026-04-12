@@ -22,6 +22,7 @@ dependencies = [
     "mcp>=1.0",
     "ddgs>=7.0",
     "trafilatura>=2.0",
+    "filelock>=3.0",
 ]
 
 [project.scripts]
