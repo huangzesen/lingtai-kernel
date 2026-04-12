@@ -101,7 +101,7 @@ class CodexTokenManager:
 
             response = httpx.post(
                 TOKEN_URL,
-                json={
+                data={
                     "grant_type": "refresh_token",
                     "refresh_token": refresh_token,
                     "client_id": CLIENT_ID,
