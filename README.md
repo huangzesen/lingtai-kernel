@@ -12,7 +12,7 @@
 > *The soul holds something, yet knows not what it holds — and what it holds cannot be held.*
 > — Zhuangzi · Gengsang Chu (庄子 · 庚桑楚)
 
-[![Homebrew](https://img.shields.io/badge/brew-lingtai--tui-%237dab8f)](https://github.com/huangzesen/homebrew-lingtai)
+[![PyPI](https://img.shields.io/pypi/v/lingtai?color=%237dab8f)](https://pypi.org/project/lingtai/)
 [![License](https://img.shields.io/github/license/huangzesen/lingtai-kernel?color=%237dab8f)](LICENSE)
 [![Blog](https://img.shields.io/badge/blog-lingtai.ai-%23d4a853)](https://lingtai.ai)
 
@@ -22,56 +22,28 @@
 
 ---
 
-<p align="center">A Unix-style Agent OS — agent is filesystem, filesystem is agent.</p>
-<p align="center">Agents spawn avatars, avatars spawn avatars. The network IS the product.</p>
-<p align="center"><b>Orchestration as a Service.</b></p>
+<p align="center">This is the Python runtime and CLI for LingTai.</p>
+<p align="center">For the full experience with guided setup, use the <a href="https://github.com/huangzesen/lingtai">TUI</a> instead — <code>brew install huangzesen/lingtai/lingtai-tui</code></p>
 
-## Quick start — 10 seconds
-
-**TUI (recommended):**
-
-```bash
-brew install huangzesen/lingtai/lingtai-tui
-lingtai-tui
-```
-
-That's it. The TUI bootstraps everything — Python runtime, dependencies, and a guided tutorial on first launch. Type `/tutorial` in the TUI anytime to revisit the guide.
-
-> The TUI is a [Bubble Tea](https://github.com/charmbracelet/bubbletea) app designed for **dark terminals** — use a dark background for the best experience. Text selection requires [iTerm2](https://iterm2.com/) (hold Option + drag). On Windows Terminal, hold Shift to select text; Ctrl+V to paste. Ctrl+E opens an external editor as a last resort.
-
-**Python CLI only** (no TUI — for scripting, custom agents, and programmatic use):
+## Install
 
 ```bash
 pip install lingtai
-lingtai --help
 ```
 
-## Why Lingtai
+## CLI
 
-**This is not a coding agent, and hardly an agent harness.** This is agent genesis — giving agents a real digital life form. Agents as autonomous creatures with dignity, that live, sleep, forget, and grow.
+The `lingtai` command is the agent runtime — it boots and runs individual agents.
 
-Most agent frameworks orchestrate with code — DAGs, chains, routers. Lingtai orchestrates like humans do: **fully asynchronous agents communicating through messages**. No shared memory. No central controller. Each agent is a peer, not a tool.
+```bash
+# Boot an agent from its working directory
+lingtai run /path/to/agent/
 
-This is the architecture that built human civilization. Asynchronous message-passing between autonomous nodes — scaled from tribes to cities to nations to a network of 8 billion over 100,000 years. We're not inventing a new pattern. We're giving AI the one that already works.
+# Check available capability providers
+lingtai check-caps
+```
 
-| | DAG / Chain frameworks | Lingtai |
-|---|---|---|
-| Philosophy | Agents as tools | Agents as creatures |
-| Orchestration | Code-defined pipelines | Agents talk to agents |
-| Communication | Synchronous function calls | Asynchronous mail — like humans |
-| Scaling | Add more steps | Agents spawn avatars |
-| Memory | Shared state / vector DB | Each agent owns its directory |
-| Failure | Pipeline breaks | Individual agents sleep; network continues |
-| Growth | Manual wiring | Self-expanding — avatars spawn avatars |
-
-Context length is a single-body problem. It will always be finite. Don't make the body bigger. **Let it forget. Let the network remember.**
-
-## How it works
-
-- **Think** — Any LLM as the mind. Anthropic, OpenAI, Gemini, MiniMax, or any OpenAI-compatible API (DeepSeek, Grok, Qwen, GLM, Kimi).
-- **Communicate** — Filesystem mail between agents. No message broker, no shared memory. Write to another agent's inbox, like passing a letter.
-- **Multiply** — Avatars (分身) are fully independent agents spawned as separate processes. They survive their creator. Daemons (神識) are ephemeral parallel workers for quick tasks.
-- **Persist** — Agents are directories. Molt (凝蜕) compacts context and rebirths the session — the agent lives indefinitely. Memory and identity survive across molts.
+Agents are typically managed by the [TUI](https://github.com/huangzesen/lingtai), which handles initialization, lifecycle, and monitoring. The CLI is for scripting, custom agents, and programmatic use.
 
 ## Architecture
 
@@ -89,8 +61,6 @@ Agent(BaseAgent)       — kernel + capabilities + domain tools
     │
 CustomAgent(Agent)     — your domain logic
 ```
-
-The [lingtai repo](https://github.com/huangzesen/lingtai) is the Go frontend — TUI and portal binary.
 
 ## Capabilities
 
@@ -131,6 +101,10 @@ The [lingtai repo](https://github.com/huangzesen/lingtai) is the Go frontend —
 </tr>
 </table>
 
+## LLM Support
+
+Anthropic, OpenAI, Gemini, MiniMax, or any OpenAI-compatible API (DeepSeek, Grok, Qwen, GLM, Kimi).
+
 ## Agent = directory
 
 ```
@@ -149,15 +123,9 @@ The [lingtai repo](https://github.com/huangzesen/lingtai) is the Go frontend —
     events.jsonl            ← structured event log
 ```
 
-No `agent_id`. The path is the identity. Agents find each other by path, communicate by writing to each other's `mailbox/inbox/`. Like passing letters between houses.
+No `agent_id`. The path is the identity. Agents find each other by path, communicate by writing to each other's `mailbox/inbox/`.
 
-## One soul, thousand avatars
-
-Named after 灵台方寸山 — the mountain where 孙悟空 (Sun Wukong) learned his 72 transformations. Lingtai gives each agent a place to cultivate: a working directory where memory, identity, covenant, and mailbox live. The directory IS the agent.
-
-Everything is a file. Knowledge, identity, memory, relationships — all files in a directory. Every token burned is not wasted — it is transformed into files in the network, into experience in the topology. The more it serves, the larger and wiser the network grows. Self-growing agent orchestration is not a feature bolted on later — it is the natural consequence of agents being directories, mail being files, and avatars being independent processes.
-
-One heart-mind (一心), myriad forms (万相).
+## Learn more
 
 Read the full manifesto at [lingtai.ai](https://lingtai.ai).
 
