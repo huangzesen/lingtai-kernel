@@ -2,11 +2,11 @@
 
 Shallow (投胎): Copy init.json to a new working dir, strip name, launch.
     The avatar gets the same LLM config + capabilities but no identity,
-    no memory, no history.  A fresh life.
+    no pad, no history.  A fresh life.
 
-Deep (二重身): Copy the entire working dir (system/, library/, exports/)
+Deep (二重身): Copy the entire working dir (system/, codex/, exports/)
     plus init.json to a new dir, strip name + history, launch.
-    The avatar is a doppelgänger — same character, memory, knowledge —
+    The avatar is a doppelgänger — same character, pad, knowledge —
     but starts a fresh conversation.
 
 Both modes launch `lingtai run <dir>` as a fully detached process.
@@ -265,7 +265,7 @@ class AvatarManager:
         """Copy identity + knowledge from parent, excluding runtime state."""
         dst.mkdir(parents=True, exist_ok=True)
 
-        # system/ (character, memory, covenant, etc.)
+        # system/ (character, pad, covenant, etc.)
         src_system = src / "system"
         if src_system.is_dir():
             dst_system = dst / "system"
@@ -273,10 +273,10 @@ class AvatarManager:
                 shutil.rmtree(dst_system)
             shutil.copytree(src_system, dst_system)
 
-        # library/
-        src_lib = src / "library"
+        # codex/
+        src_lib = src / "codex"
         if src_lib.is_dir():
-            dst_lib = dst / "library"
+            dst_lib = dst / "codex"
             if dst_lib.exists():
                 shutil.rmtree(dst_lib)
             shutil.copytree(src_lib, dst_lib)
