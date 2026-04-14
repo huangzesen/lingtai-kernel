@@ -90,7 +90,7 @@ class BaseAgent:
         principle: str = "",
         procedures: str = "",
         brief: str = "",
-        memory: str = "",
+        pad: str = "",
         comment: str = "",
     ):
         self.agent_name = agent_name  # true name (真名) — immutable once set
@@ -129,12 +129,12 @@ class BaseAgent:
         # MailService: None means mail intrinsic disabled
         self._mail_service = mail_service
 
-        # Set by psyche capability to prevent stop() from overwriting memory.md
-        self._eigen_owns_memory = False
+        # Set by psyche capability to prevent stop() from overwriting pad.md
+        self._eigen_owns_pad = False
 
-        # Covenant, principle, procedures, brief, and memory file paths
+        # Covenant, principle, procedures, brief, and pad file paths
         system_dir = self._working_dir / "system"
-        memory_file = system_dir / "memory.md"
+        pad_file = system_dir / "pad.md"
         covenant_file = system_dir / "covenant.md"
         principle_file = system_dir / "principle.md"
         procedures_file = system_dir / "procedures.md"
@@ -170,14 +170,14 @@ class BaseAgent:
         elif brief_file.is_file():
             brief = brief_file.read_text()
 
-        # Memory: constructor value seeds the file if it doesn't exist
-        if memory and not memory_file.is_file():
-            memory_file.write_text(memory)
+        # Pad: constructor value seeds the file if it doesn't exist
+        if pad and not pad_file.is_file():
+            pad_file.write_text(pad)
 
-        # Auto-load memory from file into prompt manager
-        loaded_memory = ""
-        if memory_file.is_file():
-            loaded_memory = memory_file.read_text()
+        # Auto-load pad from file into prompt manager
+        loaded_pad = ""
+        if pad_file.is_file():
+            loaded_pad = pad_file.read_text()
 
         # System prompt manager
         self._prompt_manager = SystemPromptManager()
@@ -198,8 +198,8 @@ class BaseAgent:
                     self._prompt_manager.write_section("rules", rules_content, protected=True)
             except OSError:
                 pass
-        if loaded_memory.strip():
-            self._prompt_manager.write_section("memory", loaded_memory)
+        if loaded_pad.strip():
+            self._prompt_manager.write_section("pad", loaded_pad)
         if comment:
             self._prompt_manager.write_section("comment", comment)
 
@@ -495,13 +495,13 @@ class BaseAgent:
             except Exception:
                 pass
 
-        # Persist memory from prompt manager to file
-        if not self._eigen_owns_memory:
-            memory_content = self._prompt_manager.read_section("memory") or ""
-            memory_file = self._working_dir / "system" / "memory.md"
-            if memory_file.is_file() or memory_content:
-                memory_file.parent.mkdir(exist_ok=True)
-                memory_file.write_text(memory_content)
+        # Persist pad from prompt manager to file
+        if not self._eigen_owns_pad:
+            pad_content = self._prompt_manager.read_section("pad") or ""
+            pad_file = self._working_dir / "system" / "pad.md"
+            if pad_file.is_file() or pad_content:
+                pad_file.parent.mkdir(exist_ok=True)
+                pad_file.write_text(pad_content)
 
         # Remove billboard entry
         if self._billboard_path and self._billboard_path.is_file():

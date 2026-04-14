@@ -1,7 +1,7 @@
 """Eigen intrinsic — bare essentials of agent self.
 
 Objects:
-    memory — edit/load system/memory.md (agent's working notes)
+    pad — edit/load system/pad.md (agent's working notes)
     context — molt (shed context, keep a briefing)
 
 Internal:
@@ -21,7 +21,7 @@ def get_schema(lang: str = "en") -> dict:
         "properties": {
             "object": {
                 "type": "string",
-                "enum": ["memory", "context", "name"],
+                "enum": ["pad", "context", "name"],
                 "description": t(lang, "eigen.object_description"),
             },
             "action": {
@@ -43,17 +43,17 @@ def get_schema(lang: str = "en") -> dict:
 
 
 def handle(agent, args: dict) -> dict:
-    """Handle eigen tool — memory and context management."""
+    """Handle eigen tool — pad and context management."""
     obj = args.get("object", "")
     action = args.get("action", "")
 
-    if obj == "memory":
+    if obj == "pad":
         if action == "edit":
-            return _memory_edit(agent, args)
+            return _pad_edit(agent, args)
         elif action == "load":
-            return _memory_load(agent, args)
+            return _pad_load(agent, args)
         else:
-            return {"error": f"Unknown memory action: {action}. Use edit or load."}
+            return {"error": f"Unknown pad action: {action}. Use edit or load."}
     elif obj == "context":
         if action == "molt":
             return _context_molt(agent, args)
@@ -67,49 +67,49 @@ def handle(agent, args: dict) -> dict:
         else:
             return {"error": f"Unknown name action: {action}. Use set (true name) or nickname."}
     else:
-        return {"error": f"Unknown object: {obj}. Use memory, context, or name."}
+        return {"error": f"Unknown object: {obj}. Use pad, context, or name."}
 
 
-def _memory_edit(agent, args: dict) -> dict:
-    """Write content to system/memory.md and auto-load into system prompt."""
+def _pad_edit(agent, args: dict) -> dict:
+    """Write content to system/pad.md and auto-load into system prompt."""
     content = args.get("content", "")
 
     system_dir = agent._working_dir / "system"
     system_dir.mkdir(exist_ok=True)
-    mem_path = system_dir / "memory.md"
-    mem_path.write_text(content)
+    pad_path = system_dir / "pad.md"
+    pad_path.write_text(content)
 
-    agent._log("eigen_memory_edit", length=len(content))
+    agent._log("eigen_pad_edit", length=len(content))
 
     # Auto-load into system prompt
-    _memory_load(agent, {})
+    _pad_load(agent, {})
 
-    return {"status": "ok", "path": str(mem_path), "size_bytes": len(content.encode("utf-8"))}
+    return {"status": "ok", "path": str(pad_path), "size_bytes": len(content.encode("utf-8"))}
 
 
-def _memory_load(agent, args: dict) -> dict:
-    """Load system/memory.md into the system prompt."""
+def _pad_load(agent, args: dict) -> dict:
+    """Load system/pad.md into the system prompt."""
     system_dir = agent._working_dir / "system"
     system_dir.mkdir(exist_ok=True)
-    mem_path = system_dir / "memory.md"
-    if not mem_path.is_file():
-        mem_path.write_text("")
+    pad_path = system_dir / "pad.md"
+    if not pad_path.is_file():
+        pad_path.write_text("")
 
-    content = mem_path.read_text()
+    content = pad_path.read_text()
     size_bytes = len(content.encode("utf-8"))
 
     if content.strip():
-        agent._prompt_manager.write_section("memory", content)
+        agent._prompt_manager.write_section("pad", content)
     else:
-        agent._prompt_manager.delete_section("memory")
+        agent._prompt_manager.delete_section("pad")
     agent._token_decomp_dirty = True
     agent._flush_system_prompt()
 
-    agent._log("eigen_memory_load", size_bytes=size_bytes)
+    agent._log("eigen_pad_load", size_bytes=size_bytes)
 
     return {
         "status": "ok",
-        "path": str(mem_path),
+        "path": str(pad_path),
         "size_bytes": size_bytes,
         "content_preview": content[:200],
     }
@@ -144,7 +144,7 @@ def _context_molt(agent, args: dict) -> dict:
     from .soul import reset_soul_session
     reset_soul_session(agent)
 
-    # Post-molt hooks — reload character/memory into prompt manager BEFORE new session
+    # Post-molt hooks — reload character/pad into prompt manager BEFORE new session
     for cb in getattr(agent, "_post_molt_hooks", []):
         try:
             cb()

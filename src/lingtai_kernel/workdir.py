@@ -115,9 +115,9 @@ class WorkingDir:
             principle_file = system_dir / "principle.md"
             if not principle_file.is_file():
                 principle_file.write_text("")
-            memory_file = system_dir / "memory.md"
-            if not memory_file.is_file():
-                memory_file.write_text("")
+            pad_file = system_dir / "pad.md"
+            if not pad_file.is_file():
+                pad_file.write_text("")
 
             subprocess.run(
                 ["git", "add", ".gitignore", "system/"],
@@ -136,9 +136,9 @@ class WorkingDir:
             principle_file = system_dir / "principle.md"
             if not principle_file.is_file():
                 principle_file.write_text("")
-            memory_file = system_dir / "memory.md"
-            if not memory_file.is_file():
-                memory_file.write_text("")
+            pad_file = system_dir / "pad.md"
+            if not pad_file.is_file():
+                pad_file.write_text("")
 
     def diff(self, rel_path: str) -> str:
         try:

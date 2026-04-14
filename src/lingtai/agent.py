@@ -495,7 +495,7 @@ class Agent(BaseAgent):
             load_env_file(env_file)
 
         # Resolve *_file fields for top-level text content
-        for key in ("covenant", "principle", "procedures", "brief", "memory", "prompt", "comment", "soul"):
+        for key in ("covenant", "principle", "procedures", "brief", "pad", "prompt", "comment", "soul"):
             file_key = f"{key}_file"
             if file_key in data:
                 data[key] = resolve_file(data.get(key), data.pop(file_key))
@@ -539,7 +539,7 @@ class Agent(BaseAgent):
         self._wire_intrinsics()
 
         # Reset capability-owned flags
-        self._eigen_owns_memory = False
+        self._eigen_owns_pad = False
         self._mailbox_name = "mail box"
         self._mailbox_tool = "mail"
         if hasattr(self, "_post_molt_hooks"):
@@ -585,7 +585,7 @@ class Agent(BaseAgent):
         self._session._config = self._config
 
         # Reload all prompt sections (covenant, principle, procedures, brief,
-        # rules, memory, comment) from init.json and disk.
+        # rules, pad, comment) from init.json and disk.
         self._reload_prompt_sections(data)
 
         # Re-run capability setup
@@ -676,7 +676,7 @@ class Agent(BaseAgent):
                 return
             # Resolve *_file fields (brief_file, covenant_file, etc.)
             from .config_resolve import resolve_file
-            for key in ("covenant", "principle", "procedures", "brief", "memory", "comment"):
+            for key in ("covenant", "principle", "procedures", "brief", "pad", "comment"):
                 file_key = f"{key}_file"
                 if file_key in data:
                     data[key] = resolve_file(data.get(key), data.pop(file_key))
@@ -708,13 +708,13 @@ class Agent(BaseAgent):
         else:
             self._prompt_manager.delete_section("rules")
 
-        # --- Memory ---
-        memory_file = system_dir / "memory.md"
-        loaded_memory = ""
-        if memory_file.is_file():
-            loaded_memory = memory_file.read_text()
-        if loaded_memory.strip():
-            self._prompt_manager.write_section("memory", loaded_memory)
+        # --- Pad ---
+        pad_file = system_dir / "pad.md"
+        loaded_pad = ""
+        if pad_file.is_file():
+            loaded_pad = pad_file.read_text()
+        if loaded_pad.strip():
+            self._prompt_manager.write_section("pad", loaded_pad)
 
         # --- Principle ---
         principle = data.get("principle", "")

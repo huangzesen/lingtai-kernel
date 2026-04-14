@@ -19,7 +19,7 @@ def validate_init(data: dict) -> list[str]:
     }, prefix="")
 
     # Text fields: inline value OR _file path (at least one required)
-    for key in ("principle", "covenant", "memory", "prompt", "soul"):
+    for key in ("principle", "covenant", "pad", "prompt", "soul"):
         file_key = f"{key}_file"
         has_inline = key in data
         has_file = file_key in data
@@ -50,7 +50,7 @@ def validate_init(data: dict) -> list[str]:
         "manifest", "env_file", "venv_path", "addons",
         "principle", "principle_file", "covenant", "covenant_file",
         "procedures", "procedures_file", "brief", "brief_file",
-        "memory", "memory_file", "prompt", "prompt_file",
+        "pad", "pad_file", "prompt", "prompt_file",
         "soul", "soul_file", "comment", "comment_file",
     }
     for key in data:

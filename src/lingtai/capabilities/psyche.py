@@ -1,13 +1,13 @@
-"""Psyche capability — identity, memory, and context management.
+"""Psyche capability — identity, pad, and context management.
 
 Upgrades the eigen intrinsic with:
 - Evolving identity (covenant + character)
-- Enhanced memory.edit with file import (files param)
-- memory.append — pin files as read-only reference (persisted in system/memory_append.json)
-- memory.load delegation to eigen (auto-appends pinned files)
+- Enhanced pad.edit with file import (files param)
+- pad.append — pin files as read-only reference (persisted in system/pad_append.json)
+- pad.load delegation to eigen (auto-appends pinned files)
 - Context molt delegation to eigen
 
-Library is a separate standalone capability.
+Codex is a separate standalone capability.
 
 Usage:
     agent = Agent(capabilities=["psyche"])
@@ -36,7 +36,7 @@ def get_schema(lang: str = "en") -> dict:
         "properties": {
             "object": {
                 "type": "string",
-                "enum": ["lingtai", "memory", "context"],
+                "enum": ["lingtai", "pad", "context"],
                 "description": t(lang, "psyche.object"),
             },
             "action": {
@@ -64,7 +64,7 @@ def get_schema(lang: str = "en") -> dict:
 
 
 class PsycheManager:
-    """Identity, memory, and context manager."""
+    """Identity, pad, and context manager."""
 
     def __init__(self, agent: "BaseAgent", eigen_handler):
         self._agent = agent
@@ -82,7 +82,7 @@ class PsycheManager:
 
     _VALID_ACTIONS: dict[str, set[str]] = {
         "lingtai": {"update", "load"},
-        "memory": {"edit", "load", "append"},
+        "pad": {"edit", "load", "append"},
         "context": {"molt"},
     }
 
@@ -144,11 +144,11 @@ class PsycheManager:
         }
 
     # ------------------------------------------------------------------
-    # Memory actions — upgrade eigen with files support
+    # Pad actions — upgrade eigen with files support
     # ------------------------------------------------------------------
 
-    def _memory_edit(self, args: dict) -> dict:
-        """Write content + optional file imports to memory.md."""
+    def _pad_edit(self, args: dict) -> dict:
+        """Write content + optional file imports to pad.md."""
         content = args.get("content", "")
         files = args.get("files") or []
 
@@ -177,14 +177,14 @@ class PsycheManager:
 
         # Delegate to eigen for the actual write (eigen auto-loads into prompt)
         return self._eigen_handler({
-            "object": "memory", "action": "edit", "content": combined,
+            "object": "pad", "action": "edit", "content": combined,
         })
 
     # ------------------------------------------------------------------
-    # Memory append — pin files as read-only reference
+    # Pad append — pin files as read-only reference
     # ------------------------------------------------------------------
 
-    _APPEND_LIST_PATH = "system/memory_append.json"
+    _APPEND_LIST_PATH = "system/pad_append.json"
     _APPEND_TOKEN_LIMIT = 100_000
 
     @property
@@ -241,11 +241,11 @@ class PsycheManager:
         except UnicodeDecodeError:
             return False
 
-    def _memory_append(self, args: dict) -> dict:
-        """Set the list of files pinned as read-only memory reference.
+    def _pad_append(self, args: dict) -> dict:
+        """Set the list of files pinned as read-only pad reference.
 
-        Pass files=[] to clear. Persisted to system/memory_append.json.
-        Automatically reloads memory after updating the list.
+        Pass files=[] to clear. Persisted to system/pad_append.json.
+        Automatically reloads pad after updating the list.
         Only text files are accepted.
         """
         files = args.get("files")
@@ -282,24 +282,24 @@ class PsycheManager:
 
         # Persist and reload
         self._save_append_list(files)
-        self._memory_load({})
+        self._pad_load({})
 
         action = "cleared" if not files else "set"
         return {"status": "ok", "action": action, "files": files, "count": len(files)}
 
-    def _memory_load(self, args: dict) -> dict:
-        """Load memory.md + appended reference files into prompt."""
-        # First, delegate to eigen for the base memory.md load
-        result = self._eigen_handler({"object": "memory", "action": "load"})
+    def _pad_load(self, args: dict) -> dict:
+        """Load pad.md + appended reference files into prompt."""
+        # First, delegate to eigen for the base pad.md load
+        result = self._eigen_handler({"object": "pad", "action": "load"})
 
-        # Then append pinned files (read-only) to the memory section
+        # Then append pinned files (read-only) to the pad section
         append_files = self._load_append_list()
         if append_files:
             append_content, not_found = self._read_append_content(append_files)
             if append_content:
-                existing = self._agent._prompt_manager.read_section("memory") or ""
+                existing = self._agent._prompt_manager.read_section("pad") or ""
                 combined = existing + "\n\n---\n# 📎 Reference (read-only)\n\n" + append_content
-                self._agent._prompt_manager.write_section("memory", combined)
+                self._agent._prompt_manager.write_section("pad", combined)
                 self._agent._token_decomp_dirty = True
                 self._agent._flush_system_prompt()
             if not_found:
@@ -319,21 +319,21 @@ class PsycheManager:
 
 
 def setup(agent: "BaseAgent") -> PsycheManager:
-    """Set up psyche capability — identity, memory, and context management."""
+    """Set up psyche capability — identity, pad, and context management."""
     lang = agent._config.language
     eigen_handler = agent.override_intrinsic("eigen")
-    agent._eigen_owns_memory = True
+    agent._eigen_owns_pad = True
 
     mgr = PsycheManager(agent, eigen_handler)
 
-    # Auto-load character and memory into system prompt at boot
+    # Auto-load character and pad into system prompt at boot
     mgr._lingtai_load({})
-    mgr._memory_load({})
+    mgr._pad_load({})
 
-    # Register post-molt hook to reload character + memory
+    # Register post-molt hook to reload character + pad
     if not hasattr(agent, "_post_molt_hooks"):
         agent._post_molt_hooks = []
-    agent._post_molt_hooks.append(lambda: (mgr._lingtai_load({}), mgr._memory_load({})))
+    agent._post_molt_hooks.append(lambda: (mgr._lingtai_load({}), mgr._pad_load({})))
 
     agent.add_tool(
         "psyche", schema=get_schema(lang), handler=mgr.handle, description=get_description(lang),
