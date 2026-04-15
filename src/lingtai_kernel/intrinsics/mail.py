@@ -351,7 +351,7 @@ def _send(agent, args: dict) -> dict:
 
     payload = {
         "from": (agent._mail_service.address if agent._mail_service is not None and agent._mail_service.address else agent._working_dir.name),
-        "to": address,
+        "to": [address] if address else [],
         "subject": subject,
         "message": message_text,
         "type": mail_type,
