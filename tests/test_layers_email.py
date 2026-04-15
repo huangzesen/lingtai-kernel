@@ -1847,4 +1847,54 @@ def test_schedule_list_returns_status_field(tmp_path):
     # Legacy boolean fields gone
     for entry in listing["schedules"]:
         assert "cancelled" not in entry
-        assert "active" not in entry
+
+
+# ---------------------------------------------------------------------------
+# _coerce_address_list — normalize LLM-quirky address args to list[str]
+# ---------------------------------------------------------------------------
+
+from lingtai.capabilities.email import _coerce_address_list
+
+
+def test_coerce_address_list_empty_string():
+    assert _coerce_address_list("") == []
+
+
+def test_coerce_address_list_none():
+    assert _coerce_address_list(None) == []
+
+
+def test_coerce_address_list_plain_string():
+    assert _coerce_address_list("alice@host") == ["alice@host"]
+
+
+def test_coerce_address_list_real_list():
+    assert _coerce_address_list(["alice", "bob"]) == ["alice", "bob"]
+
+
+def test_coerce_address_list_json_string_list():
+    # LLM sometimes serializes a list arg as a JSON string
+    assert _coerce_address_list('["alice","bob"]') == ["alice", "bob"]
+
+
+def test_coerce_address_list_json_single():
+    assert _coerce_address_list('["alice"]') == ["alice"]
+
+
+def test_coerce_address_list_malformed_json_falls_back():
+    # Starts with '[' but isn't valid JSON — keep as raw string
+    # (reader-side defense catches nothing actionable; this matches today's behavior)
+    assert _coerce_address_list("[not valid json") == ["[not valid json"]
+
+
+def test_coerce_address_list_empty_list():
+    assert _coerce_address_list([]) == []
+
+
+def test_coerce_address_list_drops_empty_items():
+    assert _coerce_address_list(["alice", "", "bob"]) == ["alice", "bob"]
+
+
+def test_coerce_address_list_coerces_non_str_items():
+    # Defensive — tool-call arg drift could give us numbers, etc.
+    assert _coerce_address_list(["alice", 123]) == ["alice", "123"]

@@ -36,6 +36,34 @@ if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
 
 
+def _coerce_address_list(raw) -> list[str]:
+    """Normalize an address arg into a clean list[str].
+
+    Handles LLM tool-call quirks: list args sometimes arrive as
+    JSON-serialized strings (e.g. raw='["a","b"]' instead of ["a","b"]).
+
+    Behavior:
+      - None: []
+      - "" : []
+      - "addr": ["addr"]
+      - '["a","b"]' (valid JSON list): ["a", "b"]
+      - '[malformed': ['[malformed']  (fallback; reader defense catches)
+      - list: coerce items to str, drop empties
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        if raw.startswith("["):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    return [str(x) for x in parsed if x]
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return [raw] if raw else []
+    return [str(x) for x in raw if x]
+
+
 def _preview(body: str, limit: int = 500) -> str:
     if limit <= 0:
         return body
