@@ -267,3 +267,40 @@ def test_addons_feishu_not_object():
     data["addons"] = {"feishu": "cli_xxx"}
     with pytest.raises(ValueError, match="feishu"):
         validate_init(data)
+
+
+def test_time_awareness_field_valid_bool():
+    from lingtai.init_schema import validate_init
+
+    data = {
+        "manifest": {
+            "llm": {"provider": "minimax", "model": "x"},
+            "time_awareness": False,
+        },
+        "covenant": "hi",
+        "prompt": "hello",
+        "pad": "",
+        "soul": "",
+        "principle": "",
+    }
+    warnings = validate_init(data)
+    assert all("time_awareness" not in w for w in warnings)
+
+
+def test_time_awareness_field_wrong_type_raises():
+    import pytest
+    from lingtai.init_schema import validate_init
+
+    data = {
+        "manifest": {
+            "llm": {"provider": "minimax", "model": "x"},
+            "time_awareness": "yes",
+        },
+        "covenant": "hi",
+        "prompt": "hello",
+        "pad": "",
+        "soul": "",
+        "principle": "",
+    }
+    with pytest.raises(ValueError):
+        validate_init(data)

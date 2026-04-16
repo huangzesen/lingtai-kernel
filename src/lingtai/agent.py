@@ -580,6 +580,7 @@ class Agent(BaseAgent):
             molt_pressure=m.get("molt_pressure", 0.8),
             molt_prompt=m.get("molt_prompt", ""),
             snapshot_interval=m.get("snapshot_interval"),
+            time_awareness=m.get("time_awareness", True),
         )
         self._soul_delay = max(1.0, self._config.soul_delay)
         self._session._config = self._config
