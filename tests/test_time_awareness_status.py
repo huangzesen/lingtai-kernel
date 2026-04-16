@@ -3,7 +3,11 @@ from types import SimpleNamespace
 
 
 def _mk_fake_agent(time_awareness: bool):
-    return SimpleNamespace(_config=SimpleNamespace(time_awareness=time_awareness))
+    # Tests assume UTC output (Z suffix), so timezone_awareness=False here.
+    return SimpleNamespace(_config=SimpleNamespace(
+        time_awareness=time_awareness,
+        timezone_awareness=False,
+    ))
 
 
 def test_status_runtime_blanks_when_time_blind():

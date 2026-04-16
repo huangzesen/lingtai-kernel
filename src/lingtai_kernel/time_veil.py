@@ -17,9 +17,16 @@ TIME_KEYS: tuple[str, ...] = (
 
 
 def now_iso(agent) -> str:
-    """Return current UTC ISO-8601, or '' if the agent is time-blind."""
+    """Return current ISO-8601 timestamp, or '' if the agent is time-blind.
+
+    When timezone_awareness=True (default), returns OS local time with
+    ±HHMM offset (e.g. '2026-04-15T16:01:00-0700'). When False, returns
+    UTC with Z suffix (e.g. '2026-04-15T23:01:00Z').
+    """
     if not agent._config.time_awareness:
         return ""
+    if agent._config.timezone_awareness:
+        return datetime.now().astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
