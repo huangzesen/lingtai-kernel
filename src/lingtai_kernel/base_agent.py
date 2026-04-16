@@ -1104,6 +1104,7 @@ class BaseAgent:
             known_tools=set(self._intrinsics) | set(self._tool_handlers),
             parallel_safe_tools=self._PARALLEL_SAFE_TOOLS,
             logger_fn=self._log,
+            time_awareness=self._config.time_awareness,
         )
         content = self._pre_request(msg)
         current_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
