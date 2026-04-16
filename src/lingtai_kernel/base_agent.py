@@ -948,8 +948,7 @@ class BaseAgent:
                             self._session._rebuild_session(self._session.chat.interface)
 
                         # Inject recovery message
-                        from datetime import datetime, timezone
-                        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                        ts = now_iso(self)
                         aed_msg = _t(self._config.language, "system.stuck_revive", ts=ts, tool_calls=err_desc)
                         msg = _make_message(MSG_REQUEST, "system", aed_msg)
 
@@ -1088,8 +1087,6 @@ class BaseAgent:
 
     def _handle_request(self, msg: Message) -> None:
         """Send request to LLM, process response with tool calls."""
-        from datetime import datetime, timezone
-
         max_calls, dup_free, dup_hard = self._get_guard_limits()
         guard = LoopGuard(
             max_total_calls=max_calls,
@@ -1108,7 +1105,7 @@ class BaseAgent:
             time_awareness=self._config.time_awareness,
         )
         content = self._pre_request(msg)
-        current_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        current_time = now_iso(self)
 
         # Molt pressure — warn agent when context is getting full
         # Needs eigen intrinsic (always present) or psyche capability to self-molt
