@@ -1103,6 +1103,7 @@ class BaseAgent:
             parallel_safe_tools=self._PARALLEL_SAFE_TOOLS,
             logger_fn=self._log,
             time_awareness=self._config.time_awareness,
+            timezone_awareness=self._config.timezone_awareness,
         )
         content = self._pre_request(msg)
         current_time = now_iso(self)

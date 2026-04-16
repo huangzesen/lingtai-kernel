@@ -61,6 +61,7 @@ class ToolExecutor:
         logger_fn: Callable | None = None,
         max_result_bytes: int = _DEFAULT_MAX_RESULT_BYTES,
         time_awareness: bool = True,
+        timezone_awareness: bool = True,
     ) -> None:
         self._dispatch_fn = dispatch_fn
         self._make_tool_result_fn = make_tool_result_fn
@@ -70,6 +71,7 @@ class ToolExecutor:
         self._logger_fn = logger_fn
         self._max_result_bytes = max_result_bytes
         self._time_awareness = time_awareness
+        self._timezone_awareness = timezone_awareness
 
     @property
     def guard(self) -> LoopGuard:
@@ -167,7 +169,7 @@ class ToolExecutor:
             result = _truncate_result(result, self._max_result_bytes)
 
             if isinstance(result, dict):
-                stamp_tool_result(result, timer.elapsed_ms, time_awareness=self._time_awareness)
+                stamp_tool_result(result, timer.elapsed_ms, time_awareness=self._time_awareness, timezone_awareness=self._timezone_awareness)
 
             status = result.get("status", "success") if isinstance(result, dict) else "success"
             self._log(
@@ -203,7 +205,7 @@ class ToolExecutor:
 
         except Exception as e:
             err_result = {"status": "error", "message": str(e)}
-            stamp_tool_result(err_result, timer.elapsed_ms, time_awareness=self._time_awareness)
+            stamp_tool_result(err_result, timer.elapsed_ms, time_awareness=self._time_awareness, timezone_awareness=self._timezone_awareness)
             result_msg = self._make_tool_result_fn(tc.name, err_result, tool_call_id=tc_id)
             collected_errors.append(f"{tc.name}: {e}")
             self._log(
@@ -304,7 +306,7 @@ class ToolExecutor:
                 )
             result = _truncate_result(result, self._max_result_bytes)
             if isinstance(result, dict):
-                stamp_tool_result(result, timer.elapsed_ms, time_awareness=self._time_awareness)
+                stamp_tool_result(result, timer.elapsed_ms, time_awareness=self._time_awareness, timezone_awareness=self._timezone_awareness)
             status = result.get("status", "success") if isinstance(result, dict) else "success"
             self._log(
                 "tool_result",
