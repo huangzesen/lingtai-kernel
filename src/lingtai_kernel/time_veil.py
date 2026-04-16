@@ -20,13 +20,13 @@ def now_iso(agent) -> str:
     """Return current ISO-8601 timestamp, or '' if the agent is time-blind.
 
     When timezone_awareness=True (default), returns OS local time with
-    ±HHMM offset (e.g. '2026-04-15T16:01:00-0700'). When False, returns
+    ±HH:MM offset (e.g. '2026-04-15T16:01:00-07:00'). When False, returns
     UTC with Z suffix (e.g. '2026-04-15T23:01:00Z').
     """
     if not agent._config.time_awareness:
         return ""
     if agent._config.timezone_awareness:
-        return datetime.now().astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
+        return datetime.now().astimezone().isoformat(timespec="seconds")
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 

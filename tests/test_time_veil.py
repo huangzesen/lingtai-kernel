@@ -93,14 +93,14 @@ def _mk_agent_full(time_awareness: bool, timezone_awareness: bool):
 
 
 def test_now_iso_local_tz_returns_offset_suffix():
-    """When timezone_awareness=True, now_iso ends with ±HHMM (not Z)."""
+    """When timezone_awareness=True, now_iso ends with ±HH:MM (not Z)."""
     import re
     agent = _mk_agent_full(time_awareness=True, timezone_awareness=True)
     result = now_iso(agent)
     assert isinstance(result, str)
     assert not result.endswith("Z"), f"expected local-tz offset suffix, got {result!r}"
-    # Must end with ±HHMM (e.g. -0700, +0800, +0000)
-    assert re.search(r"[+-]\d{4}$", result), f"no ±HHMM suffix in {result!r}"
+    # Must end with ±HH:MM (e.g. -07:00, +08:00, +00:00)
+    assert re.search(r"[+-]\d{2}:\d{2}$", result), f"no ±HH:MM suffix in {result!r}"
 
 
 def test_now_iso_utc_when_timezone_awareness_off():
