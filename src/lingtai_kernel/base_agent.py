@@ -236,19 +236,6 @@ class BaseAgent:
             "identity", _json.dumps(manifest_data, indent=2, ensure_ascii=False), protected=True
         )
 
-        # Post to billboard — ephemeral discovery index at ~/.lingtai/billboard/
-        self._billboard_path: Path | None = None
-        try:
-            billboard_dir = Path.home() / ".lingtai" / "billboard"
-            billboard_dir.mkdir(parents=True, exist_ok=True)
-            self._billboard_path = billboard_dir / f"{self._working_dir.name}.json"
-            import json as _json, os as _os
-            tmp = self._billboard_path.with_suffix(".tmp")
-            tmp.write_text(_json.dumps(manifest_data, indent=2, ensure_ascii=False))
-            _os.replace(str(tmp), str(self._billboard_path))
-        except OSError:
-            self._billboard_path = None
-
         self._nap_wake = threading.Event()  # signalled to wake nap early
         self._nap_wake_reason = ""  # why the nap was woken
 
@@ -503,13 +490,6 @@ class BaseAgent:
             if pad_file.is_file() or pad_content:
                 pad_file.parent.mkdir(exist_ok=True)
                 pad_file.write_text(pad_content)
-
-        # Remove billboard entry
-        if self._billboard_path and self._billboard_path.is_file():
-            try:
-                self._billboard_path.unlink()
-            except OSError:
-                pass
 
         # Persist final state and release lock
         self._workdir.write_manifest(self._build_manifest())
