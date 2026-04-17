@@ -582,6 +582,8 @@ class Agent(BaseAgent):
             snapshot_interval=m.get("snapshot_interval"),
             time_awareness=m.get("time_awareness", True),
             timezone_awareness=m.get("timezone_awareness", True),
+            aed_timeout=m.get("aed_timeout", 360.0),
+            max_aed_attempts=m.get("max_aed_attempts", 3),
         )
         self._soul_delay = max(1.0, self._config.soul_delay)
         self._session._config = self._config
