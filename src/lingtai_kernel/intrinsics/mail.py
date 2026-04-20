@@ -270,6 +270,8 @@ def _persist_to_outbox(agent, payload: dict, deliver_at: datetime) -> str:
     msg_dir.mkdir(parents=True, exist_ok=True)
 
     payload = dict(payload)  # shallow copy
+    payload.pop("_mode", None)  # internal routing field, not persisted
+    payload.pop("_dispatch_to", None)
     payload["_mailbox_id"] = msg_id
     payload["deliver_at"] = deliver_at.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -309,6 +311,8 @@ def _deliver_ssh(address: str, payload: dict, msg_id: str) -> str | None:
     Writes message.json into the remote agent's mailbox/inbox/{msg_id}/
     using ssh + cat. Returns None on success, error string on failure.
     """
+    import re
+    import shlex
     import subprocess
 
     # Parse user@host:/path from address
@@ -321,6 +325,15 @@ def _deliver_ssh(address: str, payload: dict, msg_id: str) -> str | None:
     if "@" not in ssh_target:
         return (f"SSH delivery failed — address must include user@host, "
                 f"got {ssh_target!r}. Format: user@host:/path/to/.lingtai/agent_name")
+
+    # Validate ssh_target against injection (must be user@hostname pattern)
+    if not re.match(r'^[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+$', ssh_target):
+        return f"SSH delivery failed — invalid ssh target: {ssh_target!r}"
+
+    # remote_path must be absolute (prevent traversal)
+    if not remote_path.startswith("/"):
+        return (f"SSH delivery failed — remote path must be absolute, "
+                f"got {remote_path!r}. Format: user@host:/absolute/path/to/.lingtai/agent_name")
 
     remote_inbox = f"{remote_path}/mailbox/inbox/{msg_id}"
     remote_file = f"{remote_inbox}/message.json"
@@ -338,10 +351,11 @@ def _deliver_ssh(address: str, payload: dict, msg_id: str) -> str | None:
     msg_json = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
 
     try:
-        # Create remote directory and write message in one ssh call
+        # Create remote directory and write message in one ssh call.
+        # shlex.quote prevents shell injection via crafted paths.
         cmd = (
-            f"mkdir -p {remote_inbox} && "
-            f"cat > {remote_file}"
+            f"mkdir -p {shlex.quote(remote_inbox)} && "
+            f"cat > {shlex.quote(remote_file)}"
         )
         result = subprocess.run(
             ["ssh", ssh_target, cmd],
