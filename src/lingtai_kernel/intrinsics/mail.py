@@ -69,7 +69,7 @@ def get_schema(lang: str = "en") -> dict:
             },
             "mode": {
                 "type": "string",
-                "enum": ["rel", "abs", "net"],
+                "enum": ["rel", "abs", "ssh"],
                 "description": t(lang, "mail.mode_description"),
             },
         },
@@ -301,6 +301,72 @@ def _move_to_sent(agent, msg_id: str, sent_at: str, status: str) -> None:
     shutil.move(str(src), str(dst))
 
 
+def _deliver_ssh(address: str, payload: dict, msg_id: str) -> str | None:
+    """Deliver a message to a remote agent's inbox via SSH.
+
+    Address format: user@host:/path/to/.lingtai/agent_name
+
+    Writes message.json into the remote agent's mailbox/inbox/{msg_id}/
+    using ssh + cat. Returns None on success, error string on failure.
+    """
+    import subprocess
+
+    # Parse user@host:/path from address
+    if ":" not in address:
+        return (f"SSH delivery failed — address must be user@host:/path/to/.lingtai/agent_name, "
+                f"got {address!r}. Check that you are using mode='ssh' with a remote address.")
+    ssh_target, remote_path = address.split(":", 1)
+    if not ssh_target or not remote_path:
+        return f"SSH delivery failed — invalid address: {address!r}"
+    if "@" not in ssh_target:
+        return (f"SSH delivery failed — address must include user@host, "
+                f"got {ssh_target!r}. Format: user@host:/path/to/.lingtai/agent_name")
+
+    remote_inbox = f"{remote_path}/mailbox/inbox/{msg_id}"
+    remote_file = f"{remote_inbox}/message.json"
+
+    # Inject mailbox metadata
+    payload = {
+        **payload,
+        "_mailbox_id": msg_id,
+        "received_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    # Remove internal fields
+    payload.pop("_mode", None)
+    payload.pop("_dispatch_to", None)
+
+    msg_json = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
+
+    try:
+        # Create remote directory and write message in one ssh call
+        cmd = (
+            f"mkdir -p {remote_inbox} && "
+            f"cat > {remote_file}"
+        )
+        result = subprocess.run(
+            ["ssh", ssh_target, cmd],
+            input=msg_json,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            return (f"SSH delivery failed to {ssh_target} — {stderr}. "
+                    f"Check: 1) SSH key is set up (ssh {ssh_target} should work without password), "
+                    f"2) remote path {remote_path} exists, "
+                    f"3) remote agent has a mailbox/inbox/ directory.")
+        return None
+    except subprocess.TimeoutExpired:
+        return (f"SSH delivery timed out connecting to {ssh_target}. "
+                f"Check: 1) host is reachable, 2) SSH is running on remote, "
+                f"3) no firewall blocking port 22.")
+    except FileNotFoundError:
+        return "SSH delivery failed — 'ssh' command not found. Is OpenSSH installed?"
+    except OSError as e:
+        return f"SSH delivery failed — OS error: {e}"
+
+
 def _mailman(agent, msg_id: str, payload: dict, deliver_at: datetime,
              *, skip_sent: bool = False) -> None:
     """Daemon thread — one per message. Waits, dispatches, archives to sent."""
@@ -318,11 +384,9 @@ def _mailman(agent, msg_id: str, payload: dict, deliver_at: datetime,
 
     err = None
     try:
-        if mode == "net":
-            # Network mode: leave in outbox for postman UDP relay.
-            # Don't deliver via mail service — the postman daemon picks
-            # up outbox items and sends them over UDP.
-            status = "queued"
+        if mode == "ssh":
+            err = _deliver_ssh(address, payload, msg_id)
+            status = "delivered" if err is None else "refused"
         elif _is_self_send(agent, address):
             _persist_to_inbox(agent, payload)
             agent._wake_nap("mail_arrived")
@@ -339,19 +403,7 @@ def _mailman(agent, msg_id: str, payload: dict, deliver_at: datetime,
 
     sent_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    if status == "queued":
-        # net mode: message stays in outbox for postman pickup.
-        # Write sent_at into the outbox message for tracking.
-        outbox_msg = _outbox_dir(agent) / msg_id / "message.json"
-        if outbox_msg.is_file():
-            try:
-                data = json.loads(outbox_msg.read_text())
-                data["sent_at"] = sent_at
-                data["status"] = status
-                outbox_msg.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str))
-            except (json.JSONDecodeError, OSError):
-                pass
-    elif not skip_sent:
+    if not skip_sent:
         _move_to_sent(agent, msg_id, sent_at, status)
     else:
         outbox_entry = _outbox_dir(agent) / msg_id
@@ -390,8 +442,8 @@ def _send(agent, args: dict) -> dict:
 
     if not address:
         return {"error": "address is required"}
-    if mode not in ("rel", "abs", "net"):
-        return {"error": f"invalid mode: {mode!r} (must be rel, abs, or net)"}
+    if mode not in ("rel", "abs", "ssh"):
+        return {"error": f"invalid mode: {mode!r} (must be rel, abs, or ssh)"}
 
     payload = {
         "from": (agent._mail_service.address if agent._mail_service is not None and agent._mail_service.address else agent._working_dir.name),
@@ -400,7 +452,7 @@ def _send(agent, args: dict) -> dict:
         "message": message_text,
         "type": mail_type,
         "identity": agent._build_manifest(),
-        "_mode": mode,  # rel/abs/net — consumed by _mailman, not persisted
+        "_mode": mode,  # rel/abs/ssh — consumed by _mailman, not persisted
     }
 
     attachments = args.get("attachments", [])

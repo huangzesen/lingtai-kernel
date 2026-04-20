@@ -136,7 +136,7 @@ class FilesystemMailService(MailService):
         Modes:
         - rel: resolve bare name against parent dir (default)
         - abs: use address as a literal absolute path
-        - net: should not reach here (handled by _mailman)
+        - ssh: should not reach here (handled by _mailman via _deliver_ssh)
         """
         base_dir = self._working_dir.parent  # .lingtai/ directory
         if mode == "abs":
