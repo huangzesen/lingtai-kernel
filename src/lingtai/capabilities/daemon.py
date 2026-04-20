@@ -77,7 +77,7 @@ class DaemonManager:
     # Short results (e.g. "[cancelled]") are suppressed to avoid notification storms.
     _NOTIFY_MIN_LEN = 20
 
-    def __init__(self, agent: "Agent", max_emanations: int = 2,
+    def __init__(self, agent: "Agent", max_emanations: int = 4,
                  max_turns: int = 30, timeout: float = 300.0,
                  notify_threshold: int = 20, max_result_chars: int = 2000):
         self._agent = agent
@@ -326,6 +326,7 @@ class DaemonManager:
 
     def _handle_list(self) -> dict:
         emanations = []
+        running = 0
         for em_id, entry in self._emanations.items():
             elapsed = time.time() - entry["start_time"]
             future = entry["future"]
@@ -337,12 +338,17 @@ class DaemonManager:
                     status = "done"
             else:
                 status = "running"
+                running += 1
             info = {"id": em_id, "task": entry["task"][:80],
                     "status": status, "elapsed_s": round(elapsed)}
             if status == "failed" and exc:
                 info["error"] = str(exc)
             emanations.append(info)
-        return {"emanations": emanations}
+        return {
+            "emanations": emanations,
+            "running": running,
+            "max_emanations": self._max_emanations,
+        }
 
     def _handle_ask(self, em_id: str, message: str) -> dict:
         entry = self._emanations.get(em_id)
@@ -409,7 +415,7 @@ class DaemonManager:
             self._agent._log(event_type, **fields)
 
 
-def setup(agent: "Agent", max_emanations: int = 2,
+def setup(agent: "Agent", max_emanations: int = 4,
           max_turns: int = 30, timeout: float = 300.0,
           notify_threshold: int = 20, max_result_chars: int = 2000) -> DaemonManager:
     """Set up the daemon capability on an agent."""
