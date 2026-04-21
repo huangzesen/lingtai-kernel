@@ -75,14 +75,48 @@ def render_meta(agent, meta: dict) -> str:
     Returns '' when the meta dict is empty — callers should treat '' as
     "no prefix" and skip concatenation.
 
-    Today this only knows how to render ``current_time`` (via the existing
-    ``system.current_time`` i18n key). Future fields are composed here.
+    Composes the existing ``system.current_time`` template (now
+    extended with a context slot) plus a context fragment via
+    ``system.context_breakdown`` (or ``system.context_unknown`` when the
+    session has not yet computed its token decomposition).
     """
     if not meta:
         return ""
-    if "current_time" in meta:
-        return _t(agent._config.language, "system.current_time", time=meta["current_time"])
-    return ""
+
+    time_val = meta.get("current_time", "")
+    ctx_val = _render_context_fragment(agent, meta)
+
+    if time_val == "" and ctx_val == "":
+        return ""
+
+    return _t(
+        agent._config.language,
+        "system.current_time",
+        time=time_val,
+        ctx=ctx_val,
+    )
+
+
+def _render_context_fragment(agent, meta: dict) -> str:
+    """Render the context sub-fragment for the text-input prefix.
+
+    Returns:
+        - '' if `context_usage` is not present in ``meta``
+        - the locale-specific "unknown" word when the sentinel (-1) is seen
+        - the composed "{pct} (sys {sys} + ctx {ctx})" fragment otherwise
+    """
+    if "context_usage" not in meta:
+        return ""
+    usage = meta["context_usage"]
+    if usage < 0:
+        return _t(agent._config.language, "system.context_unknown")
+    return _t(
+        agent._config.language,
+        "system.context_breakdown",
+        pct=f"{usage * 100:.1f}%",
+        sys=meta.get("system_tokens", 0),
+        ctx=meta.get("context_tokens", 0),
+    )
 
 
 def stamp_meta(result: dict, meta: dict, elapsed_ms: int) -> dict:

@@ -62,28 +62,78 @@ def test_render_meta_empty_dict_returns_empty_string():
 
 def test_render_meta_en_uses_existing_current_time_template():
     agent = _fake_agent_with_lang("en")
-    meta = {"current_time": "2026-04-20T10:15:23-07:00"}
-    assert render_meta(agent, meta) == "[Current time: 2026-04-20T10:15:23-07:00]"
+    meta = {
+        "current_time": "2026-04-20T10:15:23-07:00",
+        "system_tokens": 4720,
+        "context_tokens": 9450,
+        "context_usage": 0.071,
+    }
+    assert render_meta(agent, meta) == "[Current time: 2026-04-20T10:15:23-07:00 | context: 7.1% (sys 4720 + ctx 9450)]"
 
 
 def test_render_meta_zh_uses_existing_current_time_template():
     agent = _fake_agent_with_lang("zh")
-    meta = {"current_time": "2026-04-20T10:15:23-07:00"}
-    assert render_meta(agent, meta) == "[当前时间：2026-04-20T10:15:23-07:00]"
+    meta = {
+        "current_time": "2026-04-20T10:15:23-07:00",
+        "system_tokens": 4720,
+        "context_tokens": 9450,
+        "context_usage": 0.071,
+    }
+    assert render_meta(agent, meta) == "[此时：2026-04-20T10:15:23-07:00 | 上下文：7.1% (系统 4720 + 对话 9450)]"
 
 
 def test_render_meta_wen_uses_existing_current_time_template():
     agent = _fake_agent_with_lang("wen")
-    meta = {"current_time": "2026-04-20T10:15:23-07:00"}
-    assert render_meta(agent, meta) == "[此时：2026-04-20T10:15:23-07:00]"
+    meta = {
+        "current_time": "2026-04-20T10:15:23-07:00",
+        "system_tokens": 4720,
+        "context_tokens": 9450,
+        "context_usage": 0.071,
+    }
+    assert render_meta(agent, meta) == "[此时：2026-04-20T10:15:23-07:00 | 上下文：7.1% (系统 4720 + 对话 9450)]"
 
 
 def test_render_meta_non_empty_without_current_time_returns_empty():
-    # Documents current limitation: render_meta only renders current_time.
-    # When future fields (e.g. context-window breakdown) are added to build_meta,
-    # render_meta must be extended or this test will catch the silent drop.
+    # Verifies render_meta ignores keys it doesn't know how to render
+    # (neither current_time nor any context field). Produces '' so the
+    # caller can omit the prefix entirely.
     agent = _fake_agent_with_lang("en")
     assert render_meta(agent, {"future_field": 123}) == ""
+
+
+def test_render_meta_context_unknown_sentinel_en():
+    agent = _fake_agent_with_lang("en")
+    meta = {
+        "current_time": "2026-04-20T10:15:23-07:00",
+        "system_tokens": -1,
+        "context_tokens": -1,
+        "context_usage": -1.0,
+    }
+    assert render_meta(agent, meta) == "[Current time: 2026-04-20T10:15:23-07:00 | context: unavailable]"
+
+
+def test_render_meta_context_unknown_sentinel_zh():
+    agent = _fake_agent_with_lang("zh")
+    meta = {
+        "current_time": "2026-04-20T10:15:23-07:00",
+        "system_tokens": -1,
+        "context_tokens": -1,
+        "context_usage": -1.0,
+    }
+    assert render_meta(agent, meta) == "[此时：2026-04-20T10:15:23-07:00 | 上下文：未知]"
+
+
+def test_render_meta_rounds_usage_to_one_decimal():
+    """Usage ratios round to one decimal place, not raw float."""
+    agent = _fake_agent_with_lang("en")
+    meta = {
+        "current_time": "T",
+        "system_tokens": 1000,
+        "context_tokens": 500,
+        "context_usage": 0.0723456,
+    }
+    result = render_meta(agent, meta)
+    assert "7.2%" in result
 
 
 def test_stamp_meta_writes_meta_keys_and_elapsed_ms_in_place():
@@ -206,3 +256,18 @@ def test_build_meta_time_blind_still_emits_context_fields():
     assert "current_time" not in meta
     assert meta["system_tokens"] == 4500
     assert meta["context_tokens"] == 1200
+
+
+def test_render_meta_time_blind_with_context_present_emits_empty_time_slot():
+    """Known edge case (documented in spec): a time-blind agent whose session
+    has context data produces '[Current time:  | context: ...]' with an empty
+    time slot. This is intentional — the spec accepts this and defers a
+    time-blind-specific template to a follow-up. If future work changes the
+    behavior, this test must be updated together with the spec."""
+    agent = _fake_agent_with_lang("en")
+    meta = {
+        "system_tokens": 4720,
+        "context_tokens": 9450,
+        "context_usage": 0.071,
+    }
+    assert render_meta(agent, meta) == "[Current time:  | context: 7.1% (sys 4720 + ctx 9450)]"
