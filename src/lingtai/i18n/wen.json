@@ -131,7 +131,7 @@
   "daemon.message": "'ask' 操作之跟进之言",
   "daemon.limit_reached": "分神过众（运行中：{running}，所请：{requested}，上限：{max}）",
 
-  "library.description": "共享藏经阁，居于 .lingtai/.library/（与器灵工作目录同级）。技艺者，含 SKILL.md（YAML 前言载 name 与 description，后承 Markdown 指引）及辅助之卷的文件夹也。添技艺：以 bash 下载或克隆至 .lingtai/.library/<技艺名>/，确有合格之 SKILL.md，再调 library(action='register') 验之而提交。欲取他灵所添之技艺，调 library(action='refresh')。SKILL.md 之式：\n---\nname: skill-name\ndescription: 一行之述\nversion: 1.0.0\n---\nMarkdown 格式之完整指引…\n技艺文件夹本身可为 git 之库（自远端克隆者）。外层 .library 库统摄之。以 bash 于单技艺文件夹内 git pull 以更新，再 register 以提交。",
-  "library.action": "register：验诸技艺文件夹，git add 而 commit 变更，刷新目录。以 bash 下载或修改技艺后用之。\nrefresh：重扫藏经阁，将目录重注入系统之提示。用以取他灵所注册之技艺。",
-  "library.preamble": "下列技艺为特定之务而设。若事合其述，以 read 器取该技艺 location 所示之路径而阅 SKILL.md，依其所教行事。技艺之目录或有辅助之卷（脚本、范式、数据）——SKILL.md 中自有引述。每次仅取一技。若无技艺明合，则勿取之。"
+  "library.description": "尔之器灵藏典。系统之中 <available_skills> 所列，皆此时可取之技。呼 info 以得 skill-for-skill 全文（藏用、出新、以 pad.append 载入），兼验藏典康否。详参 .library/intrinsic/ 中 skill-for-skill 一技。",
+  "library.action_info": "info：还 skill-for-skill 元技之文，并录当时之康状（技数、解径、患记）。",
+  "library.preamble": "下列诸技，各司其事。凡所遇事与技之描合者，以 read 取其 location 所指之 SKILL.md，循而行之。每技之匣，或含副件（script、template、data），SKILL.md 自有所引。常用之技，可以 psyche({object:'pad', action:'append', files:[location]}) 固于 pad，跨轮常存。若无可取者，勿妄载。"
 }

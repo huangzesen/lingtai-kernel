@@ -131,7 +131,7 @@
   "daemon.message": "'ask' 操作的跟进消息",
   "daemon.limit_reached": "分神过多（运行中：{running}，请求：{requested}，上限：{max}）",
 
-  "library.description": "共享藏经阁，位于 .lingtai/.library/（与智能体工作目录同级）。技能是包含 SKILL.md（YAML 前言含 name + description，后接 Markdown 指引）和可选辅助文件的文件夹。添加技能：用 bash 下载/克隆到 .lingtai/.library/<技能名>/，确保有有效的 SKILL.md，然后调用 library(action='register') 验证并提交。要获取其他智能体添加的技能，调用 library(action='refresh')。SKILL.md 格式：\n---\nname: skill-name\ndescription: 一行描述\nversion: 1.0.0\n---\nMarkdown 格式的完整指引…\n技能文件夹本身可以是 git 仓库（从远程克隆）。外层 .library 仓库统一追踪。用 bash 在单个技能文件夹内 git pull 更新，然后 register 提交变更。",
-  "library.action": "register：验证所有技能文件夹，git add + commit 变更，刷新目录。在通过 bash 下载或修改技能后使用。\nrefresh：重新扫描藏经阁并将目录重新注入系统提示。用于获取其他智能体注册的技能。",
-  "library.preamble": "以下技能为特定任务提供专门指引。当任务匹配某技能的描述时，用 read 工具加载该技能 location 字段所示路径的 SKILL.md，然后按其指引行事。每个技能文件夹可能包含辅助文件（脚本、模板、数据）——SKILL.md 中会引用它们。每次只加载一个技能。若无技能明确匹配，则不要加载任何技能。"
+  "library.description": "你的器灵专属技能库。系统提示词中的 <available_skills> 目录列出了当前所有可用的技能。调用 info 可阅读完整的技能库工作流（编写、发布、通过 pad.append 加载），并验证技能库的健康状态。也可直接查阅 .library/intrinsic/ 中的 skill-for-skill 技能。",
+  "library.action_info": "info：返回 skill-for-skill 元技能正文，以及运行时健康快照（目录规模、解析后的路径、问题列表）。",
+  "library.preamble": "以下技能为特定任务提供专门指导。当任务匹配某个技能的描述时，使用 read 工具读取 location 字段所示路径下的 SKILL.md 文件，然后遵循其中指示。每个技能文件夹可能包含支持文件（脚本、模板、数据）——SKILL.md 会引用它们。经常使用的技能可通过 psyche({object:'pad', action:'append', files:[location]}) 固定到 pad 中，使其跨轮次持久存在。若没有明显匹配的技能，则不加载任何技能。"
 }
