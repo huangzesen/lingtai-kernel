@@ -198,6 +198,10 @@ def _fake_agent_with_session(
         interface = _iface()
 
     chat_obj = _Chat() if decomp_ran else None
+    # Server-authoritative wire-count: system + tools + history.
+    # This is the invariant our production code relies on
+    # (history = latest_input - system - tools).
+    latest_input = system_prompt_tokens + tools_tokens + history_tokens
 
     return SimpleNamespace(
         _config=SimpleNamespace(
@@ -210,6 +214,7 @@ def _fake_agent_with_session(
             _system_prompt_tokens=system_prompt_tokens,
             _tools_tokens=tools_tokens,
             _context_section_tokens=context_section_tokens,
+            _latest_input_tokens=latest_input,
             _token_decomp_dirty=not decomp_ran,
             _chat=chat_obj,
             chat=chat_obj,
@@ -271,3 +276,23 @@ def test_render_meta_time_blind_with_context_present_emits_empty_time_slot():
         "context_usage": 0.071,
     }
     assert render_meta(agent, meta) == "[Current time:  | context: 7.1% (sys 4720 + ctx 9450)]"
+
+
+def test_build_meta_context_tokens_does_not_double_count_system_and_tools():
+    """Regression: context_tokens must NOT include the system prompt or tool
+    schema tokens (they belong to system_tokens). Computed from the server's
+    authoritative input count minus system + tools, mirroring
+    SessionManager.get_token_usage's ctx_history_tokens."""
+    agent = _fake_agent_with_session(
+        system_prompt_tokens=5000,
+        context_section_tokens=1000,
+        tools_tokens=500,
+        history_tokens=200,
+    )
+    meta = build_meta(agent)
+    # Sanity: system_tokens = (5000 - 1000) + 500 = 4500
+    assert meta["system_tokens"] == 4500
+    # context_tokens = 1000 + 200 = 1200 — NOT 1000 + 5700 = 6700
+    assert meta["context_tokens"] == 1200
+    # Would be 0.067 if double-counted; correct is 0.057
+    assert abs(meta["context_usage"] - 0.057) < 1e-6

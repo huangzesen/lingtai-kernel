@@ -1338,6 +1338,7 @@ class BaseAgent:
                 "thinking_tokens": 0, "cached_tokens": 0,
                 "total_tokens": 0, "api_calls": 0,
                 "ctx_system_tokens": 0, "ctx_tools_tokens": 0,
+                "ctx_context_section_tokens": 0,
                 "ctx_history_tokens": 0, "ctx_total_tokens": 0,
             }
         return self._session.get_token_usage()

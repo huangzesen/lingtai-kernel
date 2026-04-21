@@ -45,7 +45,17 @@ def build_meta(agent) -> dict:
         sys_prompt = session._system_prompt_tokens
         ctx_section = session._context_section_tokens
         tools = session._tools_tokens
-        history = chat_obj.interface.estimate_context_tokens()
+        # "history" = in-memory turns since the last flush to context.md.
+        # Derived from the server-reported wire count (same pattern as
+        # SessionManager.get_token_usage's ctx_history_tokens) so the
+        # meta-line and status() agree on the number.
+        # _latest_input_tokens already contains system_prompt (which
+        # contains ctx_section) and tools; subtracting them gives the
+        # in-memory turn slice only.
+        history = max(
+            0,
+            session._latest_input_tokens - sys_prompt - tools,
+        )
 
         # The "system" bucket in the meta line is everything that is NOT
         # accumulated memory: the prompt floor (minus the context section)
