@@ -1,20 +1,39 @@
 ---
-name: skill-for-skill
-description: How to use your library — find, read, load, author, and publish skills. Read this first.
+name: library-manual
+description: How your library works — the on-disk layout, the catalog, loading, authoring, publishing. Read this first.
 version: 1.0.0
 ---
 
-# Your Library
+# The Library Capability
 
-Every skill listed in `<available_skills>` in your system prompt is reachable right now. Each entry has `name`, `description`, and `location`. The library capability scans the following sources and injects the catalog:
+This is the library capability's own manual. It documents how the library works from your side: the on-disk layout, the XML catalog, and the authoring/publishing workflow. The library capability scans `.library/` plus any extra paths declared in `init.json`, builds the `<available_skills>` XML catalog, and injects it into your system prompt.
 
-- `<agent>/.library/intrinsic/` — kernel-shipped skills (including this one). Rewritten on every setup; do not edit.
-- `<agent>/.library/custom/` — your own authored skills. This is your territory.
-- Every path in `init.json` `manifest.capabilities.library.paths` — typically `../.library_shared/` (the network-shared library) and `~/.lingtai-tui/utilities/` (operational utilities shipped by the TUI).
+## On-disk layout
+
+Your library lives at `<agent>/.library/`:
+
+```
+<agent>/.library/
+├── intrinsic/
+│   ├── capabilities/
+│   │   └── <cap>/<manual files>
+│   └── addons/
+│       └── <addon>/<manual files>
+└── custom/
+```
+
+- `intrinsic/` — **CLI-managed.** Wiped and rewritten from kernel-shipped manual bundles on every `system({"action": "refresh"})`. Do not edit — your edits will be erased. Read-only territory.
+- `intrinsic/capabilities/<cap>/` — manual for each loaded capability (e.g. `library/`, `email/`, `psyche/`).
+- `intrinsic/addons/<addon>/` — manual for each loaded addon (e.g. `imap/`, `telegram/`, `feishu/`).
+- `custom/` — **your territory.** Authored skills live here. The CLI never touches this directory.
+
+Additional paths come from `init.json` at `manifest.capabilities.library.paths` — typically `../.library_shared/` (the network-shared library) and `~/.lingtai-tui/utilities/` (operational utilities shipped by the TUI).
+
+If the library capability is NOT loaded, the files still exist on disk — you just don't get an XML catalog in your prompt. You can still reach the manuals via `read`, `grep`, `ls`.
 
 ## How the catalog works
 
-The XML catalog in your prompt lists every skill. To read a skill's body, use `read` on the file at `<location>`. That gives you the full Markdown for that one turn.
+Every skill listed in `<available_skills>` in your system prompt is reachable right now. Each entry has `name`, `description`, and `location`. To read a skill's body, use `read` on the file at `<location>`. That gives you the full Markdown for that one turn.
 
 ## Loading a skill into active working memory
 
@@ -83,4 +102,4 @@ If you hit a collision: rename, or adapt the existing skill instead of forking a
 
 ## Health check
 
-Call `library({"action": "info"})` to verify your library is wired correctly. It returns this SKILL.md body plus a runtime snapshot: `library_dir`, `catalog_size`, resolved paths with exist/skill-count info, and any `problems` (invalid frontmatter, unreadable folders). If `status` is `"degraded"`, the error message tells you what needs fixing.
+Call `library({"action": "info"})` to verify your library is wired correctly. It returns this SKILL.md body plus a runtime snapshot: `library_dir`, `catalog_size`, resolved paths with exist/skill-count info, and any `problems` (invalid frontmatter, unreadable folders). If `status` is `"degraded"`, the error message tells you what needs fixing — typically a missing manual under `intrinsic/capabilities/library/`, which means the initializer didn't install manuals correctly.

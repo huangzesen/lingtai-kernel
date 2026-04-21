@@ -1,10 +1,12 @@
-"""Library capability — per-agent skill catalog with kernel-shipped intrinsics.
+"""Library capability — per-agent skill catalog (pure presentation).
 
-Every agent has its own ``<agent>/.library/`` containing:
+Every agent has its own ``<agent>/.library/``:
 
-- ``intrinsic/`` — hard-copied from ``lingtai_kernel.intrinsic_skills`` on every
-  setup. Includes the ``skill-for-skill`` meta-skill. Always rewritten.
-- ``custom/`` — agent-authored skills. Never touched by the capability.
+- ``intrinsic/capabilities/<cap>/`` and ``intrinsic/addons/<addon>/`` — manual
+  bundles installed by the Agent initializer (wipe-and-rewrite on every
+  ``_setup_from_init``). The library capability does NOT create or populate
+  this directory.
+- ``custom/`` — agent-authored skills. Never touched by any kernel code.
 
 Additional paths come from ``init.json``:
 
@@ -13,8 +15,12 @@ recursively and contributes to the ``<available_skills>`` XML injected into the
 system prompt's ``library`` section. Paths may be absolute, relative to the
 agent working dir, or tilde-prefixed.
 
-Tool surface: a single ``info`` action that returns the ``skill-for-skill``
-SKILL.md body plus a runtime health snapshot.
+This capability is pure presentation: it scans whatever is on disk and builds
+the catalog. It never writes to ``.library/``. File installation is the
+initializer's job.
+
+Tool surface: a single ``info`` action that returns the library manual body
+plus a runtime health snapshot.
 
 Usage: ``Agent(capabilities={"library": {"paths": [...]}})`` or via init.json.
 """
@@ -22,7 +28,6 @@ from __future__ import annotations
 
 import logging
 import re
-import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -67,37 +72,6 @@ def _resolve_path(p: str, working_dir: Path) -> Path:
     if expanded.is_absolute():
         return expanded
     return (working_dir / expanded).resolve(strict=False)
-
-
-# ---------------------------------------------------------------------------
-# Intrinsic skills hard-copy
-# ---------------------------------------------------------------------------
-
-def _intrinsic_source_dir() -> Path:
-    """Locate the kernel's shipped intrinsic_skills directory."""
-    import lingtai_kernel
-    return Path(lingtai_kernel.__file__).parent / "intrinsic_skills"
-
-
-def _hard_copy_intrinsics(target_dir: Path) -> None:
-    """Copy every intrinsic skill folder from the kernel package into ``target_dir``.
-
-    Existing contents under ``target_dir`` are removed first so a kernel upgrade
-    that renames or removes an intrinsic skill propagates cleanly.
-    """
-    source = _intrinsic_source_dir()
-    if target_dir.exists():
-        shutil.rmtree(target_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    if not source.is_dir():
-        return  # kernel ships no intrinsic skills (unlikely but handle gracefully)
-
-    for child in sorted(source.iterdir()):
-        if child.name.startswith("_") or child.name.startswith("."):
-            continue
-        if child.is_dir():
-            shutil.copytree(child, target_dir / child.name)
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +198,11 @@ def _reconcile(
     agent: "BaseAgent",
     paths: list[str],
 ) -> dict:
-    """Ensure dirs, hard-copy intrinsics, scan all sources, inject catalog.
+    """Scan ``.library/`` + Tier-1 paths, inject catalog, report status.
+
+    The library capability is pure presentation: it reads whatever the Agent
+    initializer wrote to ``.library/intrinsic/`` and the agent wrote to
+    ``.library/custom/``. It does NOT create directories or copy files.
 
     Returns a dict suitable for the ``info`` response.
     """
@@ -237,18 +215,7 @@ def _reconcile(
     status = "ok"
     error: str | None = None
 
-    # Ensure structure.
-    library_dir.mkdir(parents=True, exist_ok=True)
-    custom_dir.mkdir(parents=True, exist_ok=True)
-
-    # Hard-copy intrinsics (always overwrite).
-    try:
-        _hard_copy_intrinsics(intrinsic_dir)
-    except OSError as e:
-        status = "degraded"
-        error = f"intrinsic hard-copy failed: {e}"
-
-    # Scan intrinsic + custom.
+    # Scan intrinsic + custom. If they don't exist, _scan silently returns empty.
     all_skills: list[dict] = []
     int_valid, int_problems = _scan(intrinsic_dir)
     all_skills.extend(int_valid)
@@ -285,18 +252,21 @@ def _reconcile(
     else:
         agent.update_system_prompt("library", "", protected=True)
 
-    # Health signal: skill-for-skill must be present.
-    skill_for_skill_path = intrinsic_dir / "skill-for-skill" / "SKILL.md"
-    if not skill_for_skill_path.is_file():
+    # Health signal: the library capability's own manual must be present.
+    library_manual_path = intrinsic_dir / "capabilities" / "library" / "SKILL.md"
+    if not library_manual_path.is_file():
         status = "degraded"
-        error = error or "skill-for-skill SKILL.md missing — hard-copy may have failed"
-        sk_body = ""
+        error = error or (
+            "library manual missing — initializer may have failed or "
+            "capability not installed correctly"
+        )
+        manual_body = ""
     else:
-        sk_body = skill_for_skill_path.read_text(encoding="utf-8")
+        manual_body = library_manual_path.read_text(encoding="utf-8")
 
     result = {
         "status": status,
-        "skill_for_skill": sk_body,
+        "library_manual": manual_body,
         "library_dir": str(library_dir),
         "catalog_size": len(all_skills),
         "paths": paths_report,
@@ -335,11 +305,17 @@ def setup(agent: "BaseAgent", paths: list[str] | None = None, **_ignored) -> Non
     ``paths`` is the Tier 1 list from ``init.json`` ``manifest.capabilities.library.paths``.
     When omitted (e.g., direct ``Agent(capabilities=["library"])`` use without kwargs),
     no additional paths are scanned — only the per-agent ``.library/``.
+
+    The capability itself does not create or populate ``.library/``; the Agent
+    initializer's ``_install_intrinsic_manuals`` step handles that. Setup just
+    scans whatever is on disk and injects the XML catalog so the first turn
+    sees a ready catalog.
     """
     lang = agent._config.language
     path_list = list(paths) if paths else []
 
     # Run reconciliation once on setup so the catalog is ready before first turn.
+    # This only READS from .library/ — the initializer has already written it.
     _reconcile(agent, path_list)
 
     # Register the `info` action. `info` re-runs _reconcile to get a fresh snapshot.

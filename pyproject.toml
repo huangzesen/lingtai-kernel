@@ -33,8 +33,14 @@ lingtai = "lingtai.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-lingtai_kernel = ["i18n/*.json", "intrinsic_skills/**/*"]
-lingtai = ["i18n/*.json", "capabilities/*/*.json", "addons/*/*.json"]
+lingtai_kernel = ["i18n/*.json"]
+lingtai = [
+    "i18n/*.json",
+    "capabilities/*/*.json",
+    "capabilities/*/manual/**/*",
+    "addons/*/*.json",
+    "addons/*/manual/**/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

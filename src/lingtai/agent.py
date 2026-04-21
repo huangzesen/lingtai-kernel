@@ -95,6 +95,10 @@ class Agent(BaseAgent):
                     self._log("addon_skipped", addon=addon_name, reason=str(e))
                     self._notify_addon_failure(addon_name, e)
 
+        # Install intrinsic manuals (wipe-and-rewrite .library/intrinsic/)
+        # from the bundles shipped with each enabled capability/addon.
+        self._install_intrinsic_manuals()
+
         # Re-write manifest now that capabilities are registered
         if self._capabilities:
             self._workdir.write_manifest(self._build_manifest())
@@ -140,6 +144,74 @@ class Agent(BaseAgent):
         mgr = setup_capability(self, name, **kwargs)
         self._capability_managers[name] = mgr
         return mgr
+
+    def _install_intrinsic_manuals(self) -> None:
+        """Wipe and rewrite ``.library/intrinsic/`` from current capabilities + addons.
+
+        Runs near the end of ``__init__`` and ``_setup_from_init``, after
+        capabilities and addons have registered. Copies each enabled
+        capability's ``manual/`` bundle into ``.library/intrinsic/capabilities/<name>/``
+        and each enabled addon's ``manual/`` bundle into
+        ``.library/intrinsic/addons/<name>/``. Directories for capabilities or
+        addons without a ``manual/`` bundle are simply absent.
+
+        Never touches ``.library/custom/``. That is the agent's territory.
+        """
+        import shutil
+        from importlib import import_module
+
+        library_dir = self._working_dir / ".library"
+        intrinsic_dir = library_dir / "intrinsic"
+
+        # Ensure .library/ and .library/custom/ exist; never touch custom/.
+        (library_dir / "custom").mkdir(parents=True, exist_ok=True)
+
+        # Wipe and rewrite intrinsic/ in one shot.
+        if intrinsic_dir.exists():
+            shutil.rmtree(intrinsic_dir)
+        (intrinsic_dir / "capabilities").mkdir(parents=True, exist_ok=True)
+        (intrinsic_dir / "addons").mkdir(parents=True, exist_ok=True)
+
+        # Capability manuals.
+        for cap_name, _ in self._capabilities:
+            try:
+                mod = import_module(f"lingtai.capabilities.{cap_name}")
+            except ImportError:
+                continue  # capability failed to load; skip
+            mod_file = getattr(mod, "__file__", None)
+            if not mod_file:
+                continue
+            src = Path(mod_file).parent / "manual"
+            if src.is_dir():
+                dest = intrinsic_dir / "capabilities" / cap_name
+                shutil.copytree(src, dest)
+
+        # Addon manuals.
+        for addon_name in self._addon_managers:
+            try:
+                mod = import_module(f"lingtai.addons.{addon_name}")
+            except ImportError:
+                continue
+            mod_file = getattr(mod, "__file__", None)
+            if not mod_file:
+                continue
+            src = Path(mod_file).parent / "manual"
+            if src.is_dir():
+                dest = intrinsic_dir / "addons" / addon_name
+                shutil.copytree(src, dest)
+
+        # If the library capability is loaded, re-run its reconcile now that
+        # the manuals are on disk — so the injected catalog reflects them on
+        # the very first turn (library.setup()'s initial _reconcile ran BEFORE
+        # install, when the manual dir was empty).
+        for cap_name, cap_kwargs in self._capabilities:
+            if cap_name == "library":
+                try:
+                    from .capabilities import library as libmod
+                    libmod._reconcile(self, list(cap_kwargs.get("paths", []) or []))
+                except Exception as e:
+                    self._log("library_reconcile_failed", reason=str(e))
+                break
 
     _SENSITIVE_KEYS = {"api_key", "api_key_env", "api_secret", "token", "password"}
 
@@ -621,6 +693,10 @@ class Agent(BaseAgent):
                 except Exception as e:
                     self._log("addon_skipped", addon=addon_name, reason=str(e))
                     self._notify_addon_failure(addon_name, e)
+
+        # Install intrinsic manuals (wipe-and-rewrite .library/intrinsic/)
+        # from the bundles shipped with each enabled capability/addon.
+        self._install_intrinsic_manuals()
 
         # Register system prompt reload as post-molt hook — molt should
         # reconstruct the system prompt the same way refresh does.

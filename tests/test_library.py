@@ -48,27 +48,42 @@ def test_library_setup_creates_per_agent_directories(tmp_path):
     try:
         assert (workdir / ".library").is_dir()
         assert (workdir / ".library" / "intrinsic").is_dir()
+        assert (workdir / ".library" / "intrinsic" / "capabilities").is_dir()
+        assert (workdir / ".library" / "intrinsic" / "addons").is_dir()
         assert (workdir / ".library" / "custom").is_dir()
     finally:
         agent.stop(timeout=1.0)
 
 
 def test_library_setup_hard_copies_intrinsics(tmp_path):
+    # The Agent initializer installs each loaded capability's manual/ bundle
+    # into intrinsic/capabilities/<cap>/. The library capability documents
+    # itself like every other capability.
     agent, workdir = _mk_agent(tmp_path)
     try:
-        skill_md = workdir / ".library" / "intrinsic" / "skill-for-skill" / "SKILL.md"
+        skill_md = (
+            workdir / ".library" / "intrinsic" / "capabilities" / "library" / "SKILL.md"
+        )
         assert skill_md.is_file()
-        assert "name: skill-for-skill" in skill_md.read_text()
+        assert "name: library-manual" in skill_md.read_text()
     finally:
         agent.stop(timeout=1.0)
 
 
 def test_library_setup_overwrites_stale_intrinsic(tmp_path):
-    # Simulate a stale intrinsic skill from a previous kernel version.
+    # The Agent initializer wipes-and-rewrites intrinsic/ on construction.
+    # A stale entry from a previous kernel version must be replaced.
     workdir = tmp_path / "agent"
-    stale = workdir / ".library" / "intrinsic" / "skill-for-skill" / "SKILL.md"
+    stale = (
+        workdir / ".library" / "intrinsic" / "capabilities" / "library" / "SKILL.md"
+    )
     stale.parent.mkdir(parents=True, exist_ok=True)
-    stale.write_text("---\nname: skill-for-skill\ndescription: STALE\n---\n")
+    stale.write_text("---\nname: library-manual\ndescription: STALE\n---\n")
+
+    # Also leave a stale top-level dir to confirm wipe-and-rewrite scrubs old layouts.
+    old_layout = workdir / ".library" / "intrinsic" / "skill-for-skill" / "SKILL.md"
+    old_layout.parent.mkdir(parents=True, exist_ok=True)
+    old_layout.write_text("---\nname: skill-for-skill\ndescription: ANCIENT\n---\n")
 
     agent = Agent(
         service=make_mock_service(),
@@ -79,7 +94,9 @@ def test_library_setup_overwrites_stale_intrinsic(tmp_path):
     try:
         body = stale.read_text()
         assert "STALE" not in body
-        assert "How to use your library" in body or "Your Library" in body
+        assert "The Library Capability" in body or "library-manual" in body
+        # Old layout scrubbed.
+        assert not old_layout.exists()
     finally:
         agent.stop(timeout=1.0)
 
@@ -116,7 +133,7 @@ def test_library_scans_absolute_path(tmp_path):
         result = agent._tool_handlers["library"]({"action": "info"})
         assert result["status"] == "ok"
         assert result["paths"][str(extra)]["skills"] == 1
-        assert result["catalog_size"] >= 2  # skill-for-skill + shared-skill
+        assert result["catalog_size"] >= 2  # library-manual + shared-skill
     finally:
         agent.stop(timeout=1.0)
 
@@ -167,12 +184,12 @@ def test_library_reports_missing_path_as_not_existing(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_info_returns_skill_for_skill_body(tmp_path):
+def test_info_returns_library_manual_body(tmp_path):
     agent, _ = _mk_agent(tmp_path)
     try:
         result = agent._tool_handlers["library"]({"action": "info"})
-        assert "skill_for_skill" in result
-        assert "name: skill-for-skill" in result["skill_for_skill"]
+        assert "library_manual" in result
+        assert "name: library-manual" in result["library_manual"]
     finally:
         agent.stop(timeout=1.0)
 
@@ -187,17 +204,18 @@ def test_info_reports_ok_when_healthy(tmp_path):
         agent.stop(timeout=1.0)
 
 
-def test_info_reports_degraded_when_intrinsic_missing(tmp_path, monkeypatch):
-    # info re-runs reconciliation (including hard-copy), so merely deleting the
-    # copy is self-healed. To produce a genuinely degraded state, redirect the
-    # kernel intrinsic source to an empty dir so hard-copy has nothing to copy.
-    from lingtai.capabilities import library as libmod
-    empty_source = tmp_path / "no-intrinsics"
-    empty_source.mkdir()
-    monkeypatch.setattr(libmod, "_intrinsic_source_dir", lambda: empty_source)
-
-    agent, _ = _mk_agent(tmp_path)
+def test_info_reports_degraded_when_intrinsic_missing(tmp_path):
+    # The library capability is pure presentation — it does NOT reinstall
+    # manuals when info is called. So if the initializer-installed manual is
+    # deleted out-of-band after setup, info must report degraded.
+    agent, workdir = _mk_agent(tmp_path)
     try:
+        manual_path = (
+            workdir / ".library" / "intrinsic" / "capabilities" / "library" / "SKILL.md"
+        )
+        assert manual_path.is_file(), "precondition: initializer installed manual"
+        manual_path.unlink()
+
         result = agent._tool_handlers["library"]({"action": "info"})
         assert result["status"] == "degraded"
         assert "error" in result
@@ -239,7 +257,7 @@ def test_catalog_injected_into_library_section(tmp_path):
     try:
         prompt = agent._prompt_manager.read_section("library") or ""
         assert "<available_skills>" in prompt
-        assert "skill-for-skill" in prompt
+        assert "library-manual" in prompt
         assert "shared-thing" in prompt
     finally:
         agent.stop(timeout=1.0)
