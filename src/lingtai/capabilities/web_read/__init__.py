@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ..i18n import t
+from ...i18n import t
 
 if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
@@ -56,7 +56,7 @@ class WebReadManager:
 
         # Auto-create default service if none provided
         if self._service is None:
-            from ..services.web_read import TrafilaturaWebReadService
+            from ...services.web_read import TrafilaturaWebReadService
             self._service = TrafilaturaWebReadService()
 
         try:
@@ -75,8 +75,8 @@ def setup(agent: "BaseAgent", web_read_service: Any | None = None,
     instead of the default trafilatura fallback.
     """
     if web_read_service is None and provider == "zhipu" and api_key:
-        from ..services.web_read import ZhipuWebReadService
-        from ._zhipu_mode import resolve_z_ai_mode
+        from ...services.web_read import ZhipuWebReadService
+        from .._zhipu_mode import resolve_z_ai_mode
         web_read_service = ZhipuWebReadService(api_key=api_key, z_ai_mode=resolve_z_ai_mode(agent))
     lang = agent._config.language
     mgr = WebReadManager(web_read_service=web_read_service)

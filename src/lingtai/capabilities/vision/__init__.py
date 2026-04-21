@@ -18,8 +18,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..i18n import t
-from ..services.vision import VisionService, create_vision_service
+from ...i18n import t
+from ...services.vision import VisionService, create_vision_service
 
 if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
@@ -99,11 +99,11 @@ def setup(
     Raises ``ValueError`` if neither is provided.
     """
     if vision_service is None and provider is not None:
-        from ._media_host import resolve_media_host
+        from .._media_host import resolve_media_host
         if "api_host" not in kwargs:
             kwargs["api_host"] = resolve_media_host(agent)
         if provider == "zhipu" and "z_ai_mode" not in kwargs:
-            from ._zhipu_mode import resolve_z_ai_mode
+            from .._zhipu_mode import resolve_z_ai_mode
             kwargs["z_ai_mode"] = resolve_z_ai_mode(agent)
         vision_service = create_vision_service(provider, api_key=api_key, **kwargs)
     elif vision_service is None:

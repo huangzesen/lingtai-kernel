@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING, Any
 
 from lingtai_kernel.logging import get_logger
 
-from ..i18n import t
+from ...i18n import t
 
 if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
-    from ..services.image_gen import ImageGenService
+    from ...services.image_gen import ImageGenService
 
 logger = get_logger()
 
@@ -82,8 +82,8 @@ def setup(agent: "BaseAgent", **kwargs: Any) -> DrawManager:
                 "draw capability requires 'image_gen_service' or 'provider'. "
                 "Example: capabilities={'draw': {'provider': 'minimax', 'api_key': '...'}}"
             )
-        from ..services.image_gen import create_image_gen_service
-        from ._media_host import resolve_media_host
+        from ...services.image_gen import create_image_gen_service
+        from .._media_host import resolve_media_host
         image_gen_service = create_image_gen_service(
             provider,
             api_key=kwargs.get("api_key"),

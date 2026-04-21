@@ -31,7 +31,7 @@ from lingtai_kernel.message import _make_message, MSG_REQUEST
 from lingtai_kernel.token_counter import count_tokens
 from lingtai_kernel.time_veil import scrub_time_fields
 
-from ..i18n import t
+from ...i18n import t
 
 if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent

@@ -34,7 +34,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 lingtai_kernel = ["i18n/*.json", "intrinsic_skills/**/*"]
-lingtai = ["i18n/*.json", "capabilities/*.json", "addons/*/*.json"]
+lingtai = ["i18n/*.json", "capabilities/*/*.json", "addons/*/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

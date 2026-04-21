@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 from lingtai_kernel.logging import get_logger
 
-from ..i18n import t
-from ..services.transcription import (
+from ...i18n import t
+from ...services.transcription import (
     TranscriptionService,
     create_transcription_service,
 )

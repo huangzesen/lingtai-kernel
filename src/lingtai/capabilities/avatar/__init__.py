@@ -31,10 +31,10 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..i18n import t
+from ...i18n import t
 
 if TYPE_CHECKING:
-    from ..agent import Agent
+    from ...agent import Agent
 
 PROVIDERS = {"providers": [], "default": "builtin"}
 

@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING, Any
 
 from lingtai_kernel.logging import get_logger
 
-from ..i18n import t
+from ...i18n import t
 
 if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
-    from ..services.music_gen import MusicGenService
+    from ...services.music_gen import MusicGenService
 
 logger = get_logger()
 
@@ -88,8 +88,8 @@ def setup(agent: "BaseAgent", **kwargs: Any) -> ComposeManager:
                 "compose capability requires 'music_gen_service' or 'provider'. "
                 "Example: capabilities={'compose': {'provider': 'minimax', 'api_key': '...'}}"
             )
-        from ..services.music_gen import create_music_gen_service
-        from ._media_host import resolve_media_host
+        from ...services.music_gen import create_music_gen_service
+        from .._media_host import resolve_media_host
         music_gen_service = create_music_gen_service(
             provider,
             api_key=kwargs.get("api_key"),

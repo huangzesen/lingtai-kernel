@@ -26,7 +26,7 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..i18n import t
+from ...i18n import t
 
 if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent

@@ -16,10 +16,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
-from ..i18n import t
+from ...i18n import t
 
 if TYPE_CHECKING:
-    from ..agent import Agent
+    from ...agent import Agent
 
 from lingtai_kernel.llm.base import FunctionSchema
 from lingtai_kernel.message import MSG_REQUEST, _make_message
@@ -109,7 +109,7 @@ class DaemonManager:
 
     def _build_tool_surface(self, requested: list[str]) -> tuple[list[FunctionSchema], dict]:
         """Build filtered tool schemas and dispatch map for an emanation."""
-        from ..capabilities import _GROUPS
+        from ...capabilities import _GROUPS
 
         # Expand groups and filter blacklist
         tool_names: set[str] = set()

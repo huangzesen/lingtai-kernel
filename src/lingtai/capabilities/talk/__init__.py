@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING, Any
 
 from lingtai_kernel.logging import get_logger
 
-from ..i18n import t
+from ...i18n import t
 
 if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
 
-    from ..services.tts import TTSService
+    from ...services.tts import TTSService
 
 logger = get_logger()
 
@@ -106,8 +106,8 @@ def setup(
                 "(e.g. 'minimax', 'gemini'). Example: "
                 "capabilities={'talk': {'provider': 'minimax', 'api_key': '...'}}"
             )
-        from ..services.tts import create_tts_service
-        from ._media_host import resolve_media_host
+        from ...services.tts import create_tts_service
+        from .._media_host import resolve_media_host
 
         if "api_host" not in kwargs:
             kwargs["api_host"] = resolve_media_host(agent)

@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ..i18n import t
-from ..services.websearch import SearchService, create_search_service
+from ...i18n import t
+from ...services.websearch import SearchService, create_search_service
 
 if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
@@ -91,10 +91,10 @@ def setup(
         model: Optional model override for the provider.
     """
     if search_service is None and provider is not None:
-        from ._media_host import resolve_media_host
+        from .._media_host import resolve_media_host
         extra_kwargs: dict = {"api_host": resolve_media_host(agent)}
         if provider == "zhipu":
-            from ._zhipu_mode import resolve_z_ai_mode
+            from .._zhipu_mode import resolve_z_ai_mode
             extra_kwargs["z_ai_mode"] = resolve_z_ai_mode(agent)
         search_service = create_search_service(
             provider, api_key=api_key, model=model,
