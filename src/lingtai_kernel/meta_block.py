@@ -34,14 +34,29 @@ def build_meta(agent) -> dict:
     if ts:
         meta["current_time"] = ts
 
-    # Context-window decomposition. Only meaningful after the session has
-    # run _update_token_decomposition at least once, which it does on first
-    # token-tracking call (see SessionManager._track_usage).
+    # Context-window decomposition. The decomposition needs the agent's
+    # system prompt, tool schemas, and context section — all of which
+    # are available via the builder callbacks without needing any LLM
+    # call to have happened. If the cached values are dirty (e.g. right
+    # after an idle flush, before this turn's first LLM call), refresh
+    # them eagerly so the text-input prefix reports real numbers on the
+    # very first call of the turn instead of "unknown". Without this
+    # refresh, the text-input prefix would show sentinels on the first
+    # call of every turn (since _flush_context_to_prompt sets dirty=True
+    # on each idle), which is confusing given that tool results — stamped
+    # after _track_usage has refreshed the cache — show real numbers.
     session = getattr(agent, "_session", None)
     chat_obj = getattr(session, "chat", None) if session is not None else None
+
+    if session is not None and session._token_decomp_dirty:
+        try:
+            session._update_token_decomposition()
+        except Exception:
+            pass  # leave dirty; sentinels below
+
     decomp_ran = session is not None and not session._token_decomp_dirty
 
-    if decomp_ran and chat_obj is not None:
+    if decomp_ran:
         sys_prompt = session._system_prompt_tokens
         ctx_section = session._context_section_tokens
         tools = session._tools_tokens
@@ -65,7 +80,15 @@ def build_meta(agent) -> dict:
         system_tokens = max(0, sys_prompt - ctx_section) + tools
         context_tokens = ctx_section + history
 
-        limit = agent._config.context_limit or chat_obj.context_window()
+        # context_window comes from the live chat if available; otherwise
+        # fall back to the agent's configured limit. On the very first
+        # call of a turn (before ensure_session runs) chat_obj is None;
+        # we still want real system/context tokens, just usage% may be
+        # a sentinel if no limit is configured.
+        if chat_obj is not None:
+            limit = agent._config.context_limit or chat_obj.context_window()
+        else:
+            limit = agent._config.context_limit or 0
         usage = (system_tokens + context_tokens) / limit if limit > 0 else -1.0
 
         meta["system_tokens"] = system_tokens
