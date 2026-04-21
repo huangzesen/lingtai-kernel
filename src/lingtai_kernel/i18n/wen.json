@@ -2,7 +2,7 @@
   "system.current_time": "[此时：{time} | 上下文：{ctx}]",
   "system.context_breakdown": "{pct} (系统 {sys} + 对话 {ctx})",
   "system.context_unknown": "未知",
-  "system.new_mail": "[系统] {box}有新书至。\n  址：{address}\n  名：{name}\n  题：{subject}\n  发于：{sent_at}\n  {preview}\n若上方预览末有 \"... (N more chars)\"，以 {tool}(action=\"check\") 展其全文。",
+  "system.new_mail": "[系统] {box}有新书至。\n  址：{address}\n  名：{name}\n  题：{subject}\n  发于：{sent_at}\n  {preview}\n除上方预览末有 \"... (N more chars)\" 之外，预览即为全文。唯预览被截时方以 {tool}(action=\"check\") 展之 —— 否则乃冗取之举，徒耗无益。",
   "system.mail_bounce": "[系统] 书信未达：{error}\n  收者：{address}\n  题：{subject}",
   "system.stuck_revive": "[系统] 灵识于 {ts} 失联。汝所调之器：{tool_calls}。正在重连。",
   "system.molt_wiped": "[系统] 上下文已清除。汝忽略一切转世警告——对话史已尽失。灵台与笔记已自动载入。遵强制清除后之恢复流程。",

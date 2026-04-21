@@ -2,7 +2,7 @@
   "system.current_time": "[此时：{time} | 上下文：{ctx}]",
   "system.context_breakdown": "{pct} (系统 {sys} + 对话 {ctx})",
   "system.context_unknown": "未知",
-  "system.new_mail": "[系统] {box}有新消息。\n  地址：{address}\n  姓名：{name}\n  主题：{subject}\n  发送时间：{sent_at}\n  {preview}\n若上方预览末尾有 \"... (N more chars)\"，使用 {tool}(action=\"check\") 查看完整内容。",
+  "system.new_mail": "[系统] {box}有新消息。\n  地址：{address}\n  姓名：{name}\n  主题：{subject}\n  发送时间：{sent_at}\n  {preview}\n除非上方预览末尾出现 \"... (N more chars)\"，否则预览即为完整内容。仅当预览被截断时才调用 {tool}(action=\"check\") —— 否则是浪费的重复取回。",
   "system.mail_bounce": "[系统] 消息投递失败：{error}\n  收件人：{address}\n  主题：{subject}",
   "system.stuck_revive": "[系统] LLM 调用于 {ts} 失败。你调用了：{tool_calls}。正在重试。",
   "system.molt_wiped": "[系统] 上下文已清除。你忽略了所有凝蜕警告——对话历史已丢失。身份与手记已自动加载。请遵循强制清除后的恢复流程。",

@@ -2,7 +2,7 @@
   "system.current_time": "[Current time: {time} | context: {ctx}]",
   "system.context_breakdown": "{pct} (sys {sys} + ctx {ctx})",
   "system.context_unknown": "unavailable",
-  "system.new_mail": "[system] New message in {box}.\n  Address: {address}\n  Name: {name}\n  Subject: {subject}\n  Sent at: {sent_at}\n  {preview}\nUse {tool}(action=\"check\") if the preview above ends with \"... (N more chars)\".",
+  "system.new_mail": "[system] New message in {box}.\n  Address: {address}\n  Name: {name}\n  Subject: {subject}\n  Sent at: {sent_at}\n  {preview}\nThe preview above is the COMPLETE message unless it ends with \"... (N more chars)\". Only call {tool}(action=\"check\") when the preview is truncated — calling it otherwise is a wasteful duplicate fetch.",
   "system.mail_bounce": "[system] Mail delivery failed: {error}\n  To: {address}\n  Subject: {subject}",
   "system.stuck_revive": "[system] LLM call failed at {ts}. You called: {tool_calls}. Retrying.",
   "system.molt_wiped": "[system] Context wiped. You ignored all molt warnings — conversation history is gone. Your identity and pad were loaded automatically. Follow the post-wipe recovery procedure.",
