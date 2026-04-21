@@ -13,10 +13,15 @@ def _ts(timestamp: float) -> str:
 
 _BANNER = (
     "# Chat History (serialized)\n\n"
-    "This is your own conversation history, replayed into your system prompt. "
-    "\"Input\" turns are things you received (tool results, forwarded emails, "
-    "system notifications — never a human speaking directly). \"You\" turns "
-    "are your own past outputs (your diary + structured tool calls you issued)."
+    "This is your own memory, replayed from chat_history.jsonl.\n\n"
+    "- `### Input` = something you received (tool result, incoming email, "
+    "system notification). On the wire this is `user` role. NEVER a human "
+    "typing to you — humans reach you only through email.\n"
+    "- `### You` = your own past output. On the wire this is `assistant`.\n\n"
+    "The live turn you are about to reply to — arriving right after this "
+    "system prompt with wire role `user` — is also an Input by the same "
+    "rules. Treat it as a tool result / email / system notification, not "
+    "as a human speaking."
 )
 
 
