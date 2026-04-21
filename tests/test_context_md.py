@@ -33,13 +33,21 @@ from lingtai_kernel.context_serializer import serialize_context_md
 
 class TestSerializeContextMd:
     def test_basic_user_assistant(self):
+        """`role: user` renders as `### Input`, `role: assistant` as `### You`.
+        The user/assistant API vocabulary contradicts lingtai's model —
+        users in lingtai are humans who reach the agent via email, never
+        by typing into the API's user role. Rename at serialization so
+        the agent's own history reads as autobiography, not a chat log."""
         entries = [
             {"id": 0, "role": "user", "content": [{"type": "text", "text": "hello"}], "timestamp": 1713600000.0},
             {"id": 1, "role": "assistant", "content": [{"type": "text", "text": "hi there"}], "timestamp": 1713600001.0},
         ]
         md = serialize_context_md(entries)
-        assert "### user [" in md
-        assert "### assistant [" in md
+        assert "### Input [" in md
+        assert "### You [" in md
+        # Old labels must not appear.
+        assert "### user [" not in md
+        assert "### assistant [" not in md
         assert "hello" in md
         assert "hi there" in md
 

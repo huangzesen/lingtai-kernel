@@ -11,7 +11,13 @@ def _ts(timestamp: float) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-_BANNER = "# Chat History (serialized)"
+_BANNER = (
+    "# Chat History (serialized)\n\n"
+    "This is your own conversation history, replayed into your system prompt. "
+    "\"Input\" turns are things you received (tool results, forwarded emails, "
+    "system notifications — never a human speaking directly). \"You\" turns "
+    "are your own past outputs (your diary + structured tool calls you issued)."
+)
 
 
 def _indent(body: str, spaces: int = 4) -> str:
@@ -79,9 +85,17 @@ def serialize_context_md(entries: list[dict]) -> str:
       would nest the system prompt recursively inside the `context` section
       (which is itself part of the system prompt), ballooning the prompt
       by ~28KB per turn.
-    - user/assistant entries are rendered verbatim.
-    - Thinking blocks are wrapped in <thinking>…</thinking>.
-    - Tool calls and results are included in full with no truncation.
+    - role: user entries render as `### Input [ts]` — these are inbound
+      notifications (tool results, forwarded emails, system messages).
+      They are never a human speaking; humans only reach the agent via
+      mail. The `user`/`assistant` vocabulary comes from the API schema
+      and contradicts the agent's own model of its world, so we rename
+      at serialization time.
+    - role: assistant entries render as `### You [ts]` — these are the
+      agent's own past outputs, addressed back in second person so it
+      reads as autobiography rather than some generic "assistant" turn.
+    - Tool calls and results are ◆-prefixed past-tense narrative (see
+      _render_content).
     - Timestamps are rendered as ISO 8601 UTC.
     """
     if not entries:
@@ -100,7 +114,14 @@ def serialize_context_md(entries: list[dict]) -> str:
 
         timestamp = entry.get("timestamp", 0.0)
         ts_str = _ts(timestamp)
-        header = f"### {role} [{ts_str}]"
+
+        if role == "user":
+            label = "Input"
+        elif role == "assistant":
+            label = "You"
+        else:
+            label = role  # unknown role — render literally
+        header = f"### {label} [{ts_str}]"
 
         if role in ("user", "assistant"):
             content = entry.get("content", [])
