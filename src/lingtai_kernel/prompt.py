@@ -1,8 +1,16 @@
 """System prompt — section manager + builder.
 
 SystemPromptManager manages named sections of an agent's system prompt.
-Sections are rendered in a configurable order. The default order is:
-    principle (no header) → covenant → rules → tools → procedures → comment → codex → library → identity → brief → pad → context
+Sections are rendered in a configurable order. The default order groups
+sections by mutation frequency so cache breakpoints can be placed between
+batches:
+
+    Batch 1 — immovable after init (ideal cache-read prefix):
+        principle (no header) → covenant → tools → procedures → comment
+    Batch 2 — rarely mutated (most stable first):
+        rules → brief → library → codex → identity → pad
+    Batch 3 — grows every idle:
+        context
 
 build_system_prompt() assembles base_prompt + rendered sections.
 """
@@ -22,8 +30,32 @@ class SystemPromptManager:
     name in the order list is always rendered last (typically 'context').
     """
 
-    # Default render order. First entry rendered without ## header (raw text).
-    _DEFAULT_ORDER = ["principle", "covenant", "rules", "tools", "procedures", "comment", "codex", "library", "identity", "brief", "pad", "context"]
+    # Default render order — grouped by mutation frequency. Sections in
+    # the same batch are adjacent so batch-boundary cache breakpoints in
+    # the adapter can cover the whole stable prefix. Within each batch,
+    # sections are ordered most-stable-first so later mutations invalidate
+    # as little prior content as possible.
+    #   Batch 1 (immovable):         principle, covenant, tools, procedures, comment
+    #   Batch 2 (rarely-mutated):    rules, brief, library, codex, identity, pad
+    #   Batch 3 (per-idle):          context
+    # First entry (principle) is rendered without ## header (raw text).
+    _DEFAULT_ORDER = [
+        # Batch 1 — immovable
+        "principle",
+        "covenant",
+        "tools",
+        "procedures",
+        "comment",
+        # Batch 2 — rarely mutated (most stable first)
+        "rules",
+        "brief",
+        "library",
+        "codex",
+        "identity",
+        "pad",
+        # Batch 3 — per-idle
+        "context",
+    ]
 
     def __init__(self) -> None:
         self._sections: dict[str, dict] = {}
