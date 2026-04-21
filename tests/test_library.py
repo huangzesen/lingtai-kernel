@@ -187,12 +187,17 @@ def test_info_reports_ok_when_healthy(tmp_path):
         agent.stop(timeout=1.0)
 
 
-def test_info_reports_degraded_when_intrinsic_missing(tmp_path):
-    agent, workdir = _mk_agent(tmp_path)
+def test_info_reports_degraded_when_intrinsic_missing(tmp_path, monkeypatch):
+    # info re-runs reconciliation (including hard-copy), so merely deleting the
+    # copy is self-healed. To produce a genuinely degraded state, redirect the
+    # kernel intrinsic source to an empty dir so hard-copy has nothing to copy.
+    from lingtai.capabilities import library as libmod
+    empty_source = tmp_path / "no-intrinsics"
+    empty_source.mkdir()
+    monkeypatch.setattr(libmod, "_intrinsic_source_dir", lambda: empty_source)
+
+    agent, _ = _mk_agent(tmp_path)
     try:
-        # Simulate the intrinsic getting deleted *after* setup.
-        skill = workdir / ".library" / "intrinsic" / "skill-for-skill" / "SKILL.md"
-        skill.unlink()
         result = agent._tool_handlers["library"]({"action": "info"})
         assert result["status"] == "degraded"
         assert "error" in result
