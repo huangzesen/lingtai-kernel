@@ -329,3 +329,80 @@ class TestMoltClearsContext:
         assert boundary["molt_count"] == 1
         assert boundary["summary"] == "molt summary"
         agent.stop(timeout=2.0)
+
+
+class TestEndToEnd:
+    def test_full_lifecycle(self, tmp_path):
+        """start -> message -> idle -> message -> idle -> molt -> post-molt -> restart"""
+        work_dir = tmp_path / "agent"
+        agent = BaseAgent(
+            service=make_mock_service(),
+            agent_name="e2e",
+            working_dir=work_dir,
+        )
+        agent.start()
+
+        # --- Turn 1 ---
+        agent._session.ensure_session()
+        iface = agent._session.chat.interface
+        iface.add_user_message("first message")
+        iface.add_assistant_message([TextBlock(text="first reply")])
+        agent._flush_context_to_prompt()
+        agent._save_chat_history()
+
+        assert agent._session.chat is None
+        ctx = agent._prompt_manager.read_section("context")
+        assert "first message" in ctx
+        assert "first reply" in ctx
+        assert (work_dir / "system" / "context.md").exists()
+
+        # --- Turn 2 ---
+        agent._session.ensure_session()
+        iface = agent._session.chat.interface
+        iface.add_user_message("second message")
+        iface.add_assistant_message([TextBlock(text="second reply")])
+        agent._flush_context_to_prompt()
+        agent._save_chat_history()
+
+        ctx = agent._prompt_manager.read_section("context")
+        assert "first message" in ctx
+        assert "second message" in ctx
+
+        # --- Molt ---
+        agent._session.ensure_session()
+        iface = agent._session.chat.interface
+        iface.add_user_message("about to molt")
+        from lingtai_kernel.intrinsics.eigen import _context_molt
+        _context_molt(agent, {"summary": "I learned things"})
+
+        assert agent._prompt_manager.read_section("context") is None
+        assert not (work_dir / "system" / "context.md").exists()
+
+        # Audit log has everything including boundary
+        audit_lines = (work_dir / "history" / "chat_history.jsonl").read_text().splitlines()
+        entries = [json.loads(l) for l in audit_lines if l.strip()]
+        boundaries = [e for e in entries if e.get("type") == "molt_boundary"]
+        assert len(boundaries) == 1
+        assert boundaries[0]["molt_count"] == 1
+
+        # --- Post-molt turn ---
+        agent._session.ensure_session()
+        iface = agent._session.chat.interface
+        iface.add_user_message("new life")
+        iface.add_assistant_message([TextBlock(text="fresh start")])
+        agent._flush_context_to_prompt()
+
+        ctx = agent._prompt_manager.read_section("context")
+        assert "new life" in ctx
+        assert "first message" not in ctx  # pre-molt content gone from context
+
+        # --- Restart simulation ---
+        agent.stop(timeout=2.0)
+        agent2 = BaseAgent(
+            service=make_mock_service(),
+            agent_name="e2e",
+            working_dir=work_dir,
+        )
+        ctx2 = agent2._prompt_manager.read_section("context")
+        assert "new life" in ctx2
+        assert "first message" not in ctx2
