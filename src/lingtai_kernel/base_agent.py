@@ -1724,10 +1724,17 @@ class BaseAgent:
                 "context": {
                     "system_tokens": usage["ctx_system_tokens"],
                     "tools_tokens": usage["ctx_tools_tokens"],
+                    "context_section_tokens": usage["ctx_context_section_tokens"],
                     "history_tokens": usage["ctx_history_tokens"],
                     "total_tokens": usage["ctx_total_tokens"],
                     "window_size": window_size,
                     "usage_pct": usage_pct,
+                    # Meta-line decomposition (matches build_meta's buckets)
+                    "fixed_tokens": max(
+                        0,
+                        usage["ctx_system_tokens"] - usage["ctx_context_section_tokens"],
+                    ) + usage["ctx_tools_tokens"],
+                    "growing_tokens": usage["ctx_context_section_tokens"] + usage["ctx_history_tokens"],
                 },
             },
         }

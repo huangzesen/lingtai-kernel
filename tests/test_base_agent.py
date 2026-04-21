@@ -160,3 +160,29 @@ def test_agent_state_values():
 def test_unknown_tool_error():
     err = UnknownToolError("bad_tool")
     assert "bad_tool" in str(err)
+
+
+def test_status_exposes_finer_context_decomposition(tmp_path):
+    """status() adds a 'context' sub-block with finer-grained keys:
+    context_section_tokens, fixed_tokens, growing_tokens — alongside the
+    pre-existing system/tools/history/total/window/usage_pct fields."""
+    agent = BaseAgent(service=make_mock_service(), working_dir=tmp_path / "test")
+    agent.start()
+    try:
+        st = agent.status()
+        ctx = st["tokens"]["context"]
+        # Pre-existing keys
+        for k in (
+            "system_tokens",
+            "tools_tokens",
+            "history_tokens",
+            "total_tokens",
+            "window_size",
+            "usage_pct",
+        ):
+            assert k in ctx, f"missing pre-existing key: {k}"
+        # New keys
+        for k in ("context_section_tokens", "fixed_tokens", "growing_tokens"):
+            assert k in ctx, f"missing new key: {k}"
+    finally:
+        agent.stop()
