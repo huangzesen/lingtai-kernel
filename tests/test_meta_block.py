@@ -77,6 +77,14 @@ def test_render_meta_wen_uses_existing_current_time_template():
     assert render_meta(agent, meta) == "[此时：2026-04-20T10:15:23-07:00]"
 
 
+def test_render_meta_non_empty_without_current_time_returns_empty():
+    # Documents current limitation: render_meta only renders current_time.
+    # When future fields (e.g. context-window breakdown) are added to build_meta,
+    # render_meta must be extended or this test will catch the silent drop.
+    agent = _fake_agent_with_lang("en")
+    assert render_meta(agent, {"future_field": 123}) == ""
+
+
 def test_stamp_meta_writes_meta_keys_and_elapsed_ms_in_place():
     result = {"status": "ok"}
     out = stamp_meta(result, {"current_time": "2026-04-20T10:15:23-07:00"}, 42)

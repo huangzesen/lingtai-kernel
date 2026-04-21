@@ -58,14 +58,17 @@ def render_meta(agent, meta: dict) -> str:
     """
 
 def stamp_meta(result: dict, meta: dict, elapsed_ms: int) -> dict:
-    """Merge meta fields into a tool-result dict in place. Preserves the
-    existing _elapsed_ms behaviour (kept on the tool result — it is
-    tool-specific telemetry, not meta)."""
+    """Merge meta fields into a tool-result dict in place. `_elapsed_ms` is
+    kept on the tool result — it is tool-specific telemetry, not meta — but
+    it is suppressed alongside the meta fields when `meta` is empty, to
+    preserve the pre-existing `stamp_tool_result(time_awareness=False)`
+    behaviour verbatim."""
 ```
 
 Internal composition: `stamp_meta` writes each `meta` key onto `result` (shallow),
-and always writes `_elapsed_ms`. `build_meta` is the one place that reads agent
-state and consults the time veil.
+and writes `_elapsed_ms` after them — but only when `meta` is non-empty. Empty
+`meta` short-circuits and nothing is written, matching the old time-blind path.
+`build_meta` is the one place that reads agent state and consults the time veil.
 
 ### Integration points
 
@@ -105,9 +108,13 @@ is a decision for the field-curation spec, not this one.
 
 When `time_awareness` is false today, the existing code calls
 `now_iso(agent)` which returns `''`, and the rendered string becomes
-`[Current time: ]`. **This spec intentionally preserves that behaviour** so
-the infra change is behaviour-neutral. The follow-up spec that adds real
-fields can revisit whether to suppress the line entirely when empty.
+`[Current time: ]` — a useless empty prefix on every turn. **This is the
+one intentional observable change in this refactor:** `render_meta` returns
+`""` for empty meta, and the caller in `_handle_request` suppresses the
+prefix entirely (`if prefix: content = f"{prefix}\n\n{content}"`). Time-blind
+agents no longer see the empty-brackets line. All other behaviour (time-aware
+rendering in all three locales, tool-result stamps, `_elapsed_ms` omission
+for time-blind tool results) is byte-identical to the pre-refactor code.
 
 ### What `build_meta` does NOT do
 
