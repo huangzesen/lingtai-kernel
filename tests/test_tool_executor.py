@@ -126,3 +126,72 @@ def test_reasoning_stripped_from_args():
     executor.execute(calls)
     assert "reasoning" not in dispatched_args[0]
     assert dispatched_args[0].get("_reasoning") == "because"
+
+
+def test_tool_executor_uses_meta_fn_for_stamping():
+    """ToolExecutor calls meta_fn once per tool call and merges the returned
+    dict onto the result alongside _elapsed_ms."""
+    meta_calls = {"n": 0}
+
+    def meta_fn():
+        meta_calls["n"] += 1
+        return {"current_time": "FAKE-TS", "future_field": meta_calls["n"]}
+
+    def dispatch(tc):
+        return {"status": "ok", "echo": tc.args}
+
+    def make_result(name, result, **kw):
+        return {"name": name, "result": result, **kw}
+
+    exe = ToolExecutor(
+        dispatch_fn=dispatch,
+        make_tool_result_fn=make_result,
+        guard=LoopGuard(max_total_calls=10, dup_free_passes=2, dup_hard_block=8),
+        known_tools={"noop"},
+        parallel_safe_tools=set(),
+        logger_fn=None,
+        meta_fn=meta_fn,
+    )
+    results, intercepted, _ = exe.execute([ToolCall(id="c1", name="noop", args={})])
+    assert not intercepted
+    assert meta_calls["n"] == 1
+    payload = results[0]["result"]
+    assert payload["current_time"] == "FAKE-TS"
+    assert payload["future_field"] == 1
+    assert "_elapsed_ms" in payload
+
+
+def test_tool_executor_meta_fn_covers_parallel_path():
+    """meta_fn is called per-tool in the parallel execution path too,
+    and each stamped result carries its meta fields and _elapsed_ms."""
+    meta_calls = {"n": 0}
+
+    def meta_fn():
+        meta_calls["n"] += 1
+        return {"current_time": "FAKE-TS"}
+
+    def dispatch(tc):
+        return {"status": "ok"}
+
+    def make_result(name, result, **kw):
+        return {"name": name, "result": result, **kw}
+
+    exe = ToolExecutor(
+        dispatch_fn=dispatch,
+        make_tool_result_fn=make_result,
+        guard=LoopGuard(max_total_calls=10, dup_free_passes=2, dup_hard_block=8),
+        known_tools={"noop"},
+        parallel_safe_tools={"noop"},  # force parallel path
+        logger_fn=None,
+        meta_fn=meta_fn,
+    )
+    results, intercepted, _ = exe.execute([
+        ToolCall(id="c1", name="noop", args={}),
+        ToolCall(id="c2", name="noop", args={}),
+    ])
+    assert not intercepted
+    assert meta_calls["n"] == 2
+    for r in results:
+        payload = r["result"]
+        assert payload["current_time"] == "FAKE-TS"
+        assert "_elapsed_ms" in payload
