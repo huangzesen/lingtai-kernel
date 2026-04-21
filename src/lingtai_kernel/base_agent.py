@@ -244,10 +244,16 @@ class BaseAgent:
         manifest_data = self._build_manifest()
         self._workdir.write_manifest(manifest_data)
 
-        # Auto-inject identity into system prompt from manifest
+        # Auto-inject identity into system prompt from manifest.
+        # The `state` field is runtime-transient (idle/active flips every turn)
+        # and its appearance inside the cacheable system-prompt prefix would
+        # break the cache every time the state changes. It stays on disk
+        # (.agent.json) and in .status.json for the TUI; agents that need
+        # their own state should call status() at runtime.
         import json as _json
+        prompt_identity = {k: v for k, v in manifest_data.items() if k != "state"}
         self._prompt_manager.write_section(
-            "identity", _json.dumps(manifest_data, indent=2, ensure_ascii=False), protected=True
+            "identity", _json.dumps(prompt_identity, indent=2, ensure_ascii=False), protected=True
         )
 
         self._nap_wake = threading.Event()  # signalled to wake nap early
@@ -408,11 +414,17 @@ class BaseAgent:
         self._update_identity()
 
     def _update_identity(self) -> None:
-        """Write manifest and update identity section in system prompt."""
-        self._workdir.write_manifest(self._build_manifest())
+        """Write manifest and update identity section in system prompt.
+
+        The system-prompt section excludes runtime-transient fields (`state`)
+        to preserve prompt-cache stability. The disk manifest keeps them.
+        """
+        manifest_data = self._build_manifest()
+        self._workdir.write_manifest(manifest_data)
         import json as _json
+        prompt_identity = {k: v for k, v in manifest_data.items() if k != "state"}
         self._prompt_manager.write_section(
-            "identity", _json.dumps(self._build_manifest(), indent=2, ensure_ascii=False), protected=True
+            "identity", _json.dumps(prompt_identity, indent=2, ensure_ascii=False), protected=True
         )
 
     # ------------------------------------------------------------------
