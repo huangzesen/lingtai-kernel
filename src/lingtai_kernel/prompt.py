@@ -91,49 +91,62 @@ class SystemPromptManager:
         """Mark a section as raw — rendered without ## header."""
         self._raw_sections.add(name)
 
+    # Cache-breakpoint batches — must cover the same names as _DEFAULT_ORDER.
+    # Each tuple is one batch; batch boundaries are where the adapter can
+    # place cache_control markers. Sections not listed here fall into the
+    # "unordered" bucket rendered just before the tail batch.
+    _BATCHES: tuple[tuple[str, ...], ...] = (
+        ("principle", "covenant", "tools", "procedures", "comment"),
+        ("rules", "brief", "library", "codex", "identity", "pad"),
+        ("context",),
+    )
+
     def render(self) -> str:
         """Render all sections into a single string following the configured order.
 
-        - Sections in self._order are rendered in that order.
-        - The last name in self._order is always rendered last (tail).
-        - Sections not in self._order are rendered between ordered and tail.
-        - Sections in self._raw_sections are rendered without ## header.
-        - Empty/missing sections are skipped.
+        See render_batches() for the batched form used for cache breakpoints.
         """
-        ordered: list[str] = []
-        tail_name = self._order[-1] if self._order else None
-        head_names = self._order[:-1] if self._order else []
+        return "\n\n".join(seg for seg in self.render_batches() if seg)
 
-        # Render head sections in order
-        for name in head_names:
+    def render_batches(self) -> list[str]:
+        """Render sections grouped into cache-breakpoint batches.
+
+        Returns one string per batch in `_BATCHES`, in order. Empty batches
+        are returned as empty strings (not skipped) so caller indexing is
+        stable. Unordered sections (not in any batch) are appended to the
+        penultimate batch — never to the final tail batch, because cache
+        breakpoints land between batches and the tail must stay the most
+        volatile chunk.
+        """
+        batches: list[list[str]] = [[] for _ in self._BATCHES]
+
+        def _render_entry(name: str) -> str | None:
             entry = self._sections.get(name)
             if not entry:
-                continue
+                return None
             if name in self._raw_sections:
-                ordered.append(entry["content"])
-            else:
-                ordered.append(f"## {name}\n{entry['content']}")
+                return entry["content"]
+            return f"## {name}\n{entry['content']}"
 
-        # Render unordered sections (not in order list)
-        all_ordered = set(self._order)
+        # Fill each batch with its named sections (in batch order).
+        for i, batch_names in enumerate(self._BATCHES):
+            for name in batch_names:
+                rendered = _render_entry(name)
+                if rendered:
+                    batches[i].append(rendered)
+
+        # Unordered sections → penultimate batch (or first batch if only one).
+        all_batched = {n for batch in self._BATCHES for n in batch}
+        unordered_target = max(0, len(batches) - 2)
         for name, entry in self._sections.items():
-            if name in all_ordered:
+            if name in all_batched:
                 continue
             if name in self._raw_sections:
-                ordered.append(entry["content"])
+                batches[unordered_target].append(entry["content"])
             else:
-                ordered.append(f"## {name}\n{entry['content']}")
+                batches[unordered_target].append(f"## {name}\n{entry['content']}")
 
-        # Render tail section last
-        if tail_name:
-            entry = self._sections.get(tail_name)
-            if entry:
-                if tail_name in self._raw_sections:
-                    ordered.append(entry["content"])
-                else:
-                    ordered.append(f"## {tail_name}\n{entry['content']}")
-
-        return "\n\n".join(ordered)
+        return ["\n\n".join(b) for b in batches]
 
 
 def build_system_prompt(
@@ -155,3 +168,36 @@ def build_system_prompt(
         parts.append(sections_text)
 
     return "\n\n---\n\n".join(parts)
+
+
+def build_system_prompt_batches(
+    prompt_manager: SystemPromptManager,
+    base_prompt: str = "",
+    language: str = "en",
+) -> list[str]:
+    """Build the system prompt as a list of mutation-frequency batches.
+
+    Same ordering as build_system_prompt, but returned as segments so
+    adapters that support per-block prompt caching (e.g. Anthropic's
+    `cache_control`) can place breakpoints at batch boundaries. Callers
+    that want a string can do ``"\\n\\n---\\n\\n".join(filter(None, batches))``
+    — and build_system_prompt() does exactly that composition.
+
+    The ``base_prompt`` is prepended to the first non-empty batch (i.e.
+    Batch 1) with the same ``\\n\\n---\\n\\n`` separator build_system_prompt
+    uses, so the concatenated output is byte-identical. Empty batches
+    become empty strings so caller indexing stays stable.
+    """
+    batches = prompt_manager.render_batches()
+
+    if base_prompt:
+        # Find the first non-empty batch and prepend base_prompt to it.
+        for i, seg in enumerate(batches):
+            if seg:
+                batches[i] = f"{base_prompt}\n\n---\n\n{seg}"
+                break
+        else:
+            # All batches empty — base_prompt becomes the only content.
+            batches = [base_prompt] + batches[1:]
+
+    return batches

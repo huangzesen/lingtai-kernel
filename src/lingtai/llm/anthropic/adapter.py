@@ -63,7 +63,12 @@ def _build_tools(
 
 
 def _build_system_with_cache(system_prompt: str) -> list[dict]:
-    """Build system prompt as cached content blocks for Anthropic."""
+    """Build system prompt as cached content blocks for Anthropic.
+
+    Single-block form: one cache breakpoint at the end of the prompt.
+    Used by update_system_prompt(str). For the batched form with per-batch
+    breakpoints, see _build_system_batches_with_cache.
+    """
     if not system_prompt:
         return []
     return [
@@ -73,6 +78,45 @@ def _build_system_with_cache(system_prompt: str) -> list[dict]:
             "cache_control": {"type": "ephemeral"},
         }
     ]
+
+
+def _build_system_batches_with_cache(
+    batches: list[str], *, max_breakpoints: int = 3
+) -> list[dict]:
+    """Build a multi-block system prompt with per-batch cache breakpoints.
+
+    ``batches`` is the ordered output of build_system_prompt_batches:
+    typically [immovable, rarely-mutated, per-idle]. Empty batches are
+    dropped. A ``cache_control`` marker is placed on each batch boundary
+    *except the last* — the last batch is volatile (e.g. grows every
+    idle) and caching it would churn. This places up to
+    ``max_breakpoints - 1`` in-system breakpoints; combined with the
+    1 breakpoint on tools, that totals ``max_breakpoints`` and stays
+    under Anthropic's 4-slot-per-request cap.
+
+    When only a single non-empty batch exists, falls back to the
+    single-block form (one breakpoint at the end).
+    """
+    non_empty = [b for b in batches if b]
+    if not non_empty:
+        return []
+    if len(non_empty) == 1:
+        return _build_system_with_cache(non_empty[0])
+
+    # Cap the number of cache markers we emit inside the system list.
+    # The final batch gets no marker (too volatile to cache effectively).
+    # Earlier batches get markers up to the cap.
+    max_markers = max(0, max_breakpoints - 1)
+    blocks: list[dict] = []
+    num_marked = 0
+    last_idx = len(non_empty) - 1
+    for i, text in enumerate(non_empty):
+        block: dict = {"type": "text", "text": text}
+        if i < last_idx and num_marked < max_markers:
+            block["cache_control"] = {"type": "ephemeral"}
+            num_marked += 1
+        blocks.append(block)
+    return blocks
 
 
 def _parse_response(raw) -> LLMResponse:
@@ -465,6 +509,20 @@ class AnthropicChatSession(ChatSession):
         """Replace the system prompt for subsequent calls in this session."""
         self._system = _build_system_with_cache(system_prompt)
         self._interface.add_system(system_prompt, tools=self._interface.current_tools)
+
+    def update_system_prompt_batches(self, batches: list[str]) -> None:
+        """Replace the system prompt using mutation-frequency batches.
+
+        Each batch becomes its own text block in the Anthropic ``system``
+        list, with a ``cache_control`` breakpoint between batches (the
+        final batch is left un-marked because it is the most volatile
+        chunk). The interface-tracked system string is the concatenation
+        of all batches — byte-identical to what a single-string caller
+        would see — so token accounting stays consistent.
+        """
+        self._system = _build_system_batches_with_cache(batches)
+        joined = "\n\n".join(b for b in batches if b)
+        self._interface.add_system(joined, tools=self._interface.current_tools)
 
     def reset(self) -> None:
         """Create a truly fresh session instance while preserving state.

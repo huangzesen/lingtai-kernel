@@ -44,6 +44,7 @@ class SessionManager:
         build_tool_schemas_fn: Callable[[], list[FunctionSchema]],
         read_context_section_fn: Callable[[], str],
         logger_fn: Callable[..., None] | None,
+        build_system_batches_fn: Callable[[], list[str]] | None = None,
     ):
         self._llm_service = llm_service
         self._config = config
@@ -54,6 +55,11 @@ class SessionManager:
         self._build_tool_schemas_fn = build_tool_schemas_fn
         self._read_context_section_fn = read_context_section_fn
         self._logger_fn = logger_fn
+        # Optional batched system-prompt builder. When provided, adapters
+        # that support per-block caching receive mutation-frequency batches
+        # and can place cache breakpoints between them. When absent, the
+        # string builder is used for everything.
+        self._build_system_batches_fn = build_system_batches_fn
 
         # Persistent LLM session
         self._chat: ChatSession | None = None
@@ -179,7 +185,15 @@ class SessionManager:
         # Rebuild system prompt and tools every turn — they may have changed
         # (e.g. memory loaded, identity updated, capabilities added after refresh).
         # If the content is identical, this is a no-op at the LLM level.
-        self._chat.update_system_prompt(self._build_system_prompt_fn())
+        # Prefer the batched form so adapters can place per-block cache
+        # breakpoints between mutation-frequency tiers. The default
+        # update_system_prompt_batches concatenates and delegates to
+        # update_system_prompt, so providers without per-block caching
+        # see the exact same byte stream.
+        if self._build_system_batches_fn is not None:
+            self._chat.update_system_prompt_batches(self._build_system_batches_fn())
+        else:
+            self._chat.update_system_prompt(self._build_system_prompt_fn())
         self._chat.update_tools(self._build_tool_schemas_fn() or None)
 
         self._log(

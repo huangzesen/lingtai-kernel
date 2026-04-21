@@ -34,7 +34,7 @@ from .llm import (
 from .i18n import t as _t
 from .logging import get_logger
 from .loop_guard import LoopGuard
-from .prompt import build_system_prompt
+from .prompt import build_system_prompt, build_system_prompt_batches
 from .meta_block import build_meta, render_meta
 from .time_veil import now_iso, scrub_time_fields
 from .session import SessionManager
@@ -313,6 +313,7 @@ class BaseAgent:
             build_tool_schemas_fn=self._build_tool_schemas,
             read_context_section_fn=self._read_context_section,
             logger_fn=self._log,
+            build_system_batches_fn=self._build_system_prompt_batches,
         )
 
     # ------------------------------------------------------------------
@@ -1271,9 +1272,8 @@ class BaseAgent:
     # LLM communication
     # ------------------------------------------------------------------
 
-    def _build_system_prompt(self) -> str:
-        """Build the system prompt from base + sections + tool inventory."""
-        # Build tool inventory from full tool descriptions
+    def _refresh_tool_inventory_section(self) -> None:
+        """Rebuild the 'tools' section from current intrinsic + schema descriptions."""
         lang = self._config.language
         lines = []
         for name in self._intrinsics:
@@ -1287,7 +1287,23 @@ class BaseAgent:
             self._prompt_manager.write_section(
                 "tools", "\n\n".join(lines), protected=True
             )
+
+    def _build_system_prompt(self) -> str:
+        """Build the system prompt from base + sections + tool inventory."""
+        self._refresh_tool_inventory_section()
         return build_system_prompt(prompt_manager=self._prompt_manager, language=self._config.language)
+
+    def _build_system_prompt_batches(self) -> list[str]:
+        """Build the system prompt as mutation-frequency batches.
+
+        Returns the same content as _build_system_prompt but as a list of
+        segments so adapters that support per-block caching can place
+        cache breakpoints at batch boundaries.
+        """
+        self._refresh_tool_inventory_section()
+        return build_system_prompt_batches(
+            prompt_manager=self._prompt_manager, language=self._config.language
+        )
 
     def _read_context_section(self) -> str:
         """Return the current 'context' prompt-manager section, or '' if absent.

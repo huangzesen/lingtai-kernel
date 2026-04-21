@@ -232,8 +232,8 @@ class Agent(BaseAgent):
             data["combo"] = self._combo_name
         return data
 
-    def _build_system_prompt(self) -> str:
-        """Override kernel's prompt builder to inject tool descriptions."""
+    def _refresh_tool_inventory_section(self) -> None:
+        """Refresh the 'tools' section — wrapper override includes MCP schemas."""
         lang = self._config.language
         lines = []
         from lingtai_kernel.intrinsics import ALL_INTRINSICS
@@ -248,9 +248,22 @@ class Agent(BaseAgent):
             self._prompt_manager.write_section(
                 "tools", "\n\n".join(lines), protected=True
             )
+
+    def _build_system_prompt(self) -> str:
+        """Override kernel's prompt builder to inject tool descriptions."""
+        self._refresh_tool_inventory_section()
         return build_system_prompt(
             prompt_manager=self._prompt_manager,
-            language=lang,
+            language=self._config.language,
+        )
+
+    def _build_system_prompt_batches(self) -> list[str]:
+        """Override kernel's batched builder to inject tool descriptions."""
+        from lingtai_kernel.prompt import build_system_prompt_batches
+        self._refresh_tool_inventory_section()
+        return build_system_prompt_batches(
+            prompt_manager=self._prompt_manager,
+            language=self._config.language,
         )
 
     def _load_mcp_from_workdir(self) -> None:

@@ -201,6 +201,24 @@ class ChatSession(ABC):
         Default: no-op. Override in session types that support it.
         """
 
+    def update_system_prompt_batches(self, batches: list[str]) -> None:
+        """Replace the system prompt using mutation-frequency batches.
+
+        ``batches`` is the ordered output of
+        ``build_system_prompt_batches``: each element is a contiguous
+        chunk whose content tends to change at a different cadence
+        (e.g. immovable / rarely-mutated / per-idle). Adapters that
+        support per-block prompt caching (Anthropic's ``cache_control``)
+        can place cache breakpoints at batch boundaries so only the
+        volatile tail pays for re-caching.
+
+        Default: concatenate to a string and delegate to
+        ``update_system_prompt`` — providers without per-block caching
+        see no behaviour change.
+        """
+        joined = "\n\n".join(b for b in batches if b)
+        self.update_system_prompt(joined)
+
     def reset(self) -> None:
         """Reset the session's HTTP connection while preserving conversation state.
 
