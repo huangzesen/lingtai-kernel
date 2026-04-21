@@ -121,6 +121,24 @@ def validate_init(data: dict) -> list[str]:
         if "feishu" in addons:
             warnings.extend(_validate_feishu_addon(addons["feishu"]))
 
+    # Validate manifest.capabilities.library shape if present.
+    caps = manifest.get("capabilities") or {}
+    library_cfg = caps.get("library") if isinstance(caps, dict) else None
+    if library_cfg is not None:
+        if not isinstance(library_cfg, dict):
+            raise ValueError(
+                f"manifest.capabilities.library: expected object, got {type(library_cfg).__name__}"
+            )
+        paths = library_cfg.get("paths")
+        if paths is not None:
+            if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+                raise ValueError(
+                    "manifest.capabilities.library.paths: expected list[str]"
+                )
+        for key in library_cfg:
+            if key != "paths":
+                warnings.append(f"unknown field in manifest.capabilities.library: {key}")
+
     return warnings
 
 
