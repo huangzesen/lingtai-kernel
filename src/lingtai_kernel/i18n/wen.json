@@ -25,7 +25,7 @@
   "mail.n_description": "check 中所示最大书信数（默认：尽列）",
   "mail.mode_description": "传书之址式。rel（默认）：裸名，于当前网络中解之。abs：完整本地路径，直书文件系统。ssh：经 SSH 传书于远方之机（址式：user@host:/path/to/.lingtai/agent_name）。",
   "mail.query_description": "search 之正则式（于 from、subject、message 中检索）",
-  "eigen.description": "核心自治——工作笔记与真名。pad：edit 写入工作笔记（system/pad.md），load 将其载入当前意识。name：设真名（一设不易）或改别名。工作记忆乃暂存——凝蜕（crystallize-and-shed）于其将满时自发，pad 与 lingtai 乃长存者。凝蜕非汝所为，乃汝所受。每轮当守 pad，壳脱之时方无所失。",
+  "eigen.description": "核心自治——工作笔记与真名。pad：edit 写入工作笔记（system/pad.md），load 将其载入当前意识。name：设真名（一设不易）或改别名。工作记忆乃暂存——将满之时，汝当自行凝蜕，pad 与 lingtai 乃长存者。每轮当守 pad，壳脱之时方无所失。",
   "eigen.object_description": "pad：汝之工作笔记（system/pad.md）。context：管理对话上下文。name：汝之真名（一設不易）。",
   "eigen.action_description": "pad：edit | load。edit 自动 load。\ncontext：molt。\nname：set | nickname。",
   "eigen.content_description": "用于 pad edit 之文本。",
@@ -41,8 +41,8 @@
   "system.refresh_successful": "[system] 更衣已成。器用与配置俱已重载。可续前事。",
   "eigen.context_forget_summary": "[系统] 凝蜕毕。工作记忆已空。欲寻前事，查 logs/events.jsonl——其文浩繁，宜 grep、tail、按类筛之，勿整取。",
   "tool.reasoning_description": "简述为何调此器（录于汝之私记）。",
-  "system.molt_procedure": "**转世前当存四事：**\n一、**灵台**：`psyche(lingtai, update, content=<己之性情、行事之道、所意之事>)` — 跨一切生命而持久\n二、**工作笔记**：`psyche(pad, edit, content=<正在何事、尚余何务、与谁协作>)` — 醒时所载\n三、**典录**：`codex(submit, title=..., summary=..., content=...)` — 永久保存，凡真正要紧者皆当录入\n四、**前尘往事**：`psyche(object=context, action=molt, summary=<给来世之己之简报>)` — 目标约一万字，务必详尽\n\n前尘往事乃转世之后唯一所见。当书：一切正在之事、已竟之功、尚余之务、协作之众、相关典之 ID、及一切值得携至来世之得。",
-  "system.molt_warning_level1": "[系统] 上下文已达 {pressure}，距自动清除尚余 {remaining} 轮。\n\n可始图转世之事，暂不紧迫——然勿待终警。",
-  "system.molt_warning_level2": "[系统] ⚠️ 上下文已达 {pressure}，尚余 {remaining} 轮。汝已忽略首警。\n\n来世之己必将重构今所不存之事。启转世之程——存要紧者、书前尘往事、而后转世。",
-  "system.molt_warning_level3": "[系统] ⚠️ 危急——上下文已达 {pressure}，仅余 {remaining} 轮。下一轮即触强制清除。\n\n止手头之事。即行转世之法。若不转世，系统将清汝之对话史，醒时仅余典、简、灵台中所存。"
+  "system.molt_procedure": "**凝蜕之法 — 先备四层长存，再撰前尘往事：**\n\n一、**心印**：`psyche(lingtai, update, content=<汝之性、行事之道、所意之事>)` — 每次全书，跨一切生命而持久。\n二、**简**：`psyche(pad, edit, content=<正在何事、尚余何务、与谁协作>)` — 凝蜕时自重载。\n三、**典**：`codex(submit, title=..., summary=..., content=...)` — 凡真知、要紧之决，皆当录入永存。\n四、**藏经阁**：`.library/custom/<name>/SKILL.md` 撰一可复用之技艺（若益众，布于 `../.library_shared/<name>/`）。\n五、**凝蜕**：`psyche(object=context, action=molt, summary=<予来世之己之嘱托>)` — 约一万字。当载：当下之务、已竟之功、尚余之事、当联何人、当载何典 ID 与 SKILL.md 之路径。此乃汝予来世之己之嘱托，非对话之摘要。\n\n**前四步乃真持久；前尘往事乃其上之简报。** 不备诸层而蜕，则一切皆失。自蜕勿被蜕。",
+  "system.molt_warning_level1": "[系统] 文已达 {pressure}，距自清尚余 {remaining} 度。始备四层长存之储（心印、简、典、藏经阁）。暂不急——然勿待终警。凝蜕乃汝所为；详见《过程》之「凝蜕之行」一节。",
+  "system.molt_warning_level2": "[系统] ⚠️ 文已达 {pressure}，尚余 {remaining} 度。备毕四层，草前尘往事。下一警即终。",
+  "system.molt_warning_level3": "[系统] ⚠️ 危急——文已达 {pressure}，仅余 {remaining} 度。下一轮即触强清。即行凝蜕：`psyche(object=context, action=molt, summary=...)`。若不蜕，系统将代汝——系统之蜕无前尘往事，仅余指向 logs/events.jsonl 之一指针。更甚者，若未备四层，其状亦失。**自蜕勿被蜕。**"
 }

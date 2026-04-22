@@ -1134,6 +1134,8 @@ class BaseAgent:
                     pressure=f"{pressure:.0%}",
                     remaining=remaining,
                 )
+                if level >= 2:
+                    level_prompt = level_prompt + "\n\n" + _t(lang, "system.molt_procedure")
                 # User's custom molt_prompt (if set) wins over the default ladder
                 molt_prompt = self._config.molt_prompt or level_prompt
                 status = f"[context: {pressure:.0%} | {remaining}/{max_warnings}]"
