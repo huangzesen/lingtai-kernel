@@ -146,59 +146,46 @@ class Agent(BaseAgent):
         return mgr
 
     def _install_intrinsic_manuals(self) -> None:
-        """Wipe and rewrite ``.library/intrinsic/`` from current capabilities + addons.
+        """Wipe and rewrite ``.library/intrinsic/`` from kernel-shipped manuals.
 
-        Runs near the end of ``__init__`` and ``_setup_from_init``, after
-        capabilities and addons have registered. Copies each enabled
-        capability's ``manual/`` bundle into ``.library/intrinsic/capabilities/<name>/``
-        and each enabled addon's ``manual/`` bundle into
-        ``.library/intrinsic/addons/<name>/``. Directories for capabilities or
-        addons without a ``manual/`` bundle are simply absent.
+        Runs near the end of ``__init__`` and ``_setup_from_init``. Installs
+        every capability's ``manual/`` bundle into
+        ``.library/intrinsic/capabilities/<name>/`` and every addon's
+        ``manual/`` bundle into ``.library/intrinsic/addons/<name>/``,
+        **regardless of whether this agent enabled the capability/addon**.
+        The library is kernel-shipped documentation — agents should be able
+        to read "how IMAP works" before they configure it.
 
         Never touches ``.library/custom/``. That is the agent's territory.
         """
         import shutil
-        from importlib import import_module
+        import lingtai.capabilities as caps_pkg
+        import lingtai.addons as addons_pkg
 
         library_dir = self._working_dir / ".library"
         intrinsic_dir = library_dir / "intrinsic"
 
-        # Ensure .library/ and .library/custom/ exist; never touch custom/.
         (library_dir / "custom").mkdir(parents=True, exist_ok=True)
 
-        # Wipe and rewrite intrinsic/ in one shot.
         if intrinsic_dir.exists():
             shutil.rmtree(intrinsic_dir)
         (intrinsic_dir / "capabilities").mkdir(parents=True, exist_ok=True)
         (intrinsic_dir / "addons").mkdir(parents=True, exist_ok=True)
 
-        # Capability manuals.
-        for cap_name, _ in self._capabilities:
-            try:
-                mod = import_module(f"lingtai.capabilities.{cap_name}")
-            except ImportError:
-                continue  # capability failed to load; skip
-            mod_file = getattr(mod, "__file__", None)
-            if not mod_file:
-                continue
-            src = Path(mod_file).parent / "manual"
-            if src.is_dir():
-                dest = intrinsic_dir / "capabilities" / cap_name
-                shutil.copytree(src, dest)
+        def install_from(pkg, subdir: str) -> None:
+            pkg_file = getattr(pkg, "__file__", None)
+            if not pkg_file:
+                return
+            pkg_root = Path(pkg_file).parent
+            for entry in sorted(pkg_root.iterdir()):
+                if not entry.is_dir() or entry.name.startswith("_"):
+                    continue
+                src = entry / "manual"
+                if src.is_dir():
+                    shutil.copytree(src, intrinsic_dir / subdir / entry.name)
 
-        # Addon manuals.
-        for addon_name in self._addon_managers:
-            try:
-                mod = import_module(f"lingtai.addons.{addon_name}")
-            except ImportError:
-                continue
-            mod_file = getattr(mod, "__file__", None)
-            if not mod_file:
-                continue
-            src = Path(mod_file).parent / "manual"
-            if src.is_dir():
-                dest = intrinsic_dir / "addons" / addon_name
-                shutil.copytree(src, dest)
+        install_from(caps_pkg, "capabilities")
+        install_from(addons_pkg, "addons")
 
         # If the library capability is loaded, re-run its reconcile now that
         # the manuals are on disk — so the injected catalog reflects them on
@@ -669,12 +656,6 @@ class Agent(BaseAgent):
             timezone_awareness=m.get("timezone_awareness", True),
             aed_timeout=m.get("aed_timeout", 360.0),
             max_aed_attempts=m.get("max_aed_attempts", 3),
-            context_serialization_enabled=m.get(
-                "context_serialization_enabled", True
-            ),
-            context_rebuild_every_n_idles=m.get(
-                "context_rebuild_every_n_idles", 3
-            ),
         )
         self._soul_delay = max(1.0, self._config.soul_delay)
         self._session._config = self._config

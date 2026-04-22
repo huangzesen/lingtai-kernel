@@ -134,20 +134,9 @@ def _context_molt(agent, args: dict) -> dict:
 
     before_tokens = agent._chat.interface.estimate_context_tokens()
 
-    # Flush any unappended interface entries to chat_history.jsonl before
-    # wiping the session — otherwise they'd vanish without reaching the
-    # archive below.
-    agent._append_chat_audit()
-
     # Wipe context
     agent._session._chat = None
     agent._session._interaction_id = None
-
-    # Clear context section (context.md)
-    agent._prompt_manager.delete_section("context")
-    context_file = agent._working_dir / "system" / "context.md"
-    if context_file.exists():
-        context_file.unlink()
 
     # Reset molt warnings
     if hasattr(agent._session, "_compaction_warnings"):
@@ -159,32 +148,17 @@ def _context_molt(agent, args: dict) -> dict:
 
     # Archive the pre-molt chat history:
     #   chat_history.jsonl (current molt) → chat_history_archive.jsonl (all past molts)
-    # A molt_boundary entry is written to the archive as a separator between molts.
-    import time as _time
-    import json as _json
-    boundary = {
-        "type": "molt_boundary",
-        "molt_count": agent._molt_count,
-        "timestamp": _time.time(),
-        "summary": summary,
-    }
     history_dir = agent._working_dir / "history"
     history_dir.mkdir(exist_ok=True)
     current_path = history_dir / "chat_history.jsonl"
     archive_path = history_dir / "chat_history_archive.jsonl"
     try:
-        with open(archive_path, "a") as archive:
-            if current_path.is_file():
-                archive.write(current_path.read_text())
-            archive.write(_json.dumps(boundary, ensure_ascii=False) + "\n")
         if current_path.is_file():
+            with open(archive_path, "a") as archive:
+                archive.write(current_path.read_text())
             current_path.unlink()
     except OSError:
         pass
-    # Fresh molt starts with an empty jsonl; the next append_chat_audit call
-    # must treat the new interface's entries as new.
-    agent._chat_audit_watermark = 0
-    agent._idles_since_context_rebuild = 0
 
     # Reset soul mirror session
     from .soul import reset_soul_session

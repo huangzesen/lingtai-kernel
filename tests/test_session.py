@@ -31,7 +31,6 @@ def make_session_manager(**kw):
         streaming=kw.get("streaming", False),
         build_system_prompt_fn=lambda: "test prompt",
         build_tool_schemas_fn=lambda: [],
-        read_context_section_fn=lambda: "",
         logger_fn=kw.get("logger_fn", None),
     ), svc, mock_session
 
@@ -382,66 +381,3 @@ def test_close_shuts_down_pool():
     sm.close()
     # Should not raise on second close
     sm.close()
-
-
-def test_session_update_decomposition_computes_context_section_tokens():
-    """_update_token_decomposition calls read_context_section_fn and tokenizes
-    its result into _context_section_tokens."""
-    from unittest.mock import MagicMock
-    from lingtai_kernel.session import SessionManager
-    from lingtai_kernel.config import AgentConfig
-
-    cfg = AgentConfig()
-    sess = SessionManager(
-        llm_service=MagicMock(),
-        config=cfg,
-        agent_name="t",
-        streaming=False,
-        build_system_prompt_fn=lambda: "system prompt body",
-        build_tool_schemas_fn=lambda: [],
-        read_context_section_fn=lambda: "some context section content",
-        logger_fn=None,
-    )
-    sess._update_token_decomposition()
-    assert sess._context_section_tokens > 0
-    assert sess._token_decomp_dirty is False
-
-
-def test_session_context_section_tokens_defaults_to_zero():
-    from unittest.mock import MagicMock
-    from lingtai_kernel.session import SessionManager
-    from lingtai_kernel.config import AgentConfig
-
-    sess = SessionManager(
-        llm_service=MagicMock(),
-        config=AgentConfig(),
-        agent_name="t",
-        streaming=False,
-        build_system_prompt_fn=lambda: "",
-        build_tool_schemas_fn=lambda: [],
-        read_context_section_fn=lambda: "",
-        logger_fn=None,
-    )
-    assert sess._context_section_tokens == 0
-
-
-def test_session_get_token_usage_exposes_context_section_tokens():
-    """get_token_usage adds ctx_context_section_tokens alongside existing keys."""
-    from unittest.mock import MagicMock
-    from lingtai_kernel.session import SessionManager
-    from lingtai_kernel.config import AgentConfig
-
-    sess = SessionManager(
-        llm_service=MagicMock(),
-        config=AgentConfig(),
-        agent_name="t",
-        streaming=False,
-        build_system_prompt_fn=lambda: "x",
-        build_tool_schemas_fn=lambda: [],
-        read_context_section_fn=lambda: "y",
-        logger_fn=None,
-    )
-    sess._update_token_decomposition()
-    usage = sess.get_token_usage()
-    assert "ctx_context_section_tokens" in usage
-    assert usage["ctx_context_section_tokens"] >= 0

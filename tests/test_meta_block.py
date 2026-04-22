@@ -180,7 +180,6 @@ def _fake_agent_with_session(
     language="en",
     system_prompt_tokens=0,
     tools_tokens=0,
-    context_section_tokens=0,
     history_tokens=0,
     context_limit=100000,
     decomp_ran=True,
@@ -213,7 +212,6 @@ def _fake_agent_with_session(
         _session=SimpleNamespace(
             _system_prompt_tokens=system_prompt_tokens,
             _tools_tokens=tools_tokens,
-            _context_section_tokens=context_section_tokens,
             _latest_input_tokens=latest_input,
             _token_decomp_dirty=not decomp_ran,
             _chat=chat_obj,
@@ -224,18 +222,17 @@ def _fake_agent_with_session(
 
 def test_build_meta_emits_context_fields_when_decomp_ran():
     agent = _fake_agent_with_session(
-        system_prompt_tokens=5000,   # includes 1000 of context section
-        context_section_tokens=1000,
+        system_prompt_tokens=5000,
         tools_tokens=500,
         history_tokens=200,
         context_limit=100000,
     )
     meta = build_meta(agent)
-    # system = (system_prompt - context_section) + tools = 4000 + 500 = 4500
-    assert meta["system_tokens"] == 4500
-    # context = context_section + history = 1000 + 200 = 1200
-    assert meta["context_tokens"] == 1200
-    # usage = (4500 + 1200) / 100000 = 0.057
+    # system = system_prompt + tools = 5000 + 500 = 5500
+    assert meta["system_tokens"] == 5500
+    # context = history = 200
+    assert meta["context_tokens"] == 200
+    # usage = (5500 + 200) / 100000 = 0.057
     assert abs(meta["context_usage"] - 0.057) < 1e-6
 
 
@@ -253,14 +250,13 @@ def test_build_meta_time_blind_still_emits_context_fields():
     agent = _fake_agent_with_session(
         time_awareness=False,
         system_prompt_tokens=5000,
-        context_section_tokens=1000,
         tools_tokens=500,
         history_tokens=200,
     )
     meta = build_meta(agent)
     assert "current_time" not in meta
-    assert meta["system_tokens"] == 4500
-    assert meta["context_tokens"] == 1200
+    assert meta["system_tokens"] == 5500
+    assert meta["context_tokens"] == 200
 
 
 def test_render_meta_time_blind_with_context_present_emits_empty_time_slot():
@@ -285,14 +281,13 @@ def test_build_meta_context_tokens_does_not_double_count_system_and_tools():
     SessionManager.get_token_usage's ctx_history_tokens."""
     agent = _fake_agent_with_session(
         system_prompt_tokens=5000,
-        context_section_tokens=1000,
         tools_tokens=500,
         history_tokens=200,
     )
     meta = build_meta(agent)
-    # Sanity: system_tokens = (5000 - 1000) + 500 = 4500
-    assert meta["system_tokens"] == 4500
-    # context_tokens = 1000 + 200 = 1200 — NOT 1000 + 5700 = 6700
-    assert meta["context_tokens"] == 1200
-    # Would be 0.067 if double-counted; correct is 0.057
+    # system_tokens = 5000 + 500 = 5500
+    assert meta["system_tokens"] == 5500
+    # context_tokens = history only = 200
+    assert meta["context_tokens"] == 200
+    # usage = (5500 + 200) / 100000 = 0.057
     assert abs(meta["context_usage"] - 0.057) < 1e-6

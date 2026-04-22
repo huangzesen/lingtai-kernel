@@ -34,15 +34,3 @@ class AgentConfig:
     soul_context_limit: int = 200_000  # max tokens for soul session; oldest entries dropped when exceeded
     insights_interval: int = 0  # turns between auto-insights; 0 = off
     snapshot_interval: float | None = None  # seconds between git snapshots; None = off
-    # Whether to serialize chat history into system/context.md mid-session.
-    # True (default for adapters with structured thinking blocks): every Nth
-    # idle flush rebuilds context.md and nukes the live wire chat.
-    # False (default for OpenAI-compat adapters): never serialize mid-session;
-    # the wire chat carries history until molt. See
-    # LLMAdapter.prefers_serialized_context for the provider-level rationale.
-    context_serialization_enabled: bool = True
-    # When serialization is enabled, number of idle flushes per context.md
-    # rebuild+nuke. Larger values keep Batch 3 byte-stable longer (better
-    # cache hit rate) at the cost of a bigger wire chat between rebuilds.
-    # Ignored when context_serialization_enabled is False.
-    context_rebuild_every_n_idles: int = 3

@@ -37,14 +37,9 @@ def build_meta(agent) -> dict:
     # Context-window decomposition. The decomposition needs the agent's
     # system prompt, tool schemas, and context section — all of which
     # are available via the builder callbacks without needing any LLM
-    # call to have happened. If the cached values are dirty (e.g. right
-    # after an idle flush, before this turn's first LLM call), refresh
-    # them eagerly so the text-input prefix reports real numbers on the
-    # very first call of the turn instead of "unknown". Without this
-    # refresh, the text-input prefix would show sentinels on the first
-    # call of every turn (since _flush_context_to_prompt sets dirty=True
-    # on each idle), which is confusing given that tool results — stamped
-    # after _track_usage has refreshed the cache — show real numbers.
+    # call to have happened. If the cached values are dirty, refresh them
+    # eagerly so the text-input prefix reports real numbers on the very
+    # first call of the turn instead of "unknown".
     session = getattr(agent, "_session", None)
     chat_obj = getattr(session, "chat", None) if session is not None else None
 
@@ -58,27 +53,20 @@ def build_meta(agent) -> dict:
 
     if decomp_ran:
         sys_prompt = session._system_prompt_tokens
-        ctx_section = session._context_section_tokens
         tools = session._tools_tokens
-        # "history" = in-memory turns since the last flush to context.md.
+        # "history" = in-memory turns (wire chat).
         # Derived from the server-reported wire count (same pattern as
         # SessionManager.get_token_usage's ctx_history_tokens) so the
         # meta-line and status() agree on the number.
-        # _latest_input_tokens already contains system_prompt (which
-        # contains ctx_section) and tools; subtracting them gives the
-        # in-memory turn slice only.
+        # _latest_input_tokens already contains system_prompt and tools;
+        # subtracting them gives the in-memory turn slice only.
         history = max(
             0,
             session._latest_input_tokens - sys_prompt - tools,
         )
 
-        # The "system" bucket in the meta line is everything that is NOT
-        # accumulated memory: the prompt floor (minus the context section)
-        # plus the tool schemas. max(0, ...) guards against tokenizer
-        # underflow if the context section happens to outweigh the full
-        # prompt estimate (shouldn't happen, but defensive).
-        system_tokens = max(0, sys_prompt - ctx_section) + tools
-        context_tokens = ctx_section + history
+        system_tokens = sys_prompt + tools
+        context_tokens = history
 
         # context_window comes from the live chat if available; otherwise
         # fall back to the agent's configured limit. On the very first

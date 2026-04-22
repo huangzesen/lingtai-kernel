@@ -8,9 +8,8 @@ speaks OpenAI's /chat/completions format, so this adapter inherits
 - Fixed base_url — no user configuration needed.
 - Explicitly asks OpenRouter NOT to include reasoning text in responses
   (``reasoning: {include: false}``). Reasoning tokens are billed either
-  way; the text itself would just be stripped from context.md anyway
-  (see context_serializer._strip_inline_thinking), so we save the bytes.
-  Flip ``include`` to True if you want the reasoning text exposed via
+  way; the text is not useful to us, so we save the bytes. Flip
+  ``include`` to True if you want the reasoning text exposed via
   ``LLMResponse.thoughts`` (for logs or side channels) — the OpenAI
   response parser already reads both ``reasoning_content`` and
   ``reasoning`` field names.
@@ -44,6 +43,6 @@ class OpenRouterAdapter(OpenAIAdapter):
         )
 
     def _adapter_extra_body(self) -> dict:
-        # Explicit opt-out: we don't want reasoning text back, since
-        # context.md strips it anyway. Billing is unaffected.
+        # Explicit opt-out: we don't want reasoning text back. Billing is
+        # unaffected.
         return {"reasoning": {"include": False}}

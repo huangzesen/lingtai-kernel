@@ -107,14 +107,6 @@ class BaseAgent:
         self._last_usage = None  # UsageMetadata from last LLM call, for ledger
         self._created_at: str = ""
         self._uptime_anchor: float | None = None  # set in start(), None means not started
-        # How many ChatInterface entries have already been appended to
-        # chat_history.jsonl for the current molt. Reset to 0 when the
-        # interface is wiped (idle flush, molt, agent restart).
-        self._chat_audit_watermark: int = 0
-        # Number of idle flushes since the last context.md rebuild+nuke.
-        # Paired with config.context_rebuild_every_n_idles to keep Batch 3
-        # byte-stable (and therefore cacheable) across short idle gaps.
-        self._idles_since_context_rebuild: int = 0
 
         # Working directory (caller-owned path)
         self._workdir = WorkingDir(working_dir)
@@ -212,15 +204,6 @@ class BaseAgent:
             self._prompt_manager.write_section("pad", loaded_pad)
         if comment:
             self._prompt_manager.write_section("comment", comment)
-        # Load existing context from system/context.md (survives restarts within a molt)
-        context_md = system_dir / "context.md"
-        if context_md.is_file():
-            try:
-                context_content = context_md.read_text().strip()
-                if context_content:
-                    self._prompt_manager.write_section("context", context_content, protected=False)
-            except OSError:
-                pass
 
         # Soul delay — needed before manifest build
         self._soul_delay = max(1.0, self._config.soul_delay)
@@ -315,7 +298,6 @@ class BaseAgent:
             streaming=streaming,
             build_system_prompt_fn=self._build_system_prompt,
             build_tool_schemas_fn=self._build_tool_schemas,
-            read_context_section_fn=self._read_context_section,
             logger_fn=self._log,
             build_system_batches_fn=self._build_system_prompt_batches,
         )
@@ -455,9 +437,19 @@ class BaseAgent:
         # Export assembled system prompt to system/system.md
         self._flush_system_prompt()
 
-        # chat_history.jsonl is now an append-only audit log.
-        # Conversation context is served from the "context" section
-        # (loaded from system/context.md in __init__).
+        # Restore chat session and token state from filesystem if available
+        chat_history_file = self._working_dir / "history" / "chat_history.jsonl"
+        if chat_history_file.is_file():
+            try:
+                messages = [
+                    json.loads(line)
+                    for line in chat_history_file.read_text().splitlines()
+                    if line.strip()
+                ]
+                self.restore_chat({"messages": messages})
+                self._log("session_restored")
+            except Exception as e:
+                logger.warning(f"[{self.agent_name}] Failed to restore chat history: {e}")
         # Restore token state from ledger (lifetime accumulator)
         try:
             ledger_path = self._working_dir / "logs" / "token_ledger.jsonl"
@@ -960,7 +952,6 @@ class BaseAgent:
 
                 if not self._asleep.is_set():
                     self._set_state(sleep_state)
-                self._flush_context_to_prompt()
                 self._save_chat_history()
 
                 # Auto-insight: fire after N turns
@@ -1154,7 +1145,6 @@ class BaseAgent:
         self._log("text_input", text=content)
         response = self._session.send(content)
         self._last_usage = response.usage
-        self._append_chat_audit()
         self._save_chat_history()
         result = self._process_response(response)
         self._post_request(msg, result)
@@ -1241,7 +1231,6 @@ class BaseAgent:
 
             response = self._session.send(tool_results)
             self._last_usage = response.usage
-            self._append_chat_audit()
             self._save_chat_history()
 
         final_text = "\n".join(collected_text_parts)
@@ -1309,14 +1298,6 @@ class BaseAgent:
             prompt_manager=self._prompt_manager, language=self._config.language
         )
 
-    def _read_context_section(self) -> str:
-        """Return the current 'context' prompt-manager section, or '' if absent.
-
-        Passed as read_context_section_fn to SessionManager so it can
-        tokenize the section independently of the full system prompt.
-        """
-        return self._prompt_manager.read_section("context") or ""
-
     def _build_tool_schemas(self) -> list[FunctionSchema]:
         """Build the complete tool schema list for the LLM.
 
@@ -1374,7 +1355,6 @@ class BaseAgent:
                 "thinking_tokens": 0, "cached_tokens": 0,
                 "total_tokens": 0, "api_calls": 0,
                 "ctx_system_tokens": 0, "ctx_tools_tokens": 0,
-                "ctx_context_section_tokens": 0,
                 "ctx_history_tokens": 0, "ctx_total_tokens": 0,
             }
         return self._session.get_token_usage()
@@ -1572,27 +1552,34 @@ class BaseAgent:
         self._session.restore_token_state(state)
 
     def _save_chat_history(self) -> None:
-        """Write manifest, status, and token ledger to disk.
+        """Write chat history and token usage to disk (no git commit).
 
-        Chat history persistence is now handled by:
-        - _append_chat_audit() — appends new interface entries to chat_history.jsonl (mid-turn)
-        - _flush_context_to_prompt() — appends + rebuilds context.md (on idle)
-
-        This method only persists manifest, status, and token ledger.
+        Called after every completed interaction for crash resilience.
+        Git commits are handled by the periodic snapshot system.
         """
+        history_dir = self._working_dir / "history"
+        history_dir.mkdir(exist_ok=True)
+        try:
+            state = self.get_chat_state()
+            if state and state.get("messages"):
+                lines = [json.dumps(entry, ensure_ascii=False) for entry in state["messages"]]
+                (history_dir / "chat_history.jsonl").write_text("\n".join(lines) + "\n")
+        except Exception as e:
+            logger.warning(f"[{self.agent_name}] Failed to save chat history: {e}")
         # Update .agent.json with current state
         try:
             self._workdir.write_manifest(self._build_manifest())
         except Exception as e:
             logger.warning(f"[{self.agent_name}] Failed to update manifest: {e}")
-        # Write .status.json — live runtime snapshot
+        # Write .status.json — live runtime snapshot (same as system("show"))
         try:
             (self._working_dir / ".status.json").write_text(
                 json.dumps(self.status(), ensure_ascii=False, indent=2)
             )
         except Exception as e:
             logger.warning(f"[{self.agent_name}] Failed to write .status.json: {e}")
-        # Append per-call token usage to ledger
+        # Append per-call token usage to ledger (capture-and-null to avoid race
+        # with heartbeat thread calling _save_chat_history on AED timeout)
         usage, self._last_usage = self._last_usage, None
         if usage is not None:
             try:
@@ -1606,106 +1593,6 @@ class BaseAgent:
                 )
             except Exception as e:
                 logger.warning(f"[{self.agent_name}] Failed to append token ledger: {e}")
-
-    def _append_chat_audit(self) -> None:
-        """Append new ChatInterface entries to chat_history.jsonl.
-
-        Uses a watermark (`self._chat_audit_watermark`) so only entries that
-        have appeared since the last call are written. The file is a
-        per-molt append-only log; on molt it is moved to
-        chat_history_archive.jsonl and the watermark resets.
-        """
-        if self._session.chat is None:
-            return
-        state = self._session.get_chat_state()
-        messages = state.get("messages") or []
-        new_entries = messages[self._chat_audit_watermark:]
-        if not new_entries:
-            return
-        history_dir = self._working_dir / "history"
-        history_dir.mkdir(exist_ok=True)
-        try:
-            with open(history_dir / "chat_history.jsonl", "a") as f:
-                for entry in new_entries:
-                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-            self._chat_audit_watermark = len(messages)
-        except Exception as e:
-            logger.warning(f"[{self.agent_name}] Failed to append chat audit: {e}")
-
-    def _rebuild_context_md(self) -> None:
-        """Rebuild context.md from chat_history.jsonl.
-
-        chat_history.jsonl is per-molt (molts move old content into
-        chat_history_archive.jsonl), so the whole file is the current
-        molt's conversation — no boundary scanning needed.
-        """
-        from .context_serializer import serialize_context_md
-
-        jsonl_path = self._working_dir / "history" / "chat_history.jsonl"
-        if not jsonl_path.is_file():
-            return
-
-        try:
-            lines = jsonl_path.read_text().splitlines()
-        except OSError:
-            return
-
-        entries = []
-        for line in lines:
-            if not line.strip():
-                continue
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-
-        if not entries:
-            return
-
-        md = serialize_context_md(entries)
-        if not md:
-            return
-
-        self._prompt_manager.write_section("context", md, protected=False)
-
-        context_file = self._working_dir / "system" / "context.md"
-        context_file.parent.mkdir(exist_ok=True)
-        context_file.write_text(md)
-
-    def _flush_context_to_prompt(self) -> None:
-        """Snapshot interface to disk; optionally rebuild context.md and wipe ChatInterface.
-
-        Called on every idle transition. chat_history.jsonl append happens
-        every time (cheap, durable). The rebuild+nuke pair is gated by two
-        knobs:
-          - context_serialization_enabled=False → never rebuild mid-session
-            (wire chat carries history until molt).
-          - context_serialization_enabled=True → rebuild every N idles, where
-            N = context_rebuild_every_n_idles. Between rebuilds the wire
-            chat carries the tail so Batch 3 stays byte-stable (cacheable).
-        """
-        self._append_chat_audit()
-
-        if not self._config.context_serialization_enabled:
-            return
-
-        self._idles_since_context_rebuild += 1
-        every_n = max(1, int(self._config.context_rebuild_every_n_idles))
-        if self._idles_since_context_rebuild < every_n:
-            return
-
-        self._rebuild_context_md()
-
-        if self._session.chat is not None:
-            self._session._chat = None
-            self._session._interaction_id = None
-        # Next session starts with an empty interface; its first entries are
-        # new (watermark = 0), even though jsonl already holds prior turns.
-        self._chat_audit_watermark = 0
-        self._idles_since_context_rebuild = 0
-
-        self._flush_system_prompt()
-        self._session._token_decomp_dirty = True
 
     # ------------------------------------------------------------------
     # Status / introspection
@@ -1767,17 +1654,13 @@ class BaseAgent:
                 "context": {
                     "system_tokens": usage["ctx_system_tokens"],
                     "tools_tokens": usage["ctx_tools_tokens"],
-                    "context_section_tokens": usage["ctx_context_section_tokens"],
                     "history_tokens": usage["ctx_history_tokens"],
                     "total_tokens": usage["ctx_total_tokens"],
                     "window_size": window_size,
                     "usage_pct": usage_pct,
                     # Meta-line decomposition (matches build_meta's buckets)
-                    "fixed_tokens": max(
-                        0,
-                        usage["ctx_system_tokens"] - usage["ctx_context_section_tokens"],
-                    ) + usage["ctx_tools_tokens"],
-                    "growing_tokens": usage["ctx_context_section_tokens"] + usage["ctx_history_tokens"],
+                    "fixed_tokens": usage["ctx_system_tokens"] + usage["ctx_tools_tokens"],
+                    "growing_tokens": usage["ctx_history_tokens"],
                 },
             },
         }

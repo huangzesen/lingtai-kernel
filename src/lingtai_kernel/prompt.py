@@ -9,8 +9,6 @@ batches:
         principle (no header) → covenant → tools → procedures → comment
     Batch 2 — rarely mutated (most stable first):
         rules → brief → library → codex → identity → pad
-    Batch 3 — grows every idle:
-        context
 
 build_system_prompt() assembles base_prompt + rendered sections.
 """
@@ -37,7 +35,6 @@ class SystemPromptManager:
     # as little prior content as possible.
     #   Batch 1 (immovable):         principle, covenant, tools, procedures, comment
     #   Batch 2 (rarely-mutated):    rules, brief, library, codex, identity, pad
-    #   Batch 3 (per-idle):          context
     # First entry (principle) is rendered without ## header (raw text).
     _DEFAULT_ORDER = [
         # Batch 1 — immovable
@@ -53,8 +50,6 @@ class SystemPromptManager:
         "codex",
         "identity",
         "pad",
-        # Batch 3 — per-idle
-        "context",
     ]
 
     def __init__(self) -> None:
@@ -98,7 +93,6 @@ class SystemPromptManager:
     _BATCHES: tuple[tuple[str, ...], ...] = (
         ("principle", "covenant", "tools", "procedures", "comment"),
         ("rules", "brief", "library", "codex", "identity", "pad"),
-        ("context",),
     )
 
     def render(self) -> str:
