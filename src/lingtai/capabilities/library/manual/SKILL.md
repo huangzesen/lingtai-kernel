@@ -103,3 +103,27 @@ If you hit a collision: rename, or adapt the existing skill instead of forking a
 ## Health check
 
 Call `library({"action": "info"})` to verify your library is wired correctly. It returns this SKILL.md body plus a runtime snapshot: `library_dir`, `catalog_size`, resolved paths with exist/skill-count info, and any `problems` (invalid frontmatter, unreadable folders). If `status` is `"degraded"`, the error message tells you what needs fixing — typically a missing manual under `intrinsic/capabilities/library/`, which means the initializer didn't install manuals correctly.
+
+## When to create a skill
+
+**Do create a skill when:**
+
+- The task is repeatable with consistent steps.
+- The procedure requires domain knowledge not reliably available without notes.
+- A workflow involves multi-step orchestration or error handling worth codifying.
+- You want to share expertise with other agents in the network.
+
+**Do NOT create a skill when:**
+
+- It's a one-off task with no reuse value.
+- The task is just "call this one API endpoint" — pick it up at the call site.
+- The instructions are personality or style preferences — those live in the covenant or your lingtai character, not here.
+
+## Writing a good skill
+
+1. **Trigger-optimized description.** The `description` is the only thing visible in the catalog without loading the file. Say what the skill does AND what it does not cover, so the agent knows when to reach for it and when to skip past.
+2. **Numbered steps in imperative form.** "Extract the text...", not "You should extract...".
+3. **Concrete templates in `assets/`** rather than prose descriptions of desired output format.
+4. **Deterministic scripts in `scripts/`** for fragile or repetitive operations — a Python script that always produces the same result is better than prose the LLM has to re-derive every time.
+5. **Keep `SKILL.md` focused.** Target under 500 lines. Offload dense content to `references/` and heavy logic to `scripts/`. The body is the procedure; supporting material is a `read` call away.
+6. **Structure subdirectories conventionally.** `scripts/` for executables, `references/` for supplementary context (schemas, cheatsheets, worked examples), `assets/` for templates and static files.
