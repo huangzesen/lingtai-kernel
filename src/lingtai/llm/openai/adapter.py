@@ -86,11 +86,16 @@ def _parse_response(raw) -> LLMResponse:
     text = message.content or ""
     tool_calls = _parse_tool_calls(message.tool_calls)
 
-    # Extract thinking/reasoning (OpenAI o-series models put reasoning in
-    # a separate field or content block; the SDK exposes it via
-    # message.reasoning_content when available)
+    # Extract thinking/reasoning. Field name varies by provider:
+    #   OpenAI o-series native        -> message.reasoning_content
+    #   OpenRouter (any reasoning mdl) -> message.reasoning
+    # We check both so the same parser works across providers. Native
+    # providers that don't set either field just produce no thoughts.
     thoughts: list[str] = []
-    reasoning = getattr(message, "reasoning_content", None)
+    reasoning = (
+        getattr(message, "reasoning_content", None)
+        or getattr(message, "reasoning", None)
+    )
     if reasoning:
         thoughts.append(reasoning)
 
@@ -401,6 +406,15 @@ class OpenAIChatSession(ChatSession):
                     acc.add_text(delta.content)
                     if on_chunk:
                         on_chunk(delta.content)
+                # OpenRouter (and OpenAI o-series under some SDKs) streams
+                # reasoning text deltas under `reasoning` / `reasoning_content`.
+                # Capture into the thoughts channel, never into visible text.
+                reasoning_delta = (
+                    getattr(delta, "reasoning", None)
+                    or getattr(delta, "reasoning_content", None)
+                )
+                if reasoning_delta:
+                    acc.add_thought(reasoning_delta)
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
                         acc.add_tool_delta(
@@ -774,6 +788,14 @@ class OpenAIAdapter(LLMAdapter):
         if thinking != "default":
             extra_kwargs["reasoning_effort"] = "high" if thinking == "high" else "low"
 
+        # Subclass-provided extra_body (e.g. OpenRouter's reasoning include).
+        # Merge rather than overwrite so callers adding their own extra_body
+        # via extra_kwargs aren't clobbered.
+        sub_extra_body = self._adapter_extra_body()
+        if sub_extra_body:
+            existing = extra_kwargs.get("extra_body") or {}
+            extra_kwargs["extra_body"] = {**sub_extra_body, **existing}
+
         return OpenAIChatSession(
             client=self._client,
             model=model,
@@ -784,6 +806,15 @@ class OpenAIAdapter(LLMAdapter):
             client_kwargs=self._client_kwargs,
             context_window=context_window,
         )
+
+    def _adapter_extra_body(self) -> dict:
+        """Return extra_body JSON fields to include on every request.
+
+        Default is empty. Subclasses override to inject provider-specific
+        kwargs (e.g. OpenRouter needs `reasoning: {include: true}` to
+        surface reasoning text on reasoning-capable models).
+        """
+        return {}
 
     def generate(
         self,

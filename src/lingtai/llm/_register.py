@@ -33,6 +33,11 @@ def register_all_adapters() -> None:
         kw.pop("model", None)
         return MiniMaxAdapter(**{k: v for k, v in kw.items() if v is not None})
 
+    def _openrouter(*, model=None, defaults=None, **kw):
+        from .openrouter.adapter import OpenRouterAdapter
+        kw.pop("model", None)
+        return OpenRouterAdapter(**{k: v for k, v in kw.items() if v is not None})
+
     def _custom(*, model=None, defaults=None, **kw):
         from .custom.adapter import create_custom_adapter
         kw.pop("model", None)
@@ -43,6 +48,7 @@ def register_all_adapters() -> None:
     LLMService.register_adapter("anthropic", _anthropic)
     LLMService.register_adapter("openai", _openai)
     LLMService.register_adapter("minimax", _minimax)
+    LLMService.register_adapter("openrouter", _openrouter)
     LLMService.register_adapter("custom", _custom)
 
     def _codex(*, model=None, defaults=None, **kw):
