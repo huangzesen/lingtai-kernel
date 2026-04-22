@@ -65,6 +65,91 @@ class TestSerializeContextMd:
         assert "<thinking>" not in md
         assert "here's my answer" in md
 
+    def test_inline_think_tags_stripped_from_text(self):
+        """OpenAI-compat providers (DeepSeek, MiniMax, Zhipu, Qwen, Kimi)
+        emit reasoning as inline <think>...</think> tags inside text
+        content. Those tags don't round-trip through context.md — replayed
+        to the model they read as literal prose, warping future outputs.
+        Strip at serialize time so the invariant "context.md never shows
+        the agent its past reasoning" holds regardless of adapter."""
+        entries = [
+            {"id": 0, "role": "assistant", "content": [
+                {"type": "text",
+                 "text": "<think>private reasoning here</think>\n\npublic reply"},
+            ], "timestamp": 1713600000.0},
+        ]
+        md = serialize_context_md(entries)
+        assert "private reasoning here" not in md
+        assert "<think>" not in md
+        assert "</think>" not in md
+        assert "public reply" in md
+
+    def test_inline_think_tags_multiline_content(self):
+        """Multi-line reasoning spanning many lines must still be fully
+        stripped — DOTALL regex with non-greedy match."""
+        entries = [
+            {"id": 0, "role": "assistant", "content": [
+                {"type": "text",
+                 "text": "<think>line1\nline2\nline3\nline4</think>\nthe reply"},
+            ], "timestamp": 1713600000.0},
+        ]
+        md = serialize_context_md(entries)
+        assert "line1" not in md
+        assert "line4" not in md
+        assert "the reply" in md
+
+    def test_inline_thought_tag_variants_stripped(self):
+        """All three common variants are stripped: <think>, <thought>,
+        <thinking>. Case-insensitive match handles occasional <Think> /
+        <THINKING> variants from fine-tuned models."""
+        entries = [
+            {"id": 0, "role": "assistant", "content": [
+                {"type": "text", "text": "<thought>a</thought>reply1"},
+            ], "timestamp": 1713600000.0},
+            {"id": 1, "role": "assistant", "content": [
+                {"type": "text", "text": "<thinking>b</thinking>reply2"},
+            ], "timestamp": 1713600001.0},
+            {"id": 2, "role": "assistant", "content": [
+                {"type": "text", "text": "<THINK>c</THINK>reply3"},
+            ], "timestamp": 1713600002.0},
+        ]
+        md = serialize_context_md(entries)
+        for smuggled in ("a</thought>", "b</thinking>", "c</THINK>"):
+            assert smuggled not in md
+        for visible in ("reply1", "reply2", "reply3"):
+            assert visible in md
+
+    def test_text_block_entirely_think_tags_is_skipped(self):
+        """A text block whose entire content is a thinking tag becomes
+        empty after stripping — don't emit an empty `### You` section."""
+        entries = [
+            {"id": 0, "role": "user", "content": [
+                {"type": "text", "text": "ask"},
+            ], "timestamp": 1713600000.0},
+            {"id": 1, "role": "assistant", "content": [
+                {"type": "text", "text": "<think>only reasoning, no reply</think>"},
+                {"type": "tool_call", "id": "tc1", "name": "refresh", "args": {}},
+            ], "timestamp": 1713600001.0},
+        ]
+        md = serialize_context_md(entries)
+        assert "only reasoning, no reply" not in md
+        # The tool call still renders — stripping doesn't drop the whole entry.
+        assert "◆ called tool `refresh`" in md
+
+    def test_unterminated_think_tag_is_left_alone(self):
+        """Unterminated `<think>` (no closing tag) is a symptom of
+        truncated/malformed model output. Better to surface it in the
+        serialized log than silently eat it — don't strip anything."""
+        entries = [
+            {"id": 0, "role": "assistant", "content": [
+                {"type": "text", "text": "<think>never closed and the reply"},
+            ], "timestamp": 1713600000.0},
+        ]
+        md = serialize_context_md(entries)
+        assert "<think>" in md
+        assert "never closed" in md
+        assert "the reply" in md
+
     def test_tool_call_full_args(self):
         long_args = {"content": "x" * 5000}
         entries = [
@@ -246,10 +331,16 @@ def make_mock_service():
 
 class TestFlushContextToPrompt:
     def _make_agent(self, tmp_path):
+        # These tests exercise the flush body (rebuild+nuke). The production
+        # default throttles that to every 3rd idle for cache stability; the
+        # tests are about the body itself, so we set N=1 to fire on every
+        # call. See TestFlushCadence for the throttling behavior.
+        from lingtai_kernel.config import AgentConfig
         return BaseAgent(
             service=make_mock_service(),
             agent_name="test",
             working_dir=tmp_path / "test",
+            config=AgentConfig(context_rebuild_every_n_idles=1),
         )
 
     def test_flush_rebuilds_context_from_jsonl(self, tmp_path):
@@ -387,6 +478,102 @@ class TestFlushContextToPrompt:
         agent._rebuild_context_md()
         ctx = agent._prompt_manager.read_section("context")
         assert ctx is None
+        agent.stop(timeout=2.0)
+
+
+class TestFlushCadence:
+    """The flush cadence knobs: serialization_enabled (on/off) and
+    rebuild_every_n_idles (cadence when on). chat_history.jsonl append
+    runs every idle regardless — only the rebuild+nuke pair is gated."""
+
+    def _make_agent(self, tmp_path, *, enabled=True, every_n=3):
+        from lingtai_kernel.config import AgentConfig
+        return BaseAgent(
+            service=make_mock_service(),
+            agent_name="cadence",
+            working_dir=tmp_path / "cadence",
+            config=AgentConfig(
+                context_serialization_enabled=enabled,
+                context_rebuild_every_n_idles=every_n,
+            ),
+        )
+
+    def _push_turn(self, agent, user_text, assistant_text):
+        agent._session.ensure_session()
+        iface = agent._session.chat.interface
+        iface.add_user_message(user_text)
+        iface.add_assistant_message([TextBlock(text=assistant_text)])
+
+    def test_jsonl_appends_every_idle_regardless(self, tmp_path):
+        """Even when the rebuild is throttled (N=3) or disabled entirely,
+        chat_history.jsonl must receive every turn's entries on every idle."""
+        agent = self._make_agent(tmp_path, every_n=3)
+        agent.start()
+        jsonl = tmp_path / "cadence" / "history" / "chat_history.jsonl"
+
+        for i in range(5):
+            self._push_turn(agent, f"u{i}", f"a{i}")
+            agent._flush_context_to_prompt()
+
+        lines = [l for l in jsonl.read_text().splitlines() if l.strip()]
+        # 5 turns × 2 entries (user + assistant) = 10 jsonl rows
+        assert len(lines) == 10
+        agent.stop(timeout=2.0)
+
+    def test_rebuild_throttled_to_every_nth_idle(self, tmp_path):
+        """With N=3, the chat interface is nuked only on the 3rd flush."""
+        agent = self._make_agent(tmp_path, every_n=3)
+        agent.start()
+
+        self._push_turn(agent, "u1", "a1")
+        agent._flush_context_to_prompt()
+        assert agent._session.chat is not None  # 1/3 — not nuked
+
+        self._push_turn(agent, "u2", "a2")
+        agent._flush_context_to_prompt()
+        assert agent._session.chat is not None  # 2/3 — not nuked
+
+        self._push_turn(agent, "u3", "a3")
+        agent._flush_context_to_prompt()
+        assert agent._session.chat is None  # 3/3 — nuked
+
+        # Counter resets — next two flushes don't nuke.
+        self._push_turn(agent, "u4", "a4")
+        agent._flush_context_to_prompt()
+        assert agent._session.chat is not None
+        agent.stop(timeout=2.0)
+
+    def test_serialization_disabled_never_rebuilds_or_nukes(self, tmp_path):
+        """With context_serialization_enabled=False, the flush body is
+        skipped on every idle — no matter how many flushes fire, the wire
+        chat survives and context.md stays empty."""
+        agent = self._make_agent(tmp_path, enabled=False)
+        agent.start()
+
+        for i in range(10):
+            self._push_turn(agent, f"u{i}", f"a{i}")
+            agent._flush_context_to_prompt()
+            assert agent._session.chat is not None  # never nuked
+
+        # context.md never gets written either.
+        assert not (tmp_path / "cadence" / "system" / "context.md").exists()
+        ctx = agent._prompt_manager.read_section("context")
+        assert ctx is None
+        agent.stop(timeout=2.0)
+
+    def test_serialization_disabled_still_appends_audit(self, tmp_path):
+        """Audit append is the durable path — must run even when
+        serialization is off."""
+        agent = self._make_agent(tmp_path, enabled=False)
+        agent.start()
+        jsonl = tmp_path / "cadence" / "history" / "chat_history.jsonl"
+
+        for i in range(3):
+            self._push_turn(agent, f"u{i}", f"a{i}")
+            agent._flush_context_to_prompt()
+
+        lines = [l for l in jsonl.read_text().splitlines() if l.strip()]
+        assert len(lines) == 6  # 3 turns × 2 entries
         agent.stop(timeout=2.0)
 
 
@@ -534,11 +721,15 @@ class TestMoltClearsContext:
 class TestEndToEnd:
     def test_full_lifecycle(self, tmp_path):
         """start -> message -> idle -> message -> idle -> molt -> post-molt -> restart"""
+        from lingtai_kernel.config import AgentConfig
         work_dir = tmp_path / "agent"
+        # N=1 so the flush body runs on every idle; this test is about the
+        # rebuild+nuke+reload lifecycle, not about flush throttling cadence.
         agent = BaseAgent(
             service=make_mock_service(),
             agent_name="e2e",
             working_dir=work_dir,
+            config=AgentConfig(context_rebuild_every_n_idles=1),
         )
         agent.start()
 
@@ -603,6 +794,7 @@ class TestEndToEnd:
             service=make_mock_service(),
             agent_name="e2e",
             working_dir=work_dir,
+            config=AgentConfig(context_rebuild_every_n_idles=1),
         )
         ctx2 = agent2._prompt_manager.read_section("context")
         assert "new life" in ctx2

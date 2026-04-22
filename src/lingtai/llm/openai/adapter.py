@@ -617,16 +617,6 @@ class OpenAIResponsesSession(ChatSession):
 class OpenAIAdapter(LLMAdapter):
     """Adapter that wraps the ``openai`` SDK for OpenAI and compatible APIs."""
 
-    # OpenAI-compat providers (DeepSeek, MiniMax-via-openai, Zhipu, Qwen,
-    # Kimi, OpenRouter-passthroughs to these, …) often emit reasoning as
-    # inline <think>...</think> tags inside text content rather than as
-    # structured blocks. That inline shape does NOT round-trip through
-    # context.md serialization — the tags get replayed to the model as
-    # literal prose, encouraging it to keep emitting them as text. Skip
-    # mid-session serialization for this adapter; the growing wire chat
-    # caches as a prefix at the provider anyway.
-    prefers_serialized_context: bool = False
-
     def __init__(
         self,
         api_key: str,

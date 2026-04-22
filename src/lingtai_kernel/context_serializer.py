@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 
 
@@ -9,6 +10,33 @@ def _ts(timestamp: float) -> str:
     """Format a UNIX timestamp as ISO 8601 UTC string."""
     dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# OpenAI-compat providers (DeepSeek, MiniMax, Zhipu, Qwen, Kimi, …) smuggle
+# reasoning into text blocks as inline <think>...</think> / <thought>...
+# </thought> / <thinking>...</thinking> tags instead of returning it as
+# structured thinking blocks. Those tags don't round-trip through context.md
+# cleanly: replayed to the model as literal prose they read as "this is how
+# I write my thinking out loud", warping future outputs. Strip at serialize
+# time so all three contamination paths (structured blocks, inline tags,
+# nested reasoning) converge on the same invariant: context.md never shows
+# the agent its past reasoning as apparent ground truth.
+_INLINE_THINKING_RE = re.compile(
+    r"<(think|thought|thinking)>.*?</\1>",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _strip_inline_thinking(text: str) -> str:
+    """Remove <think>/<thought>/<thinking> blocks from a text content string.
+
+    Unterminated tags (no closing `</think>`) are left alone intentionally —
+    truncated/malformed output is a bug worth seeing rather than silently
+    swallowing. Nested tags with identical names are rare and not special-
+    cased; the outer closing tag would just appear as stray text. Case-
+    insensitive match handles occasional `<Think>` / `<THINKING>` variants.
+    """
+    return _INLINE_THINKING_RE.sub("", text)
 
 
 _BANNER = (
@@ -51,7 +79,12 @@ def _render_content(content: list[dict]) -> str:
     for block in content:
         btype = block.get("type", "")
         if btype == "text":
-            parts.append(block.get("text", ""))
+            text = _strip_inline_thinking(block.get("text", ""))
+            # Blocks that were entirely thinking tags become empty after
+            # stripping — skip them so the serialized output doesn't carry
+            # empty `### You` sections as residue.
+            if text.strip():
+                parts.append(text)
         elif btype == "thinking":
             continue
         elif btype == "tool_call":

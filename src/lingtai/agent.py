@@ -656,14 +656,6 @@ class Agent(BaseAgent):
 
         # Reload config (all fields optional — fall back to AgentConfig defaults)
         soul = m.get("soul", {})
-        # context.md serialization default depends on the adapter's wire
-        # format — see LLMAdapter.prefers_serialized_context for the why.
-        # Anthropic / Gemini / MiniMax-via-Anthropic serialize cleanly (N=3
-        # cadence). OpenAI-compat adapters emit inline <think>...</think>
-        # tags that don't round-trip through serialization, so their default
-        # is to skip it entirely. Manifest override wins.
-        adapter = self.service.get_adapter(self.service.provider)
-        default_serialization_enabled = bool(adapter.prefers_serialized_context)
         self._config = AgentConfig(
             stamina=m.get("stamina", 86400.0),
             soul_delay=soul.get("delay", 120.0),
@@ -678,7 +670,7 @@ class Agent(BaseAgent):
             aed_timeout=m.get("aed_timeout", 360.0),
             max_aed_attempts=m.get("max_aed_attempts", 3),
             context_serialization_enabled=m.get(
-                "context_serialization_enabled", default_serialization_enabled
+                "context_serialization_enabled", True
             ),
             context_rebuild_every_n_idles=m.get(
                 "context_rebuild_every_n_idles", 3

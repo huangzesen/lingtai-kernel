@@ -21,25 +21,6 @@ class LLMAdapter(ABC):
 
     _gate: APICallGate | None = None
 
-    # Whether context.md serialization (mid-session rebuild+nuke of the wire
-    # chat into a serialized replay in the system prompt) is beneficial for
-    # this adapter's wire format. Adapters whose wire format preserves
-    # reasoning in structured blocks (Anthropic's `thinking`, Gemini's
-    # `thought`) round-trip cleanly and benefit from serialization — the
-    # agent's past is cached as part of the stable system prompt.
-    #
-    # Adapters whose wire format smuggles reasoning as inline tags like
-    # `<think>...</think>` inside text blocks do NOT round-trip cleanly:
-    # the tags end up as literal text in context.md, which the model reads
-    # back as "here's how you write your thinking in prose", warping future
-    # outputs. For those adapters, it's better to skip mid-session
-    # serialization entirely and let the wire chat carry history until
-    # molt — the provider's cache will hit the growing prefix anyway.
-    #
-    # Default True (safe for Anthropic / Gemini / MiniMax-via-Anthropic).
-    # OpenAI-compat overrides to False.
-    prefers_serialized_context: bool = True
-
     def _setup_gate(self, max_rpm: int) -> None:
         """Set up rate-limiting gate for this adapter.
 
