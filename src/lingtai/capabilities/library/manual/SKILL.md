@@ -65,6 +65,28 @@ Required frontmatter: `name`, `description`. Optional: `version`, `author`, `tag
 
 After writing, call `system({"action": "refresh"})` so the library capability rescans and re-injects the catalog.
 
+### Starting from the template
+
+If you'd rather not start from a blank file, copy the bundled template:
+
+```
+cp .library/intrinsic/capabilities/library/assets/skill-template.md \
+   .library/custom/<skill-name>/SKILL.md
+```
+
+The template has placeholder slots (`[SKILL_NAME]`, `[ONE_LINE_DESCRIPTION]`, etc.) and a soft skeleton of headings (`When this applies` / `Procedure` / `What to expect` / `Constraints` / `Scripts` / `Assets`). It works for code/executable skills out of the box; for reference-style skills (manuals, cheatsheets, chronicles) delete the `Procedure` section and write prose instead — there is a note at the top of the template reminding you of this.
+
+### Validating before publishing
+
+A bundled validator script catches the common failures before you ship:
+
+```
+python3 .library/intrinsic/capabilities/library/scripts/validate.py \
+   .library/custom/<skill-name>/
+```
+
+It checks: required frontmatter (`name`, `description`), unfilled `[PLACEHOLDER]` slots from the template, broken internal references (paths under `scripts/`, `assets/`, `references/` mentioned in `SKILL.md` that don't exist on disk), and `chmod +x` on Python scripts under `scripts/`. Exits 1 on any FAIL, 0 on PASS (warnings allowed). Run it after authoring and before `cp -r`'ing into `.library_shared/`.
+
 ## Publishing to the network-shared library
 
 If a custom skill is worth sharing with every agent in the network:
