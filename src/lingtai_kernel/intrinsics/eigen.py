@@ -2,10 +2,18 @@
 
 Objects:
     pad — edit/load system/pad.md (agent's working notes)
-    context — molt (shed context, keep a briefing)
+    name — set true name (once), set/clear nickname
 
 Internal:
-    context_forget — forced molt with system message (after ignored warnings)
+    _context_molt — the shed-and-reload machinery (archive chat_history,
+        wipe the wire session, reload pad/lingtai, inject a short post-molt
+        notice as the opening message of the fresh session).
+    context_forget — public entry point for system-initiated molt, called
+        by base_agent after the warning ladder is exhausted. The agent has
+        no tool surface to molt voluntarily anymore — molt happens to the
+        agent, not something it performs. The persistent state (pad,
+        lingtai, codex) is maintained every turn by procedure, so there
+        is nothing for the agent to "prepare" at molt time.
 """
 from __future__ import annotations
 
@@ -21,21 +29,17 @@ def get_schema(lang: str = "en") -> dict:
         "properties": {
             "object": {
                 "type": "string",
-                "enum": ["pad", "context", "name"],
+                "enum": ["pad", "name"],
                 "description": t(lang, "eigen.object_description"),
             },
             "action": {
                 "type": "string",
-                "enum": ["edit", "load", "molt", "set", "nickname"],
+                "enum": ["edit", "load", "set", "nickname"],
                 "description": t(lang, "eigen.action_description"),
             },
             "content": {
                 "type": "string",
                 "description": t(lang, "eigen.content_description"),
-            },
-            "summary": {
-                "type": "string",
-                "description": t(lang, "eigen.summary_description"),
             },
         },
         "required": ["object", "action"],
@@ -43,7 +47,7 @@ def get_schema(lang: str = "en") -> dict:
 
 
 def handle(agent, args: dict) -> dict:
-    """Handle eigen tool — pad and context management."""
+    """Handle eigen tool — pad and name."""
     obj = args.get("object", "")
     action = args.get("action", "")
 
@@ -54,11 +58,6 @@ def handle(agent, args: dict) -> dict:
             return _pad_load(agent, args)
         else:
             return {"error": f"Unknown pad action: {action}. Use edit or load."}
-    elif obj == "context":
-        if action == "molt":
-            return _context_molt(agent, args)
-        else:
-            return {"error": f"Unknown context action: {action}. Use molt."}
     elif obj == "name":
         if action == "set":
             return _name_set(agent, args)
@@ -67,7 +66,7 @@ def handle(agent, args: dict) -> dict:
         else:
             return {"error": f"Unknown name action: {action}. Use set (true name) or nickname."}
     else:
-        return {"error": f"Unknown object: {obj}. Use pad, context, or name."}
+        return {"error": f"Unknown object: {obj}. Use pad or name."}
 
 
 def _pad_edit(agent, args: dict) -> dict:
@@ -116,12 +115,19 @@ def _pad_load(agent, args: dict) -> dict:
 
 
 def _context_molt(agent, args: dict) -> dict:
-    """Agent molt: summary IS the briefing, wipe + re-inject."""
-    summary = args.get("summary")
-    if summary is None:
-        return {"error": "summary is required — write a briefing to your future self."}
-    if not summary.strip():
-        return {"error": "summary cannot be empty — write what you need to remember."}
+    """Shed working memory: archive chat_history, wipe the wire session,
+    reload pad/lingtai, inject a short system notice as the opening
+    message of the fresh session.
+
+    Not exposed as a tool action. Called only by ``context_forget``
+    (below), which is itself invoked by base_agent after the molt-
+    warning ladder is exhausted. The ``summary`` in ``args`` is the
+    short post-molt notice (not a user-authored briefing); if missing,
+    we fall back to the system default from i18n.
+    """
+    from ..i18n import t
+    lang = agent._config.language
+    summary = args.get("summary") or t(lang, "eigen.context_forget_summary")
 
     if agent._chat is None:
         return {"error": "No active chat session to molt."}
@@ -194,11 +200,12 @@ def _context_molt(agent, args: dict) -> dict:
     # Now create fresh session with updated prompt manager
     agent._session.ensure_session()
 
-    # Inject the agent's summary as the opening context
-    from ..i18n import t
-    lang = agent._config.language
+    # Inject a short post-molt notice as the opening message of the fresh
+    # session. Not framed as a user-authored briefing — it's a state
+    # announcement. The agent's durable state (pad, lingtai, codex) is
+    # already loaded into the new system prompt via the post-molt hooks.
     iface = agent._session._chat.interface
-    iface.add_user_message(f"{t(lang, 'eigen.molt_summary_prefix')}\n{summary}")
+    iface.add_user_message(summary)
 
     after_tokens = iface.estimate_context_tokens()
 
@@ -236,12 +243,11 @@ def _name_nickname(agent, args: dict) -> dict:
 
 
 def context_forget(agent) -> dict:
-    """Forced molt with system message. Internal only — not exposed in SCHEMA.
-
-    Called by base_agent auto-forget after ignored molt warnings.
-    Same mechanism as molt, just with a system-authored summary.
+    """System-initiated molt. The only entry point — there is no tool
+    surface for the agent to molt voluntarily. base_agent calls this
+    when the molt-warning ladder is exhausted, or when it otherwise
+    decides working memory should be shed. _context_molt falls back to
+    the localized default summary when none is provided, so this is a
+    one-liner.
     """
-    from ..i18n import t
-    return _context_molt(agent, {
-        "summary": t(agent._config.language, "eigen.context_forget_summary"),
-    })
+    return _context_molt(agent, {})

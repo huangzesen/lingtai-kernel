@@ -91,6 +91,11 @@ SCHEMA = {
 
 DESCRIPTION = (
     "WeChat client — interact with WeChat users via iLink Bot API. "
+    "ADDON OWNERSHIP: addons belong to the orchestrator (admin). If you are an "
+    "avatar (your admin block is empty or all admin privileges are false), do "
+    "not attempt to configure or reconfigure this addon — your orchestrator "
+    "manages it, and if the network needs this addon to reach you the wiring "
+    "is propagated to your session automatically. "
     "Supports text, images, voice, video, and files. "
     "Use 'send' for outgoing messages (text and/or media_path). "
     "'check' to see recent conversations with unread counts. "

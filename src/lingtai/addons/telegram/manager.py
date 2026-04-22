@@ -97,6 +97,11 @@ SCHEMA = {
 
 DESCRIPTION = (
     "Telegram bot client — interact with Telegram users via Bot API. "
+    "ADDON OWNERSHIP: addons belong to the orchestrator (admin). If you are an "
+    "avatar (your admin block is empty or all admin privileges are false), do "
+    "not attempt to configure or reconfigure this addon — your orchestrator "
+    "manages it, and if the network needs this addon to reach you the wiring "
+    "is propagated to your session automatically. "
     "Use 'send' for outgoing messages (text, photos, documents, inline keyboards). "
     "'check' to see recent conversations. "
     "'read' to read messages from a specific chat. "

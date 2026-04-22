@@ -147,6 +147,11 @@ SCHEMA = {
 
 DESCRIPTION = (
     "IMAP email client — real email via IMAP/SMTP with multi-account support. "
+    "ADDON OWNERSHIP: addons belong to the orchestrator (admin). If you are an "
+    "avatar (your admin block is empty or all admin privileges are false), do "
+    "not attempt to configure or reconfigure this addon — your orchestrator "
+    "manages it, and if the network needs this addon to reach you the wiring "
+    "is propagated to your session automatically. "
     "Every response includes account and tcp_alias fields. "
     "Actions: send, check, read, reply, search, delete, move, flag, folders, "
     "contacts, add_contact, remove_contact, edit_contact, accounts. "
