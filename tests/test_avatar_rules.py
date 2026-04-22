@@ -318,7 +318,7 @@ class TestAvatarRulesAction:
 
         mgr = agent.get_capability("avatar")
         with patch.object(AvatarManager, "_launch", return_value=12345):
-            result = mgr.handle({"name": "child", "dir": "child"})
+            result = mgr.handle({"name": "child"})
         assert result["status"] == "ok"
         assert result["agent_name"] == "child"
         assert result["address"] == "child"  # relative name (current convention)
@@ -404,10 +404,10 @@ class TestAutoDistributeAfterSpawn:
 
         mgr = parent.get_capability("avatar")
         with patch.object(AvatarManager, "_launch", return_value=12345):
-            result = mgr.handle({"name": "child", "dir": "child"})
+            result = mgr.handle({"name": "child"})
         assert result["status"] == "ok"
 
-        # Child dir is a sibling of parent_dir (avatar_working_dir = parent.parent / dir_name)
+        # Child dir is a sibling of parent_dir (avatar_working_dir = parent.parent / name)
         child_dir = parent_dir.parent / "child"
         # Child gets .rules signal file (heartbeat will consume and persist it)
         assert (child_dir / ".rules").read_text() == "Always be concise."
@@ -418,7 +418,7 @@ class TestAutoDistributeAfterSpawn:
 
         mgr = parent.get_capability("avatar")
         with patch.object(AvatarManager, "_launch", return_value=12345):
-            result = mgr.handle({"name": "child", "dir": "child"})
+            result = mgr.handle({"name": "child"})
         assert result["status"] == "ok"
 
         child_dir = parent_dir.parent / "child"
@@ -432,7 +432,7 @@ class TestAutoDistributeAfterSpawn:
 
         mgr = parent.get_capability("avatar")
         with patch.object(AvatarManager, "_launch", return_value=12345):
-            result = mgr.handle({"name": "clone", "dir": "clone", "type": "deep"})
+            result = mgr.handle({"name": "clone", "type": "deep"})
         assert result["status"] == "ok"
 
         clone_dir = parent_dir.parent / "clone"
@@ -440,3 +440,109 @@ class TestAutoDistributeAfterSpawn:
         assert (clone_dir / "system" / "rules.md").read_text() == "Always be concise."
         # .rules signal was also written (redundant but harmless)
         assert (clone_dir / ".rules").read_text() == "Always be concise."
+
+
+class TestSpawnNameValidation:
+    """Avatar name doubles as working-dir basename. It must be a bare segment:
+    path separators, parent-traversal, leading dots, absolute paths, empty
+    names, or oversized names are all rejected before any filesystem mutation.
+    Scripts other than ASCII (e.g. CJK) are allowed — only structural chars
+    are forbidden. See kernel audit C3/C4."""
+
+    def _spawnable_parent(self, tmp_path):
+        from lingtai.agent import Agent
+
+        parent_dir = tmp_path / "parent"
+        parent = Agent(
+            service=make_mock_service(),
+            agent_name="parent",
+            working_dir=parent_dir,
+            capabilities=["avatar"],
+        )
+        (parent_dir / "init.json").write_text(
+            json.dumps({"manifest": {"agent_name": "parent", "admin": {}}})
+        )
+        return parent, parent_dir
+
+    @pytest.mark.parametrize("bad_name", [
+        "avatars/scholar",      # the real-world bug from 2026-04-22
+        "../evil",              # parent traversal
+        "/etc/hacked",          # absolute
+        "foo/bar",              # slash mid-string
+        "foo\\bar",             # backslash (windows-style)
+        ".hidden",              # leading dot (would shadow .tui-asset etc.)
+        ".",                    # current dir
+        "..",                   # parent dir
+        "",                     # empty
+        "foo.bar",              # dot anywhere
+        "foo bar",              # space
+        "a" * 65,               # over length cap
+        "foo\x00bar",           # null byte
+    ])
+    def test_spawn_rejects_unsafe_name(self, tmp_path, bad_name):
+        parent, parent_dir = self._spawnable_parent(tmp_path)
+        mgr = parent.get_capability("avatar")
+
+        with patch.object(AvatarManager, "_launch", return_value=12345) as launch:
+            result = mgr.handle({"name": bad_name})
+
+        assert "error" in result, f"name={bad_name!r} should have been rejected but got {result}"
+        # No subprocess launched
+        launch.assert_not_called()
+        # No stray directory created outside the network root
+        for entry in parent_dir.parent.iterdir():
+            # Only the parent dir should exist; no sibling was created
+            assert entry == parent_dir, f"stray entry created: {entry}"
+
+    @pytest.mark.parametrize("good_name", [
+        "researcher",
+        "scholar-reader",
+        "paper_summarizer",
+        "学者",            # CJK allowed
+        "研究员",          # CJK allowed
+        "学者-甲",         # CJK + hyphen
+        "アバター",         # kana
+        "한글",            # hangul
+    ])
+    def test_spawn_accepts_valid_name(self, tmp_path, good_name):
+        parent, parent_dir = self._spawnable_parent(tmp_path)
+        mgr = parent.get_capability("avatar")
+
+        with patch.object(AvatarManager, "_launch", return_value=12345):
+            result = mgr.handle({"name": good_name})
+
+        assert result.get("status") == "ok", f"name={good_name!r} should have been accepted but got {result}"
+        assert (parent_dir.parent / good_name).is_dir()
+
+    def test_legacy_dir_argument_is_ignored(self, tmp_path):
+        """Pre-fix callers may still pass `dir=...`. It's no longer in the
+        schema, but the handler must not crash on unknown kwargs — it should
+        fall through to `name`-driven placement."""
+        parent, parent_dir = self._spawnable_parent(tmp_path)
+        mgr = parent.get_capability("avatar")
+
+        with patch.object(AvatarManager, "_launch", return_value=12345):
+            # Pass both a safe name and a malicious legacy dir; name wins.
+            result = mgr.handle({"name": "safe", "dir": "avatars/evil"})
+
+        assert result.get("status") == "ok"
+        assert (parent_dir.parent / "safe").is_dir()
+        # The malicious dir was NOT honored
+        assert not (parent_dir.parent / "avatars").exists()
+
+    def test_prepare_deep_refuses_non_sibling_dst(self, tmp_path):
+        """Defense-in-depth: even if _prepare_deep is called directly with a
+        dst outside the parent network, it must refuse before any rmtree."""
+        src = tmp_path / "network" / "parent"
+        src.mkdir(parents=True)
+        (src / "system").mkdir()
+        (src / "system" / "important.md").write_text("do not delete")
+
+        # dst lives in a totally different tree
+        dst = tmp_path / "elsewhere" / "victim"
+
+        with pytest.raises(ValueError, match="not a sibling"):
+            AvatarManager._prepare_deep(src, dst)
+
+        # src untouched
+        assert (src / "system" / "important.md").read_text() == "do not delete"

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -32,6 +33,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...i18n import t
+
+# Avatar name doubles as its working-directory basename. Letters (any script,
+# including CJK), digits, underscore, and hyphen — no path separators, no
+# control chars, no dots. The structural chars are what make this dangerous;
+# the script itself is the agent's choice.
+_AVATAR_NAME_RE = re.compile(r"^[\w-]+$")  # \w is Unicode-aware in Py3 re
+_AVATAR_NAME_MAX_LEN = 64
 
 if TYPE_CHECKING:
     from ...agent import Agent
@@ -59,10 +67,6 @@ def get_schema(lang: str = "en") -> dict:
                 "type": "string",
                 "enum": ["shallow", "deep"],
                 "description": t(lang, "avatar.type"),
-            },
-            "dir": {
-                "type": "string",
-                "description": t(lang, "avatar.dir"),
             },
             "comment": {
                 "type": "string",
@@ -127,6 +131,26 @@ class AvatarManager:
         if avatar_type not in ("shallow", "deep"):
             return {"error": "type must be 'shallow' or 'deep'"}
 
+        # Name doubles as working-dir basename. Enforce a safe, single-segment
+        # name so an LLM-chosen string cannot traverse, target absolute paths,
+        # or nest avatars inside subfolders (which would desync path-identity
+        # from the ledger and mail-routing layer).
+        if (
+            not isinstance(peer_name, str)
+            or not peer_name
+            or peer_name in (".", "..")
+            or peer_name.startswith(".")
+            or len(peer_name) > _AVATAR_NAME_MAX_LEN
+            or not _AVATAR_NAME_RE.match(peer_name)
+        ):
+            return {
+                "error": (
+                    f"Invalid avatar name '{peer_name}': must be a bare directory "
+                    f"name — letters (any script), digits, underscore, or hyphen; "
+                    f"no slashes, dots, spaces, or leading '.'; 1-{_AVATAR_NAME_MAX_LEN} chars."
+                )
+            }
+
         # Check if this peer already exists and is live
         from lingtai_kernel.handshake import is_alive
         for record in self._read_ledger():
@@ -152,11 +176,25 @@ class AvatarManager:
         except (json.JSONDecodeError, OSError) as e:
             return {"error": f"failed to read parent init.json: {e}"}
 
-        # Working dir: sibling of parent, named by caller
-        dir_name = args.get("dir", peer_name)
-        avatar_working_dir = parent._working_dir.parent / dir_name
+        # Working dir: sibling of parent, named after the avatar. Defense-in-depth
+        # scope check — resolve and assert the target's parent equals the network
+        # root, so even if peer_name validation is ever loosened, this still
+        # prevents writing outside .lingtai/<siblings>/.
+        avatar_working_dir = parent._working_dir.parent / peer_name
+        network_root = parent._working_dir.parent.resolve()
+        try:
+            resolved = avatar_working_dir.resolve(strict=False)
+        except (OSError, RuntimeError) as e:
+            return {"error": f"Cannot resolve avatar path: {e}"}
+        if resolved.parent != network_root:
+            return {
+                "error": (
+                    f"Avatar path '{avatar_working_dir}' escapes the network root "
+                    f"'{network_root}' — rejected."
+                )
+            }
         if avatar_working_dir.exists():
-            return {"error": f"Directory '{dir_name}' already exists. Choose another name."}
+            return {"error": f"Directory '{peer_name}' already exists. Choose another name."}
 
         # Prepare the avatar's working directory
         if avatar_type == "deep":
@@ -262,7 +300,20 @@ class AvatarManager:
 
     @staticmethod
     def _prepare_deep(src: Path, dst: Path) -> None:
-        """Copy identity + knowledge from parent, excluding runtime state."""
+        """Copy identity + knowledge from parent, excluding runtime state.
+
+        Guarded: dst must be a direct sibling of src (same parent). This mirrors
+        the path-scope assertion in _spawn so the rmtree() calls below cannot
+        reach outside the network root even if _prepare_deep is ever called
+        from a future, less-validated path.
+        """
+        src_resolved = src.resolve(strict=False)
+        dst_resolved = dst.resolve(strict=False)
+        if dst_resolved.parent != src_resolved.parent:
+            raise ValueError(
+                f"_prepare_deep refused: dst '{dst}' is not a sibling of src '{src}' "
+                f"(parents differ: {dst_resolved.parent} vs {src_resolved.parent})"
+            )
         dst.mkdir(parents=True, exist_ok=True)
 
         # system/ (character, pad, covenant, etc.)
