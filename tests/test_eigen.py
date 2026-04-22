@@ -89,34 +89,82 @@ def test_eigen_pad_load_empty(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Context surface removed (molt happens to the agent, not performed by it)
+# Context molt (agent-callable)
 # ---------------------------------------------------------------------------
 
 
-def test_eigen_no_longer_exposes_context_object(tmp_path):
-    """The `context` object and `molt` action are no longer part of the
-    eigen tool surface — molt is system-initiated via context_forget.
-    Calling them should return an 'Unknown object' error, not run a molt."""
+def test_eigen_molt_uses_summary(tmp_path):
+    """molt wipes context and re-injects agent's summary."""
+    from lingtai_kernel.llm.interface import ChatInterface, TextBlock
+
+    svc = make_mock_service()
+
+    def fake_create_session(**kwargs):
+        mock_chat = MagicMock()
+        iface = ChatInterface()
+        iface.add_system("You are helpful.")
+        mock_chat.interface = iface
+        mock_chat.context_window.return_value = 100_000
+        return mock_chat
+
+    svc.create_session.side_effect = fake_create_session
+
+    agent = BaseAgent(
+        service=svc, agent_name="test", working_dir=tmp_path / "test",
+    )
+    agent.start()
+    try:
+        agent._session.ensure_session()
+        agent._session._chat.interface.add_user_message("Hello")
+        agent._session._chat.interface.add_assistant_message(
+            [TextBlock(text="Hi there.")],
+        )
+
+        result = agent._intrinsics["eigen"]({
+            "object": "context",
+            "action": "molt",
+            "summary": "Key finding: X=42. Task: analyze Y.",
+        })
+        assert result["status"] == "ok"
+        # Summary should be in new conversation
+        iface = agent._session._chat.interface
+        entries = [e for e in iface.entries if e.role == "user"]
+        assert any("X=42" in str(e.content) for e in entries)
+    finally:
+        agent.stop()
+
+
+def test_eigen_molt_rejects_empty_summary(tmp_path):
+    """molt with empty summary returns error — agent must write a real briefing."""
     agent = BaseAgent(
         service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
     )
     result = agent._intrinsics["eigen"]({
-        "object": "context",
-        "action": "molt",
-        "summary": "some summary",
+        "object": "context", "action": "molt", "summary": "",
     })
     assert "error" in result
-    assert "unknown object" in result["error"].lower()
+    assert "empty" in result["error"].lower()
     agent.stop(timeout=1.0)
 
 
-def test_eigen_schema_has_no_context_or_molt(tmp_path):
-    """Schema confirms context/molt/summary are not user-callable."""
+def test_eigen_molt_rejects_missing_summary(tmp_path):
+    """molt without summary arg returns error."""
+    agent = BaseAgent(
+        service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+    )
+    result = agent._intrinsics["eigen"]({"object": "context", "action": "molt"})
+    assert "error" in result
+    assert "required" in result["error"].lower()
+    agent.stop(timeout=1.0)
+
+
+def test_eigen_schema_has_context_molt(tmp_path):
+    """Schema exposes context/molt/summary for agent-callable molt."""
     from lingtai_kernel.intrinsics.eigen import get_schema
     s = get_schema("en")
-    assert "context" not in s["properties"]["object"]["enum"]
-    assert "molt" not in s["properties"]["action"]["enum"]
-    assert "summary" not in s["properties"]
+    assert "context" in s["properties"]["object"]["enum"]
+    assert "molt" in s["properties"]["action"]["enum"]
+    assert "summary" in s["properties"]
 
 
 # ---------------------------------------------------------------------------

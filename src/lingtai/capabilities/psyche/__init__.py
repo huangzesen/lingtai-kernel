@@ -36,12 +36,12 @@ def get_schema(lang: str = "en") -> dict:
         "properties": {
             "object": {
                 "type": "string",
-                "enum": ["lingtai", "pad"],
+                "enum": ["lingtai", "pad", "context"],
                 "description": t(lang, "psyche.object"),
             },
             "action": {
                 "type": "string",
-                "enum": ["update", "load", "edit", "append"],
+                "enum": ["update", "load", "edit", "append", "molt"],
                 "description": t(lang, "psyche.action"),
             },
             "content": {
@@ -52,6 +52,10 @@ def get_schema(lang: str = "en") -> dict:
                 "type": "array",
                 "items": {"type": "string"},
                 "description": t(lang, "psyche.files"),
+            },
+            "summary": {
+                "type": "string",
+                "description": t(lang, "psyche.summary"),
             },
         },
         "required": ["object", "action"],
@@ -79,6 +83,7 @@ class PsycheManager:
     _VALID_ACTIONS: dict[str, set[str]] = {
         "lingtai": {"update", "load"},
         "pad": {"edit", "load", "append"},
+        "context": {"molt"},
     }
 
     def handle(self, args: dict) -> dict:
@@ -304,6 +309,14 @@ class PsycheManager:
             result["append_count"] = len(append_files)
 
         return result
+
+    # ------------------------------------------------------------------
+    # Context actions — delegate to eigen
+    # ------------------------------------------------------------------
+
+    def _context_molt(self, args: dict) -> dict:
+        return self._eigen_handler({"object": "context", "action": "molt", "summary": args.get("summary")})
+
 
 def setup(agent: "BaseAgent") -> PsycheManager:
     """Set up psyche capability — identity, pad, and context management."""

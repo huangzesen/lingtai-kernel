@@ -217,14 +217,58 @@ def test_pad_load_delegates_to_eigen(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Molt (system-initiated — no agent-callable tool surface)
+# Molt (agent-callable via psyche, delegates to eigen)
 # ---------------------------------------------------------------------------
 
 
-def test_molt_happens_via_context_forget(tmp_path):
-    """The agent has no tool action to molt. System-initiated molt via
-    eigen.context_forget still works and seeds the fresh session with a
-    localized post-molt notice."""
+def test_molt_delegates_to_eigen(tmp_path):
+    """psyche(context, molt, summary) delegates to eigen and injects the
+    summary as the opening message of the fresh session."""
+    from lingtai_kernel.llm.interface import ChatInterface, TextBlock
+
+    svc = make_mock_service()
+
+    def fake_create_session(**kwargs):
+        mock_chat = MagicMock()
+        iface = ChatInterface()
+        iface.add_system("You are helpful.")
+        mock_chat.interface = iface
+        mock_chat.context_window.return_value = 100_000
+        return mock_chat
+
+    svc.create_session.side_effect = fake_create_session
+
+    agent = Agent(
+        service=svc, agent_name="test", working_dir=tmp_path / "test",
+        capabilities=["psyche"],
+    )
+    agent.start()
+    try:
+        agent._session.ensure_session()
+        agent._session._chat.interface.add_user_message("Hello")
+        agent._session._chat.interface.add_assistant_message(
+            [TextBlock(text="Hi there.")],
+        )
+
+        mgr = agent.get_capability("psyche")
+        result = mgr.handle({
+            "object": "context",
+            "action": "molt",
+            "summary": "Key findings: X=42. Current task: analyze dataset Z.",
+        })
+
+        assert result["status"] == "ok"
+        iface = agent._session._chat.interface
+        entries = [e for e in iface.entries if e.role == "user"]
+        assert any("X=42" in str(e.content) for e in entries)
+    finally:
+        agent.stop()
+
+
+def test_molt_via_system_context_forget_still_works(tmp_path):
+    """System-initiated molt (base_agent calls this when the warning ladder
+    is exhausted) uses the localized default summary and succeeds without
+    any agent-provided summary."""
     from lingtai_kernel.llm.interface import ChatInterface, TextBlock
     from lingtai_kernel.intrinsics.eigen import context_forget
 
@@ -254,41 +298,6 @@ def test_molt_happens_via_context_forget(tmp_path):
 
         result = context_forget(agent)
         assert result.get("status") == "ok"
-
-        # Fresh session should carry the localized post-molt notice as its
-        # opening user message — points the agent at logs/events.jsonl.
-        iface = agent._session._chat.interface
-        user_entries = [e for e in iface.entries if e.role == "user"]
-        assert any("events.jsonl" in str(e.content) for e in user_entries)
-    finally:
-        agent.stop()
-
-
-def test_psyche_rejects_context_object(tmp_path):
-    """Post-removal: psyche no longer exposes a context/molt surface.
-    Calling it should return an error, not silently delegate."""
-    from lingtai_kernel.llm.interface import ChatInterface
-
-    svc = make_mock_service()
-
-    def fake_create_session(**kwargs):
-        mock_chat = MagicMock()
-        mock_chat.interface = ChatInterface()
-        mock_chat.context_window.return_value = 100_000
-        return mock_chat
-
-    svc.create_session.side_effect = fake_create_session
-
-    agent = Agent(
-        service=svc, agent_name="test", working_dir=tmp_path / "test",
-        capabilities=["psyche"],
-    )
-    agent.start()
-    try:
-        mgr = agent.get_capability("psyche")
-        result = mgr.handle({"object": "context", "action": "molt"})
-        assert "error" in result
-        assert "context" in result["error"].lower() or "unknown object" in result["error"].lower()
     finally:
         agent.stop()
 
@@ -302,16 +311,14 @@ def test_psyche_schema_has_correct_objects():
     from lingtai.capabilities.psyche import get_schema
     SCHEMA = get_schema("en")
     objects = SCHEMA["properties"]["object"]["enum"]
-    # context/molt was removed — molt now happens to the agent via
-    # eigen.context_forget, not as a user-callable tool action.
-    assert set(objects) == {"lingtai", "pad"}
+    assert set(objects) == {"lingtai", "pad", "context"}
 
 
 def test_psyche_schema_has_correct_actions():
     from lingtai.capabilities.psyche import get_schema
     SCHEMA = get_schema("en")
     actions = SCHEMA["properties"]["action"]["enum"]
-    assert set(actions) == {"update", "load", "edit", "append"}
+    assert set(actions) == {"update", "load", "edit", "append", "molt"}
 
 
 def test_psyche_schema_has_files_field():
