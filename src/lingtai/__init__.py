@@ -13,9 +13,9 @@ from lingtai_kernel.message import Message, MSG_REQUEST, MSG_USER_INPUT
 
 # Capabilities
 from .capabilities import setup_capability
-from .capabilities.bash import BashManager
-from .capabilities.avatar import AvatarManager
-from .capabilities.email import EmailManager
+from .core.bash import BashManager
+from .core.avatar import AvatarManager
+from .core.email import EmailManager
 
 # Services
 from .services.file_io import FileIOService, LocalFileIOService, GrepMatch

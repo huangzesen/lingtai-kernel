@@ -36,6 +36,8 @@ where = ["src"]
 lingtai_kernel = ["i18n/*.json"]
 lingtai = [
     "i18n/*.json",
+    "core/*/*.json",
+    "core/*/manual/**/*",
     "capabilities/*/*.json",
     "capabilities/*/manual/**/*",
     "addons/*/*.json",

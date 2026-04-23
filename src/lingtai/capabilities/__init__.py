@@ -7,14 +7,26 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
 
-# Registry of built-in capability names → module paths (relative to this package).
+# Registry of built-in capability names → module paths.
+# Entries starting with "." are relative to this package (lingtai.capabilities);
+# absolute paths point at lingtai.core (the always-on agent floor). Both forms
+# work because importlib.import_module honors the `package=` kwarg only for
+# relative names.
 _BUILTIN: dict[str, str] = {
-    "psyche": ".psyche",
-    "codex": ".codex",
-    "bash": ".bash",
-    "avatar": ".avatar",
-    "daemon": ".daemon",
-    "email": ".email",
+    # Always-on floor (lingtai.core)
+    "psyche": "lingtai.core.psyche",
+    "codex": "lingtai.core.codex",
+    "bash": "lingtai.core.bash",
+    "avatar": "lingtai.core.avatar",
+    "daemon": "lingtai.core.daemon",
+    "email": "lingtai.core.email",
+    "library": "lingtai.core.library",
+    "read": "lingtai.core.read",
+    "write": "lingtai.core.write",
+    "edit": "lingtai.core.edit",
+    "glob": "lingtai.core.glob",
+    "grep": "lingtai.core.grep",
+    # Optional/multimodal capabilities (this package)
     "draw": ".draw",
     "compose": ".compose",
     "talk": ".talk",
@@ -23,12 +35,6 @@ _BUILTIN: dict[str, str] = {
     "vision": ".vision",
     "web_search": ".web_search",
     "web_read": ".web_read",
-    "read": ".read",
-    "write": ".write",
-    "edit": ".edit",
-    "glob": ".glob",
-    "grep": ".grep",
-    "library": ".library",
 }
 
 # Group names that expand to multiple capabilities.
@@ -80,13 +86,13 @@ def get_all_providers() -> dict[str, dict]:
     Used by ``lingtai check-caps`` CLI.
     """
     _USER_FACING: dict[str, str] = {
-        "file": ".read",
-        "email": ".email",
-        "bash": ".bash",
+        "file": "lingtai.core.read",
+        "email": "lingtai.core.email",
+        "bash": "lingtai.core.bash",
         "web_search": ".web_search",
-        "psyche": ".psyche",
-        "codex": ".codex",
-        "library": ".library",
+        "psyche": "lingtai.core.psyche",
+        "codex": "lingtai.core.codex",
+        "library": "lingtai.core.library",
         "vision": ".vision",
         "talk": ".talk",
         "draw": ".draw",
@@ -94,8 +100,8 @@ def get_all_providers() -> dict[str, dict]:
         "video": ".video",
         "listen": ".listen",
         "web_read": ".web_read",
-        "avatar": ".avatar",
-        "daemon": ".daemon",
+        "avatar": "lingtai.core.avatar",
+        "daemon": "lingtai.core.daemon",
     }
     result = {}
     for name, module_path in _USER_FACING.items():

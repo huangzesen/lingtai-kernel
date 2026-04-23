@@ -160,6 +160,7 @@ class Agent(BaseAgent):
         """
         import shutil
         import lingtai.capabilities as caps_pkg
+        import lingtai.core as core_pkg
         import lingtai.addons as addons_pkg
 
         library_dir = self._working_dir / ".library"
@@ -184,6 +185,9 @@ class Agent(BaseAgent):
                 if src.is_dir():
                     shutil.copytree(src, intrinsic_dir / subdir / entry.name)
 
+        # core/ and capabilities/ both install into intrinsic/capabilities/ —
+        # agents see one flat capability namespace.
+        install_from(core_pkg, "capabilities")
         install_from(caps_pkg, "capabilities")
         install_from(addons_pkg, "addons")
 
@@ -194,7 +198,7 @@ class Agent(BaseAgent):
         for cap_name, cap_kwargs in self._capabilities:
             if cap_name == "library":
                 try:
-                    from .capabilities import library as libmod
+                    from .core import library as libmod
                     libmod._reconcile(self, list(cap_kwargs.get("paths", []) or []))
                 except Exception as e:
                     self._log("library_reconcile_failed", reason=str(e))
