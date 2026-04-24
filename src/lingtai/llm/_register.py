@@ -81,6 +81,13 @@ def register_all_adapters() -> None:
 
     LLMService.register_adapter("codex", _codex)
 
-    # Providers routed through the custom adapter
-    for name in ("deepseek", "grok", "qwen", "glm", "zhipu", "kimi"):
+    def _deepseek(*, model=None, defaults=None, **kw):
+        from .deepseek.adapter import DeepSeekAdapter
+        kw.pop("model", None)
+        return DeepSeekAdapter(**{k: v for k, v in kw.items() if v is not None})
+
+    LLMService.register_adapter("deepseek", _deepseek)
+
+    # Providers routed through the generic custom adapter
+    for name in ("grok", "qwen", "glm", "zhipu", "kimi"):
         LLMService.register_adapter(name, _custom)
