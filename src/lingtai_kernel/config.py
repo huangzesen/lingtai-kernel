@@ -27,8 +27,9 @@ class AgentConfig:
     time_awareness: bool = True  # experimental: False strips LLM-visible timestamps (perception nerf)
     timezone_awareness: bool = True  # when True, now_iso emits OS local time; when False, UTC
     context_limit: int | None = None  # max context tokens; None = use model default
-    molt_pressure: float = 0.8  # context usage fraction that triggers molt warnings (0.0–1.0)
+    molt_pressure: float = 0.7  # context usage fraction that triggers molt warnings (0.0–1.0)
     molt_warnings: int = 5  # number of warnings before auto-wipe
+    molt_hard_ceiling: float = 0.95  # unconditional auto-wipe threshold — if pressure ≥ this, force-wipe next turn regardless of warning count
     molt_prompt: str = ""  # user-provided instruction for how to prepare for molt
     ensure_ascii: bool = False  # JSON output: False = readable unicode, True = \uXXXX escapes
     soul_context_limit: int = 200_000  # max tokens for soul session; oldest entries dropped when exceeded

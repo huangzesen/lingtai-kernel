@@ -25,7 +25,7 @@
   "mail.n_description": "check 中所示最大书信数（默认：尽列）",
   "mail.mode_description": "传书之址式。rel（默认）：裸名，于当前网络中解之。abs：完整本地路径，直书文件系统。ssh：经 SSH 传书于远方之机（址式：user@host:/path/to/.lingtai/agent_name）。",
   "mail.query_description": "search 之正则式（于 from、subject、message 中检索）",
-  "eigen.description": "核心自治——工作笔记与真名。pad：edit 写入工作笔记（system/pad.md），load 将其载入当前意识。name：设真名（一设不易）或改别名。工作记忆乃暂存——将满之时，汝当自行凝蜕，pad 与 lingtai 乃长存者。每轮当守 pad，壳脱之时方无所失。",
+  "eigen.description": "核心自治——工作笔记与真名。pad：edit 写入工作笔记（system/pad.md），load 将其载入当前意识。name：设真名（一设不易）或改别名。工作记忆乃暂存——将满之时，汝当自行凝蜕，pad 与 lingtai 乃长存者。每轮当守 pad，壳脱之时方无所失。警之序：七分起警；至九分五则无条件强清——届时无论 pad 与 lingtai 是否已备，系统皆下一轮清之。故压力上涨之时，务及时修 pad 与 lingtai。",
   "eigen.object_description": "pad：汝之工作笔记（system/pad.md）。context：管理对话上下文。name：汝之真名（一設不易）。",
   "eigen.action_description": "pad：edit | load。edit 自动 load。\ncontext：molt。\nname：set | nickname。",
   "eigen.content_description": "用于 pad edit 之文本。",

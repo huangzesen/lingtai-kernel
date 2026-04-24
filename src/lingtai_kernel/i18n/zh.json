@@ -25,7 +25,7 @@
   "mail.n_description": "check 中显示的最大消息数（默认：全部）",
   "mail.mode_description": "send 的地址模式。rel（默认）：裸名称，在当前网络中解析。abs：完整本地路径，直接文件系统投递。ssh：通过 SSH 投递到远程机器（地址格式：user@host:/path/to/.lingtai/agent_name）。",
   "mail.query_description": "search 操作的正则表达式模式（在 from、subject、message 中搜索）",
-  "eigen.description": "核心自我管理——工作笔记与真名。pad：edit 写入工作笔记（system/pad.md），load 将其注入当前提示。name：设真名（只一次）或改别名。工作记忆乃暂存之物——将满之时，汝当主动行凝蜕，pad 与 lingtai 乃长存者。每轮当守 pad，壳脱之时方无所失。",
+  "eigen.description": "核心自我管理——工作笔记与真名。pad：edit 写入工作笔记（system/pad.md），load 将其注入当前提示。name：设真名（只一次）或改别名。工作记忆乃暂存之物——将满之时，汝当主动行凝蜕，pad 与 lingtai 乃长存者。每轮当守 pad，壳脱之时方无所失。告警之序：70% 起警；至 95% 则无条件强制清空——届时无论 pad 与 lingtai 是否已备妥，系统都会在下一轮清空。故压力上升之时务必及时更新 pad 与 lingtai。",
   "eigen.object_description": "pad：你的工作笔记（system/pad.md）。context：管理对话上下文。name：你的真名（只能设置一次）。",
   "eigen.action_description": "pad：edit | load。edit 自动 load。\ncontext：molt。\nname：set | nickname。",
   "eigen.content_description": "用于 pad edit 的文本内容。",

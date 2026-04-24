@@ -1150,7 +1150,19 @@ class BaseAgent:
         # Needs eigen intrinsic (always present) or psyche capability to self-molt
         has_molt = "eigen" in self._intrinsics or self.has_capability("psyche")
         pressure = self._session.get_context_pressure()
-        if pressure >= self._config.molt_pressure and has_molt:
+
+        # Hard ceiling — unconditional force-wipe regardless of warning count.
+        # The warning ladder can let an agent sit at elevated pressure for
+        # several turns; if it keeps climbing, we need a guaranteed backstop
+        # before the LLM call itself starts failing from oversized payloads.
+        if pressure >= self._config.molt_hard_ceiling and has_molt:
+            lang = self._config.language
+            self._log("auto_forget", reason="hard ceiling", pressure=pressure, ceiling=self._config.molt_hard_ceiling)
+            from .intrinsics import eigen as _eigen
+            _eigen.context_forget(self)
+            self._session._compaction_warnings = 0
+            content = f"{_t(lang, 'system.molt_wiped')}\n\n{content}"
+        elif pressure >= self._config.molt_pressure and has_molt:
             max_warnings = self._config.molt_warnings
             self._session._compaction_warnings += 1
             warnings = self._session._compaction_warnings
