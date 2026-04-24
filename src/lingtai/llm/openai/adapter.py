@@ -203,6 +203,17 @@ class OpenAIChatSession(ChatSession):
         """The canonical ChatInterface for this session."""
         return self._interface
 
+    def _build_messages(self) -> list[dict]:
+        """Return the message list to send to the API.
+
+        Default: the canonical OpenAI serialization of the current
+        interface. Subclasses override to mutate or wrap — e.g. the
+        DeepSeek session injects ``reasoning_content`` onto assistant
+        turns that carry tool calls, which DeepSeek V4 thinking mode
+        requires for the round-trip.
+        """
+        return to_openai(self._interface)
+
     def send(self, message) -> LLMResponse:
         """Send a user message (str) or tool results (list of dicts).
 
@@ -223,7 +234,7 @@ class OpenAIChatSession(ChatSession):
 
         # 2. Build ephemeral provider messages from interface
         self._interface.enforce_tool_pairing()
-        candidate = to_openai(self._interface)
+        candidate = self._build_messages()
 
         kwargs: dict[str, Any] = {
             "model": self._model,
@@ -359,7 +370,7 @@ class OpenAIChatSession(ChatSession):
 
         # 2. Build ephemeral provider messages from interface
         self._interface.enforce_tool_pairing()
-        candidate = to_openai(self._interface)
+        candidate = self._build_messages()
 
         kwargs: dict[str, Any] = {
             "model": self._model,
@@ -631,6 +642,13 @@ class OpenAIResponsesSession(ChatSession):
 class OpenAIAdapter(LLMAdapter):
     """Adapter that wraps the ``openai`` SDK for OpenAI and compatible APIs."""
 
+    # Session class for the Chat Completions path. Subclasses override
+    # this to inject provider-specific behavior (e.g. DeepSeek preserves
+    # ``reasoning_content`` on tool-call turns for thinking-mode replay).
+    # Responses-API sessions use OpenAIResponsesSession unconditionally
+    # since that path is OpenAI-only.
+    _session_class: type = OpenAIChatSession
+
     def __init__(
         self,
         api_key: str,
@@ -796,7 +814,7 @@ class OpenAIAdapter(LLMAdapter):
             existing = extra_kwargs.get("extra_body") or {}
             extra_kwargs["extra_body"] = {**sub_extra_body, **existing}
 
-        return OpenAIChatSession(
+        return self._session_class(
             client=self._client,
             model=model,
             interface=interface,
