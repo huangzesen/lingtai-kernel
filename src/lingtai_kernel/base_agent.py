@@ -963,23 +963,18 @@ class BaseAgent:
                             f"[{self.agent_name}] AED attempt {aed_attempts}/{self._config.max_aed_attempts}: {err_desc}",
                         )
 
-                        # On the final allowed retry, do a full molt before trying again.
-                        # Context pressure / corrupted state is a likely cause of repeated
-                        # failures; a fresh session with a re-orient summary is the
-                        # strongest recovery we can do without declaring ASLEEP.
+                        # On the final allowed retry, give up and put the agent to
+                        # sleep rather than force-molting. The forced molt was too
+                        # aggressive — it wiped context every time a transient API
+                        # error (rate limit, 400, timeout) ran out of retries,
+                        # destroying durable state to recover from what is usually
+                        # an external/protocol issue. Sleep lets the next inbox
+                        # message (or explicit /cpr) drive recovery with context
+                        # intact.
                         if aed_attempts == self._config.max_aed_attempts:
-                            from .intrinsics import eigen as _eigen
-                            try:
-                                _eigen.context_forget(self, source="aed", attempts=aed_attempts)
-                                self._log("aed_forget", attempts=aed_attempts)
-                            except Exception as forget_err:
-                                logger.error(
-                                    f"[{self.agent_name}] AED forget failed: {forget_err}",
-                                )
-                            # Molt leaves the summary as the opening message of a fresh
-                            # session; stop the AED loop and let the outer loop wait for
-                            # the next real inbox message to drive the next turn.
-                            sleep_state = AgentState.IDLE
+                            self._log("aed_exhausted", attempts=aed_attempts, error=err_desc)
+                            sleep_state = AgentState.ASLEEP
+                            self._asleep.set()
                             break
 
                         # Rebuild session with current config, preserving history
