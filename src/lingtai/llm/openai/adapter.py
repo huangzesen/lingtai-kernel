@@ -220,6 +220,68 @@ class OpenAIChatSession(ChatSession):
         """
         return to_openai(self._interface)
 
+    def _pair_orphan_tool_calls(self, messages: list[dict]) -> list[dict]:
+        """Final wire-layer guard: synthesize placeholder tool messages for
+        any assistant[tool_calls] that are not immediately followed by
+        matching role=tool messages. Does NOT mutate the canonical interface
+        — synthesis is local to this serialization pass, re-runs from scratch
+        next send.
+
+        This catches several known pathologies:
+        - An interleaved entry (e.g. a new system prompt appended because
+          identity changed) slipping between an assistant[tool_calls] and
+          its tool_results in the canonical interface.
+        - A cancelled / partial tool batch where some tool_results never
+          made it into the interface.
+        - Any future drift we haven't anticipated.
+
+        Once the real tool_result arrives in the interface later, the next
+        serialization sees it naturally and no synthesis fires — implicit
+        dedup without any stateful replace step.
+
+        Each synthesis logs a warning with the tool_call_id and tool name
+        so we can track how often this fires and fix the root cause if it
+        becomes common.
+        """
+        patched: list[dict] = []
+        for i, msg in enumerate(messages):
+            patched.append(msg)
+            if msg.get("role") != "assistant":
+                continue
+            tool_calls = msg.get("tool_calls") or []
+            if not tool_calls:
+                continue
+            # Look ahead in the ORIGINAL input list for role=tool entries
+            # immediately following this assistant turn. Synthesize
+            # placeholders for any tool_call_id not covered.
+            seen_ids: set[str] = set()
+            j = i + 1
+            while j < len(messages) and messages[j].get("role") == "tool":
+                tcid = messages[j].get("tool_call_id")
+                if tcid:
+                    seen_ids.add(tcid)
+                j += 1
+            # For each tool_call without a matching tool message, emit a
+            # synthesized placeholder immediately after the assistant turn.
+            for tc in tool_calls:
+                tcid = tc.get("id")
+                name = (tc.get("function") or {}).get("name", "?")
+                if not tcid or tcid in seen_ids:
+                    continue
+                logger.warning(
+                    "[wire-guard] synthesizing placeholder tool_result for "
+                    "orphan tool_call id=%s name=%s — real result was not "
+                    "in context at send time. Investigate if this recurs.",
+                    tcid, name,
+                )
+                patched.append({
+                    "role": "tool",
+                    "tool_call_id": tcid,
+                    "content": "[synthesized placeholder — real result was not in context at send time]",
+                })
+                seen_ids.add(tcid)
+        return patched
+
     def send(self, message) -> LLMResponse:
         """Send a user message (str) or tool results (list of dicts).
 
@@ -241,6 +303,10 @@ class OpenAIChatSession(ChatSession):
         # 2. Build ephemeral provider messages from interface
         self._interface.enforce_tool_pairing()
         candidate = self._build_messages()
+        # Final wire-layer guard: synthesize placeholder tool messages for
+        # any orphan assistant[tool_calls] that aren't immediately followed
+        # by matching role=tool entries. Canonical interface untouched.
+        candidate = self._pair_orphan_tool_calls(candidate)
 
         kwargs: dict[str, Any] = {
             "model": self._model,
@@ -381,6 +447,8 @@ class OpenAIChatSession(ChatSession):
         # 2. Build ephemeral provider messages from interface
         self._interface.enforce_tool_pairing()
         candidate = self._build_messages()
+        # Final wire-layer guard — same as non-streaming send().
+        candidate = self._pair_orphan_tool_calls(candidate)
 
         kwargs: dict[str, Any] = {
             "model": self._model,
