@@ -216,7 +216,7 @@ class AvatarManager:
 
         # Write avatar's init.json (modified copy of parent's)
         avatar_comment = args.get("comment", "")
-        avatar_init = self._make_avatar_init(parent_init, peer_name, reasoning or "", comment=avatar_comment)
+        avatar_init = self._make_avatar_init(parent_init, peer_name, comment=avatar_comment)
         (avatar_working_dir / "init.json").write_text(
             json.dumps(avatar_init, indent=2, ensure_ascii=False)
         )
@@ -227,10 +227,12 @@ class AvatarManager:
             if sig_file.is_file():
                 sig_file.unlink(missing_ok=True)
 
-        # Seed the avatar's first turn with a parent-identity prompt so the
-        # newborn knows who spawned it and where to report back. The avatar's
-        # heartbeat loop picks up .prompt on first tick and injects it as a
-        # [system] message. Uses the avatar's inherited language.
+        # Seed the avatar's first turn with a parent-identity prompt + the
+        # caller's reasoning (task brief). The avatar's heartbeat loop picks
+        # up .prompt on first tick and injects it as a [system] message.
+        # Both pieces arrive together so the newborn knows who spawned it,
+        # where to report back, AND what task it was spawned to do.
+        # Uses the avatar's inherited language.
         parent_name = parent.agent_name or parent._working_dir.name
         parent_address = parent._working_dir.name
         avatar_lang = parent_init.get("manifest", {}).get("language", "en")
@@ -239,7 +241,10 @@ class AvatarManager:
             parent_name=parent_name,
             parent_address=parent_address,
         )
-        (avatar_working_dir / ".prompt").write_text(parent_prompt)
+        first_prompt = parent_prompt
+        if reasoning and reasoning.strip():
+            first_prompt = f"{parent_prompt}\n\n{reasoning.strip()}"
+        (avatar_working_dir / ".prompt").write_text(first_prompt)
 
         # Launch as detached process
         pid = self._launch(avatar_working_dir)
@@ -276,11 +281,19 @@ class AvatarManager:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _make_avatar_init(parent_init: dict, name: str, reasoning: str, comment: str = "") -> dict:
-        """Build avatar's init.json from parent's, setting name and prompt."""
+    def _make_avatar_init(parent_init: dict, name: str, comment: str = "") -> dict:
+        """Build avatar's init.json from parent's, setting name.
+
+        Task brief (reasoning) is NOT stored in init.json — it's written to
+        the avatar's .prompt file alongside the parent-identity message so
+        the heartbeat loop delivers both together as the first [system]
+        input on the avatar's first turn.
+        """
         init = json.loads(json.dumps(parent_init))  # deep copy
         init["manifest"]["agent_name"] = name
-        init["prompt"] = reasoning
+        # Drop any stale prompt field inherited from parent — avatar's first
+        # prompt comes from .prompt (written by _spawn), not init.json.
+        init.pop("prompt", None)
         # Avatar has no admin privileges
         init["manifest"]["admin"] = {}
         # Comment is not inherited — parent can set one explicitly for the avatar
