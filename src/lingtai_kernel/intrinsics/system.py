@@ -9,6 +9,7 @@ Actions:
     suspend   — suspend another agent (requires karma)
     cpr       — resuscitate a suspended agent (requires karma)
     interrupt — interrupt a running agent's current turn (requires karma)
+    clear     — force a full molt on another agent (requires karma)
     nirvana   — permanently destroy an agent's working directory (requires nirvana)
 """
 from __future__ import annotations
@@ -30,7 +31,7 @@ def get_schema(lang: str = "en") -> dict:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["show", "nap", "refresh", "sleep", "lull", "interrupt", "suspend", "cpr", "nirvana"],
+                "enum": ["show", "nap", "refresh", "sleep", "lull", "interrupt", "suspend", "cpr", "clear", "nirvana"],
                 "description": t(lang, "system_tool.action_description"),
             },
             "seconds": {
@@ -62,6 +63,7 @@ def handle(agent, args: dict) -> dict:
         "suspend": _suspend,
         "cpr": _cpr,
         "interrupt": _interrupt,
+        "clear": _clear,
         "nirvana": _nirvana,
     }.get(action)
     if handler is None:
@@ -152,7 +154,7 @@ def _refresh(agent, args: dict) -> dict:
 # Karma / Nirvana gate mapping
 # ---------------------------------------------------------------------------
 
-_KARMA_ACTIONS = {"interrupt", "lull", "suspend", "cpr"}
+_KARMA_ACTIONS = {"interrupt", "lull", "suspend", "cpr", "clear"}
 _NIRVANA_ACTIONS = {"nirvana"}
 
 
@@ -250,6 +252,29 @@ def _interrupt(agent, args: dict) -> dict:
     (resolved / ".interrupt").write_text("")
     agent._log("karma_interrupt", target=address)
     return {"status": "interrupted", "address": address}
+
+
+def _clear(agent, args: dict) -> dict:
+    """Force a full molt on another agent — karma-gated.
+
+    Writes a .clear signal; the target's heartbeat loop picks it up and
+    invokes eigen.context_forget, which archives chat history and injects
+    a system-authored recovery summary pointing at pad/codex/inbox.
+    """
+    from ..handshake import is_alive
+    err = _check_karma_gate(agent, "clear", args)
+    if err:
+        return err
+    address = args["address"]
+    resolved = args["_resolved_address"]
+    if not is_alive(resolved):
+        return {"error": True, "message": f"Agent at {address} is not running"}
+    # Content of .clear becomes the `source` tag in the recovery summary.
+    # Default to the calling agent's name so targets can see who forced it.
+    source = (args.get("reason") or "").strip() or agent.agent_name or "admin"
+    (resolved / ".clear").write_text(source)
+    agent._log("karma_clear", target=address, source=source)
+    return {"status": "cleared", "address": address, "source": source}
 
 
 def _nirvana(agent, args: dict) -> dict:

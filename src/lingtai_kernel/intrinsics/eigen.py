@@ -215,13 +215,23 @@ def _name_nickname(agent, args: dict) -> dict:
     return {"status": "ok", "nickname": nickname or None}
 
 
-def context_forget(agent) -> dict:
-    """Forced molt with system message. Internal only — not exposed in SCHEMA.
+def context_forget(agent, *, source: str = "warning_ladder", attempts: int = 0) -> dict:
+    """Forced molt with a system-authored summary.
 
-    Called by base_agent auto-forget after ignored molt warnings.
-    Same mechanism as molt, just with a system-authored summary.
+    Called by base_agent from three paths:
+      - source="warning_ladder" (default): post-molt-warning exhaustion
+      - source="aed": after max AED retries, before declaring ASLEEP
+      - source=<name>: a .forget signal file dropped externally (karma-gated)
+
+    Same mechanism as agent-called molt, just with a system-authored summary
+    whose wording reflects the trigger.
     """
     from ..i18n import t
-    return _context_molt(agent, {
-        "summary": t(agent._config.language, "eigen.context_forget_summary"),
-    })
+    lang = agent._config.language
+    if source == "warning_ladder":
+        summary = t(lang, "eigen.context_forget_summary")
+    elif source == "aed":
+        summary = t(lang, "eigen.context_forget_summary_aed").replace("{attempts}", str(attempts))
+    else:
+        summary = t(lang, "eigen.context_forget_summary_signal").replace("{source}", source)
+    return _context_molt(agent, {"summary": summary})

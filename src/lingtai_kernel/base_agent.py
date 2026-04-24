@@ -777,6 +777,28 @@ class BaseAgent:
                     self.send(content, sender="system")
                     self._log("prompt_received", source="signal_file")
 
+            # .clear = force a full molt (context wipe + recovery summary).
+            # File content (optional) is a human-readable "source" tag used in
+            # the summary message; empty file defaults to "admin".
+            clear_file = self._working_dir / ".clear"
+            if clear_file.is_file():
+                try:
+                    source = clear_file.read_text().strip() or "admin"
+                except OSError:
+                    source = "admin"
+                try:
+                    clear_file.unlink()
+                except OSError:
+                    pass
+                try:
+                    from .intrinsics import eigen as _eigen
+                    _eigen.context_forget(self, source=source)
+                    self._log("clear_received", source=source)
+                except Exception as clear_err:
+                    logger.error(
+                        f"[{self.agent_name}] .clear signal failed: {clear_err}",
+                    )
+
             # .inquiry = soul inquiry (from TUI /btw or auto-insight)
             # Format: first line = source, rest = question.
             # If no newline, entire content is question with source "human".
@@ -940,6 +962,25 @@ class BaseAgent:
                         logger.warning(
                             f"[{self.agent_name}] AED attempt {aed_attempts}/{self._config.max_aed_attempts}: {err_desc}",
                         )
+
+                        # On the final allowed retry, do a full molt before trying again.
+                        # Context pressure / corrupted state is a likely cause of repeated
+                        # failures; a fresh session with a re-orient summary is the
+                        # strongest recovery we can do without declaring ASLEEP.
+                        if aed_attempts == self._config.max_aed_attempts:
+                            from .intrinsics import eigen as _eigen
+                            try:
+                                _eigen.context_forget(self, source="aed", attempts=aed_attempts)
+                                self._log("aed_forget", attempts=aed_attempts)
+                            except Exception as forget_err:
+                                logger.error(
+                                    f"[{self.agent_name}] AED forget failed: {forget_err}",
+                                )
+                            # Molt leaves the summary as the opening message of a fresh
+                            # session; stop the AED loop and let the outer loop wait for
+                            # the next real inbox message to drive the next turn.
+                            sleep_state = AgentState.IDLE
+                            break
 
                         # Rebuild session with current config, preserving history
                         if self._session.chat is not None:
