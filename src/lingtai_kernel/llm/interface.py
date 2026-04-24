@@ -274,6 +274,28 @@ class ChatInterface:
             return False
         return any(isinstance(b, ToolCallBlock) for b in last.content)
 
+    def close_pending_tool_calls(self, reason: str) -> None:
+        """Synthesize placeholder ToolResultBlocks for any unanswered tool_calls
+        on the tail assistant entry. No-op if the tail has no pending calls.
+
+        Used by recovery paths — AED retry, session restore from crashed
+        process — to bring the interface into a valid state before appending
+        a new user entry. Each placeholder carries the reason string so the
+        model has context on the next turn.
+
+        Idempotent: after one call, has_pending_tool_calls() returns False,
+        and a second call no-ops.
+        """
+        if not self.has_pending_tool_calls():
+            return
+        last = self._entries[-1]
+        pending = [b for b in last.content if isinstance(b, ToolCallBlock)]
+        placeholders = [
+            ToolResultBlock(id=b.id, name=b.name, content=f"[aborted: {reason}]")
+            for b in pending
+        ]
+        self._append("user", placeholders)
+
     # -- Add methods ----------------------------------------------------------
 
     def add_system(self, text: str, tools: list[dict] | None = None) -> None:
