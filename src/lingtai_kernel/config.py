@@ -19,7 +19,7 @@ class AgentConfig:
     retry_timeout: float = 120.0
     aed_timeout: float = 360.0   # max seconds in STUCK before ASLEEP
     max_aed_attempts: int = 3    # max AED retry attempts in message loop
-    max_rpm: int = 0  # API requests-per-minute cap for this agent's provider; 0 = no gating. Shared across all agents in the same process that use the same (provider, base_url) pair (adapter cache key).
+    max_rpm: int = 60  # API requests-per-minute cap for this agent's provider; 0 = no gating. Shared across all agents in the same process that use the same (provider, base_url) pair (adapter cache key).
     thinking_budget: int | None = None
     data_dir: str | None = None  # for cache files (e.g., model context windows)
     soul_delay: float = 120.0  # seconds idle before soul whispers; large value (> stamina) = effectively off

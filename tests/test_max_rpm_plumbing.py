@@ -18,12 +18,17 @@ from lingtai.llm.base import LLMAdapter, _GatedSession
 from lingtai.llm.api_gate import APICallGate
 
 
-def test_agent_config_default_no_gating():
-    assert AgentConfig().max_rpm == 0
+def test_agent_config_default_is_60():
+    """Default max_rpm = 60 — conservative cap that fixes the network
+    cascade scenario (multiple agents simultaneously hitting one provider)
+    while being well under any paid-tier provider's actual limit. Solo
+    agents on high-tier providers can bump it via init.json."""
+    assert AgentConfig().max_rpm == 60
 
 
 def test_agent_config_overridable():
-    assert AgentConfig(max_rpm=60).max_rpm == 60
+    assert AgentConfig(max_rpm=120).max_rpm == 120
+    assert AgentConfig(max_rpm=0).max_rpm == 0  # 0 disables gating
 
 
 def test_llm_service_threads_max_rpm_via_provider_defaults():
