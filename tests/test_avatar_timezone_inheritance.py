@@ -1,5 +1,5 @@
 """Confirm avatars inherit manifest.timezone_awareness from their parent."""
-from lingtai.capabilities.avatar import AvatarManager
+from lingtai.core.avatar import AvatarManager
 
 
 def test_avatar_inherits_timezone_awareness_true():
@@ -11,7 +11,7 @@ def test_avatar_inherits_timezone_awareness_true():
         "covenant": "x",
         "prompt": "y",
     }
-    child = AvatarManager._make_avatar_init(parent_init, "kid", "go forth")
+    child = AvatarManager._make_avatar_init(parent_init, "kid")
     assert child["manifest"]["timezone_awareness"] is True
 
 
@@ -24,7 +24,7 @@ def test_avatar_inherits_timezone_awareness_false():
         "covenant": "x",
         "prompt": "y",
     }
-    child = AvatarManager._make_avatar_init(parent_init, "kid", "go forth")
+    child = AvatarManager._make_avatar_init(parent_init, "kid")
     assert child["manifest"]["timezone_awareness"] is False
 
 
@@ -37,5 +37,5 @@ def test_avatar_inherits_missing_field_as_missing():
         "covenant": "x",
         "prompt": "y",
     }
-    child = AvatarManager._make_avatar_init(parent_init, "kid", "go forth")
+    child = AvatarManager._make_avatar_init(parent_init, "kid")
     assert "timezone_awareness" not in child["manifest"]

@@ -221,9 +221,9 @@ class AvatarManager:
                 sig_file.unlink(missing_ok=True)
 
         # Seed the avatar's first turn with a parent-identity prompt + the
-        # caller's reasoning (task brief). Written into init.json's `prompt`
-        # field so it's visible to schema validation and consumed on first
-        # turn the same way any static prompt is — no file-watch dance.
+        # caller's reasoning (task brief). Written to the avatar's `.prompt`
+        # file — picked up by the kernel's signal-file watcher on first poll
+        # and delivered as a one-shot system message (consumed-once via unlink).
         parent_name = parent.agent_name or parent._working_dir.name
         parent_address = parent._working_dir.name
         avatar_lang = parent_init.get("manifest", {}).get("language", "en")
@@ -236,15 +236,18 @@ class AvatarManager:
         if reasoning and reasoning.strip():
             first_prompt = f"{parent_prompt}\n\n{reasoning.strip()}"
 
-        # Write avatar's init.json (modified copy of parent's), with the
-        # spawn prompt set so the schema sees a non-empty prompt field.
+        # Write avatar's init.json (modified copy of parent's).
         avatar_comment = args.get("comment", "")
         avatar_init = self._make_avatar_init(
-            parent_init, peer_name, comment=avatar_comment, prompt=first_prompt,
+            parent_init, peer_name, comment=avatar_comment,
         )
         (avatar_working_dir / "init.json").write_text(
             json.dumps(avatar_init, indent=2, ensure_ascii=False)
         )
+
+        # Drop the spawn prompt as a `.prompt` signal file — the avatar's
+        # kernel watcher consumes it on first poll and delivers it once.
+        (avatar_working_dir / ".prompt").write_text(first_prompt)
 
         # Launch as detached process
         pid = self._launch(avatar_working_dir)
@@ -282,19 +285,20 @@ class AvatarManager:
 
     @staticmethod
     def _make_avatar_init(
-        parent_init: dict, name: str, *, comment: str = "", prompt: str = "",
+        parent_init: dict, name: str, *, comment: str = "",
     ) -> dict:
-        """Build avatar's init.json from parent's, setting name and first prompt.
+        """Build avatar's init.json from parent's, setting name.
 
-        The spawn brief (parent identity + reasoning) is stored in the
-        ``prompt`` field and consumed on the avatar's first turn, same as
-        any manually-configured prompt. This replaces the older ``.prompt``
-        file handshake which couldn't pass schema validation.
+        The spawn brief (parent identity + reasoning) is delivered out-of-band
+        via a `.prompt` signal file dropped in the avatar's working dir by the
+        caller — see ``_spawn``. Here we only blank the inherited prompt so the
+        schema sees a present-but-empty field (no stale prompt carried over).
         """
         init = json.loads(json.dumps(parent_init))  # deep copy
         init["manifest"]["agent_name"] = name
-        # Set avatar's first prompt — overrides any stale prompt inherited from parent
-        init["prompt"] = prompt
+        # Blank inherited prompt — schema requires the field to exist, but the
+        # avatar's actual first prompt arrives via the `.prompt` signal file.
+        init["prompt"] = ""
         init.pop("prompt_file", None)
         # Avatar has no admin privileges
         init["manifest"]["admin"] = {}

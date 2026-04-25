@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from lingtai.capabilities.avatar import AvatarManager
+from lingtai.core.avatar import AvatarManager
 
 import pytest
 

@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lingtai.capabilities.bash import BashManager
-from lingtai.capabilities.avatar import AvatarManager, setup as setup_avatar
+from lingtai.core.bash import BashManager
+from lingtai.core.avatar import AvatarManager, setup as setup_avatar
 
 
 def make_mock_service():
