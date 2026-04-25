@@ -631,7 +631,10 @@ class Agent(BaseAgent):
         new_model = llm["model"]
         new_base_url = llm.get("base_url")
 
-        new_max_rpm = m.get("max_rpm", 0)
+        # Default 60 matches AgentConfig.max_rpm — existing agents whose
+        # init.json predates this field cooperatively share the network-wide
+        # 60 RPM cap by default. Set to 0 in init.json to disable gating.
+        new_max_rpm = m.get("max_rpm", 60)
         new_provider_defaults: dict | None = None
         if new_max_rpm > 0:
             new_provider_defaults = {new_provider.lower(): {"max_rpm": new_max_rpm}}

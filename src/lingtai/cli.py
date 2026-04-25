@@ -61,7 +61,10 @@ def build_agent(data: dict, working_dir: Path) -> Agent:
 
     api_key = resolve_env(llm.get("api_key"), llm.get("api_key_env"))
 
-    max_rpm = m.get("max_rpm", 0)
+    # Default 60 matches AgentConfig.max_rpm — agents whose init.json
+    # predates this field cooperatively share the network-wide 60 RPM cap
+    # by default. Set to 0 in init.json to disable gating.
+    max_rpm = m.get("max_rpm", 60)
     provider_defaults: dict | None = None
     if max_rpm > 0:
         # provider_defaults is dict[provider_name, defaults_dict]; scope to
