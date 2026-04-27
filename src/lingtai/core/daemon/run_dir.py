@@ -206,3 +206,60 @@ class DaemonRunDir:
             )
             self.heartbeat_path.touch()
         self._safe("bump_turn", _write)
+
+    # ------------------------------------------------------------------
+    # Tool dispatch hooks
+    # ------------------------------------------------------------------
+
+    _ARGS_PREVIEW_MAX = 500
+
+    def set_current_tool(self, name: str, args: dict) -> None:
+        """Mark a tool dispatch starting.
+
+        Increments tool_call_count, sets current_tool, logs tool_call event,
+        touches heartbeat. Tracked tool name (current_tool) is what the parent
+        sees on a `cat daemon.json` poll.
+        """
+        def _write():
+            self._state["current_tool"] = name
+            self._state["tool_call_count"] += 1
+            self._atomic_write_json(self.daemon_json_path, self._state)
+            args_preview = json.dumps(args, ensure_ascii=False)
+            if len(args_preview) > self._ARGS_PREVIEW_MAX:
+                suffix = "...[truncated]"
+                args_preview = args_preview[: self._ARGS_PREVIEW_MAX - len(suffix)] + suffix
+            self._append_jsonl(
+                self.events_path,
+                {
+                    "event": "tool_call",
+                    "name": name,
+                    "args_preview": args_preview,
+                    "turn": self._state["turn"],
+                    "ts": self._now_iso(),
+                },
+            )
+            self.heartbeat_path.touch()
+        self._safe("set_current_tool", _write)
+
+    def clear_current_tool(self, result_status: str) -> None:
+        """Mark a tool dispatch finished.
+
+        Clears current_tool in daemon.json, logs tool_result event.
+        result_status is "ok" on normal returns or "error" when the handler
+        raised or returned {"status": "error", ...}.
+        """
+        def _write():
+            tool_name = self._state["current_tool"]
+            self._state["current_tool"] = None
+            self._atomic_write_json(self.daemon_json_path, self._state)
+            self._append_jsonl(
+                self.events_path,
+                {
+                    "event": "tool_result",
+                    "name": tool_name,
+                    "status": result_status,
+                    "turn": self._state["turn"],
+                    "ts": self._now_iso(),
+                },
+            )
+        self._safe("clear_current_tool", _write)

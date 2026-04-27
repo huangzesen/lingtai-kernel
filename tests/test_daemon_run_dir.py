@@ -178,3 +178,70 @@ def test_record_user_send_uses_current_turn(tmp_path):
     assert entries[0]["turn"] == 0  # initial task at turn 0
     assert entries[1]["turn"] == 1  # assistant response
     assert entries[2]["turn"] == 1  # tool result, fed into turn-1 send
+
+
+def test_set_current_tool_updates_state(tmp_path):
+    rd = _make_run_dir(tmp_path)
+    rd.set_current_tool("read", {"file_path": "src/main.py"})
+    data = json.loads(rd.daemon_json_path.read_text())
+    assert data["current_tool"] == "read"
+    assert data["tool_call_count"] == 1
+
+
+def test_set_current_tool_logs_event(tmp_path):
+    rd = _make_run_dir(tmp_path)
+    rd.set_current_tool("read", {"file_path": "src/main.py"})
+    # daemon_start was line 1; tool_call should be the next line
+    lines = rd.events_path.read_text().splitlines()
+    entry = json.loads(lines[-1])
+    assert entry["event"] == "tool_call"
+    assert entry["name"] == "read"
+    assert "args_preview" in entry
+    assert "ts" in entry
+
+
+def test_set_current_tool_args_preview_truncated(tmp_path):
+    """args_preview is bounded — full args could be huge (e.g., write())."""
+    rd = _make_run_dir(tmp_path)
+    big_content = "x" * 10_000
+    rd.set_current_tool("write", {"path": "out.txt", "content": big_content})
+    entry = json.loads(rd.events_path.read_text().splitlines()[-1])
+    assert len(entry["args_preview"]) <= 500
+
+
+def test_set_current_tool_advances_heartbeat(tmp_path):
+    rd = _make_run_dir(tmp_path)
+    initial = rd.heartbeat_path.stat().st_mtime
+    time.sleep(0.05)
+    rd.set_current_tool("read", {})
+    assert rd.heartbeat_path.stat().st_mtime > initial
+
+
+def test_clear_current_tool_resets_state(tmp_path):
+    rd = _make_run_dir(tmp_path)
+    rd.set_current_tool("read", {"file_path": "x"})
+    rd.clear_current_tool(result_status="ok")
+    data = json.loads(rd.daemon_json_path.read_text())
+    assert data["current_tool"] is None
+    assert data["tool_call_count"] == 1  # unchanged
+
+
+def test_clear_current_tool_logs_event(tmp_path):
+    rd = _make_run_dir(tmp_path)
+    rd.set_current_tool("read", {"file_path": "x"})
+    rd.clear_current_tool(result_status="ok")
+    lines = rd.events_path.read_text().splitlines()
+    last = json.loads(lines[-1])
+    assert last["event"] == "tool_result"
+    assert last["name"] == "read"
+    assert last["status"] == "ok"
+
+
+def test_multiple_tool_dispatches_increment_count(tmp_path):
+    rd = _make_run_dir(tmp_path)
+    rd.set_current_tool("read", {})
+    rd.clear_current_tool(result_status="ok")
+    rd.set_current_tool("write", {})
+    rd.clear_current_tool(result_status="ok")
+    data = json.loads(rd.daemon_json_path.read_text())
+    assert data["tool_call_count"] == 2
