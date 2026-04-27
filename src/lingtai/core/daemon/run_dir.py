@@ -351,7 +351,17 @@ class DaemonRunDir:
         self._safe("mark_done", _write)
 
     def mark_failed(self, exc: BaseException) -> None:
-        """Exception in run loop. Sets state=failed, error.{type, message}."""
+        """Exception in run loop. Sets state=failed, error.{type, message}.
+
+        Defensive: a user-defined exception's `__str__` may itself raise
+        (TypeError, AttributeError, ...). _safe only catches OSError, so we
+        materialize the message string before entering the closure.
+        """
+        try:
+            msg = str(exc)
+        except Exception:
+            msg = f"<unrenderable {type(exc).__name__}>"
+
         def _write():
             self._state["state"] = "failed"
             self._state["finished_at"] = self._now_iso()
@@ -359,7 +369,7 @@ class DaemonRunDir:
             self._state["current_tool"] = None
             self._state["error"] = {
                 "type": type(exc).__name__,
-                "message": str(exc),
+                "message": msg,
             }
             self._atomic_write_json(self.daemon_json_path, self._state)
             self._append_jsonl(
@@ -367,7 +377,8 @@ class DaemonRunDir:
                 {
                     "event": "daemon_error",
                     "exception": type(exc).__name__,
-                    "message": str(exc),
+                    "message": msg,
+                    "elapsed_s": self._state["elapsed_s"],
                     "ts": self._now_iso(),
                 },
             )

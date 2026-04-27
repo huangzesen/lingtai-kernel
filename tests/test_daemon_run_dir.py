@@ -1,5 +1,6 @@
 """Pure FS unit tests for DaemonRunDir — no threads, no LLM mocks."""
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -378,3 +379,95 @@ def test_terminal_markers_idempotent_safe(tmp_path):
     rd.mark_done("second")  # should not raise
     data = json.loads(rd.daemon_json_path.read_text())
     assert data["result_preview"] == "second"  # last write wins
+
+
+def test_atomic_write_no_partial_state_on_replace_failure(tmp_path, monkeypatch):
+    """If os.replace raises mid-flight, the prior daemon.json remains valid."""
+    rd = _make_run_dir(tmp_path)
+    initial_data = json.loads(rd.daemon_json_path.read_text())
+
+    # Simulate replace failure on next bump_turn
+    real_replace = os.replace
+    call_count = [0]
+
+    def failing_replace(src, dst):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            raise OSError("simulated")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr("os.replace", failing_replace)
+    rd.bump_turn(turn=99, response_text="should not land")
+
+    # daemon.json must still be valid JSON with prior contents
+    data = json.loads(rd.daemon_json_path.read_text())
+    assert data == initial_data
+    assert data["turn"] == 0  # prior value preserved
+
+
+def test_oserror_in_mutation_does_not_raise(tmp_path):
+    """Best-effort policy: OSError swallowed, run continues."""
+    rd = _make_run_dir(tmp_path)
+    # Make logs/ unwritable
+    logs_dir = rd.path / "logs"
+    logs_dir.chmod(0o500)
+    try:
+        # Should not raise
+        rd.set_current_tool("read", {})
+        rd.clear_current_tool(result_status="ok")
+        rd.append_tokens(input=10, output=5, thinking=2, cached=1)
+    finally:
+        logs_dir.chmod(0o700)
+
+
+def test_chat_history_jsonl_lines_parseable(tmp_path):
+    """All lines in chat_history.jsonl are valid JSON."""
+    rd = _make_run_dir(tmp_path)
+    rd.record_user_send("task", kind="task")
+    rd.bump_turn(turn=1, response_text="response")
+    rd.record_user_send("more", kind="followup")
+    rd.bump_turn(turn=2, response_text="another")
+    for line in rd.chat_path.read_text().splitlines():
+        assert json.loads(line)  # parses without error
+
+
+def test_events_jsonl_lines_parseable(tmp_path):
+    rd = _make_run_dir(tmp_path)
+    rd.set_current_tool("read", {"a": 1})
+    rd.clear_current_tool(result_status="ok")
+    rd.mark_done("ok")
+    for line in rd.events_path.read_text().splitlines():
+        assert json.loads(line)
+
+
+def test_token_ledger_lines_parseable(tmp_path):
+    rd = _make_run_dir(tmp_path)
+    rd.append_tokens(input=10, output=5, thinking=2, cached=1)
+    rd.append_tokens(input=20, output=8, thinking=3, cached=4)
+    for line in rd.token_ledger_path.read_text().splitlines():
+        assert json.loads(line)
+
+
+def test_mark_failed_handles_pathological_str_exc(tmp_path):
+    """If exc.__str__ raises, mark_failed still records terminal state."""
+    class BadStr(Exception):
+        def __str__(self):
+            raise RuntimeError("buggy __str__")
+
+    rd = _make_run_dir(tmp_path)
+    rd.mark_failed(BadStr())
+    # daemon.json must reach state=failed despite the buggy __str__
+    data = json.loads(rd.daemon_json_path.read_text())
+    assert data["state"] == "failed"
+    assert data["error"]["type"] == "BadStr"
+    assert "<unrenderable" in data["error"]["message"] or data["error"]["message"]
+
+
+def test_mark_failed_event_includes_elapsed_s(tmp_path):
+    """daemon_error events include elapsed_s for timeline reconstruction parity
+    with daemon_done/daemon_cancelled/daemon_timeout."""
+    rd = _make_run_dir(tmp_path)
+    rd.mark_failed(ValueError("boom"))
+    last = json.loads(rd.events_path.read_text().splitlines()[-1])
+    assert last["event"] == "daemon_error"
+    assert "elapsed_s" in last
