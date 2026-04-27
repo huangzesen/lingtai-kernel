@@ -15,8 +15,6 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from lingtai_kernel.token_ledger import append_token_entry
-
 
 class DaemonRunDir:
     """Filesystem-backed mini-avatar log surface for one daemon emanation.
@@ -46,7 +44,6 @@ class DaemonRunDir:
         system_prompt: str,
     ):
         self._handle = handle
-        self._parent_token_ledger = parent_working_dir / "logs" / "token_ledger.jsonl"
         self._started_monotonic = time.monotonic()
         started_at_iso = self._now_iso()
 
@@ -63,7 +60,7 @@ class DaemonRunDir:
         (self._path / "history").mkdir()
         (self._path / "logs").mkdir()
 
-        self._initial_state = {
+        self._state = {
             "handle": handle,
             "run_id": self._run_id,
             "parent_addr": parent_addr,
@@ -84,10 +81,9 @@ class DaemonRunDir:
             "result_preview": None,
             "error": None,
         }
-        self._state = dict(self._initial_state)
 
         self._atomic_write_json(self.daemon_json_path, self._state)
-        self.prompt_path.write_text(system_prompt)
+        self.prompt_path.write_text(system_prompt, encoding="utf-8")
         self.heartbeat_path.touch()
         self._append_jsonl(self.events_path,
                            {"event": "daemon_start", "ts": self._now_iso()})
@@ -146,7 +142,7 @@ class DaemonRunDir:
     def _atomic_write_json(self, path: Path, data: dict) -> None:
         """Write JSON to a tempfile then os.replace — readers never see partial state."""
         tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, path)
 
     def _append_jsonl(self, path: Path, entry: dict) -> None:
@@ -163,3 +159,50 @@ class DaemonRunDir:
             # crashing the LLM loop. Not logged here — the DaemonManager
             # owns logging via _agent._log.
             pass
+
+    # ------------------------------------------------------------------
+    # Per-turn hooks
+    # ------------------------------------------------------------------
+
+    def record_user_send(self, text: str, kind: str) -> None:
+        """Append a user-role entry to chat_history.jsonl before session.send.
+
+        kind ∈ {"task", "tool_results", "followup"}. Tool result payloads are
+        written verbatim — no truncation. Chat history is forensic; we want
+        full fidelity. Single-writer per file (only the run thread).
+        """
+        def _write():
+            self._append_jsonl(
+                self.chat_path,
+                {
+                    "role": "user",
+                    "text": text,
+                    "kind": kind,
+                    "turn": self._state["turn"],
+                    "ts": self._now_iso(),
+                },
+            )
+        self._safe("record_user_send", _write)
+
+    def bump_turn(self, turn: int, response_text: str) -> None:
+        """Mark the end of an LLM round.
+
+        Updates daemon.json (turn, elapsed_s, current_tool=null) atomically,
+        appends an assistant entry to chat_history, touches heartbeat.
+        """
+        def _write():
+            self._state["turn"] = turn
+            self._state["current_tool"] = None
+            self._state["elapsed_s"] = self._now_secs()
+            self._atomic_write_json(self.daemon_json_path, self._state)
+            self._append_jsonl(
+                self.chat_path,
+                {
+                    "role": "assistant",
+                    "text": response_text,
+                    "turn": turn,
+                    "ts": self._now_iso(),
+                },
+            )
+            self.heartbeat_path.touch()
+        self._safe("bump_turn", _write)

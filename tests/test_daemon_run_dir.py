@@ -1,6 +1,7 @@
 """Pure FS unit tests for DaemonRunDir — no threads, no LLM mocks."""
 import json
 import re
+import time
 from pathlib import Path
 
 from lingtai.core.daemon.run_dir import DaemonRunDir
@@ -106,3 +107,74 @@ def test_path_properties_consistent(tmp_path):
     assert rd.chat_path == rd.path / "history" / "chat_history.jsonl"
     assert rd.events_path == rd.path / "logs" / "events.jsonl"
     assert rd.token_ledger_path == rd.path / "logs" / "token_ledger.jsonl"
+
+
+def test_record_user_send_task_kind(tmp_path):
+    rd = _make_run_dir(tmp_path)
+    rd.record_user_send("find todos", kind="task")
+    line = rd.chat_path.read_text().splitlines()[0]
+    entry = json.loads(line)
+    assert entry["role"] == "user"
+    assert entry["text"] == "find todos"
+    assert entry["kind"] == "task"
+    assert entry["turn"] == 0
+    assert "ts" in entry
+
+
+def test_record_user_send_tool_results_verbatim(tmp_path):
+    """Tool result payloads written verbatim — no truncation."""
+    rd = _make_run_dir(tmp_path)
+    big = "x" * 50_000
+    rd.record_user_send(big, kind="tool_results")
+    line = rd.chat_path.read_text().splitlines()[-1]
+    entry = json.loads(line)
+    assert entry["text"] == big
+    assert entry["kind"] == "tool_results"
+
+
+def test_record_user_send_followup_kind(tmp_path):
+    rd = _make_run_dir(tmp_path)
+    rd.record_user_send("also check tests/", kind="followup")
+    entry = json.loads(rd.chat_path.read_text().splitlines()[0])
+    assert entry["kind"] == "followup"
+
+
+def test_bump_turn_updates_daemon_json(tmp_path):
+    rd = _make_run_dir(tmp_path)
+    rd.bump_turn(turn=1, response_text="Scanning...")
+    data = json.loads(rd.daemon_json_path.read_text())
+    assert data["turn"] == 1
+    assert data["current_tool"] is None
+    assert data["elapsed_s"] >= 0.0
+    assert data["state"] == "running"  # unchanged
+
+
+def test_bump_turn_appends_assistant_chat_entry(tmp_path):
+    rd = _make_run_dir(tmp_path)
+    rd.bump_turn(turn=1, response_text="Scanning files...")
+    line = rd.chat_path.read_text().splitlines()[-1]
+    entry = json.loads(line)
+    assert entry["role"] == "assistant"
+    assert entry["text"] == "Scanning files..."
+    assert entry["turn"] == 1
+
+
+def test_bump_turn_advances_heartbeat(tmp_path):
+    rd = _make_run_dir(tmp_path)
+    initial_mtime = rd.heartbeat_path.stat().st_mtime
+    time.sleep(0.05)
+    rd.bump_turn(turn=1, response_text="ok")
+    assert rd.heartbeat_path.stat().st_mtime > initial_mtime
+
+
+def test_record_user_send_uses_current_turn(tmp_path):
+    """user-send entries record the current turn (so tool_results land at turn=1
+    after the first assistant response, not turn=0)."""
+    rd = _make_run_dir(tmp_path)
+    rd.record_user_send("task", kind="task")
+    rd.bump_turn(turn=1, response_text="response 1")
+    rd.record_user_send("tool result", kind="tool_results")
+    entries = [json.loads(line) for line in rd.chat_path.read_text().splitlines()]
+    assert entries[0]["turn"] == 0  # initial task at turn 0
+    assert entries[1]["turn"] == 1  # assistant response
+    assert entries[2]["turn"] == 1  # tool result, fed into turn-1 send
