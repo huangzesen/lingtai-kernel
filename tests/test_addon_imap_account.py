@@ -218,3 +218,114 @@ def test_envelope_handles_non_ascii_keyword_flag(
     assert len(out) == 1
     assert "\\Seen" in out[0]["flags"]
     assert all(isinstance(f, str) for f in out[0]["flags"])
+
+
+def test_fetch_full_returns_body_and_attachments(
+    mock_imapclient_class, account: IMAPAccount,
+) -> None:
+    instance = mock_imapclient_class.return_value
+    instance.capabilities.return_value = (b"IDLE",)
+    instance.list_folders.return_value = []
+    raw = (
+        b"From: a@b.com\r\nTo: alice@example.com\r\n"
+        b"Subject: hello\r\nDate: Mon, 1 Jan 2026 00:00:00 +0000\r\n"
+        b"Message-ID: <abc@xyz>\r\n"
+        b"Content-Type: text/plain; charset=utf-8\r\n\r\n"
+        b"Hello body.\r\n"
+    )
+    instance.fetch.return_value = {
+        42: {b"FLAGS": (b"\\Seen",), b"RFC822": raw},
+    }
+    account.connect()
+
+    full = account.fetch_full("INBOX", "42")
+    assert full is not None
+    assert full["uid"] == "42"
+    assert full["from"] == "a@b.com"
+    assert full["body"].strip() == "Hello body."
+    assert full["message_id"] == "<abc@xyz>"
+    assert full["flags"] == ["\\Seen"]
+    assert full["email_id"] == "alice@example.com:INBOX:42"
+
+
+def test_fetch_full_returns_none_when_uid_missing(
+    mock_imapclient_class, account: IMAPAccount,
+) -> None:
+    instance = mock_imapclient_class.return_value
+    instance.capabilities.return_value = (b"IDLE",)
+    instance.list_folders.return_value = []
+    instance.fetch.return_value = {}
+    account.connect()
+    assert account.fetch_full("INBOX", "42") is None
+
+
+def test_search_returns_uids(mock_imapclient_class, account: IMAPAccount) -> None:
+    instance = mock_imapclient_class.return_value
+    instance.capabilities.return_value = (b"IDLE",)
+    instance.list_folders.return_value = []
+    instance.search.return_value = [10, 20, 30]
+    account.connect()
+
+    uids = account.search("INBOX", "from:bob@x.com unseen")
+    instance.search.assert_called_with([b"FROM", b"bob@x.com", b"UNSEEN"])
+    assert uids == ["10", "20", "30"]
+
+
+def test_store_flags_add_seen(mock_imapclient_class, account: IMAPAccount) -> None:
+    instance = mock_imapclient_class.return_value
+    instance.capabilities.return_value = (b"IDLE",)
+    instance.list_folders.return_value = []
+    account.connect()
+
+    assert account.store_flags("INBOX", "42", ["\\Seen"]) is True
+    instance.add_flags.assert_called_with([42], [b"\\Seen"])
+
+
+def test_store_flags_remove_seen(mock_imapclient_class, account: IMAPAccount) -> None:
+    instance = mock_imapclient_class.return_value
+    instance.capabilities.return_value = (b"IDLE",)
+    instance.list_folders.return_value = []
+    account.connect()
+
+    assert account.store_flags("INBOX", "42", ["\\Seen"], action="-FLAGS") is True
+    instance.remove_flags.assert_called_with([42], [b"\\Seen"])
+
+
+def test_move_message_uses_move_when_supported(
+    mock_imapclient_class, account: IMAPAccount,
+) -> None:
+    instance = mock_imapclient_class.return_value
+    instance.capabilities.return_value = (b"IDLE", b"MOVE")
+    instance.list_folders.return_value = []
+    account.connect()
+
+    assert account.move_message("INBOX", "42", "Archive") is True
+    instance.move.assert_called_with([42], "Archive")
+
+
+def test_move_message_falls_back_to_copy_delete(
+    mock_imapclient_class, account: IMAPAccount,
+) -> None:
+    instance = mock_imapclient_class.return_value
+    instance.capabilities.return_value = (b"IDLE",)  # no MOVE
+    instance.list_folders.return_value = []
+    account.connect()
+
+    assert account.move_message("INBOX", "42", "Archive") is True
+    instance.copy.assert_called_with([42], "Archive")
+    instance.add_flags.assert_called_with([42], [b"\\Deleted"])
+    instance.expunge.assert_called()
+
+
+def test_delete_message_moves_to_trash_when_available(
+    mock_imapclient_class, account: IMAPAccount,
+) -> None:
+    instance = mock_imapclient_class.return_value
+    instance.capabilities.return_value = (b"IDLE", b"MOVE")
+    instance.list_folders.return_value = [
+        ((b"\\Trash",), b"/", "Trash"),
+    ]
+    account.connect()
+
+    assert account.delete_message("INBOX", "42") is True
+    instance.move.assert_called_with([42], "Trash")

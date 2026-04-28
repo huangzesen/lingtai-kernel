@@ -337,6 +337,157 @@ class IMAPAccount:
             "email_id": f"{self._email_address}:{folder}:{uid}",
         }
 
+    def fetch_full(self, folder: str, uid: str) -> dict | None:
+        """Fetch the full message for a single UID."""
+        uid_int = int(uid)
+        with self._lock:
+            imap = self._ensure_connected()
+            imap.select_folder(folder, readonly=True)
+            data = imap.fetch([uid_int], ["FLAGS", "RFC822"])
+        info = data.get(uid_int)
+        if not info:
+            return None
+
+        flags_raw = info.get(b"FLAGS", ())
+        flags = [f.decode("ascii") if isinstance(f, bytes) else str(f)
+                 for f in flags_raw]
+        raw_email = info.get(b"RFC822", b"")
+        msg = email_mod.message_from_bytes(raw_email, policy=email_policy.default)
+
+        from_raw = msg.get("From", "")
+        _, from_addr = parseaddr(from_raw)
+        attachments = _extract_attachments(msg)
+        attachment_info = [{
+            "filename": a["filename"],
+            "content_type": a["content_type"],
+            "size": len(a["data"]),
+        } for a in attachments]
+
+        return {
+            "uid": str(uid_int),
+            "from": _decode_header_value(from_raw),
+            "from_address": from_addr,
+            "to": _decode_header_value(msg.get("To", "")),
+            "subject": _decode_header_value(msg.get("Subject", "")),
+            "date": msg.get("Date", ""),
+            "body": _extract_text_body(msg),
+            "attachments": attachment_info,
+            "attachments_raw": attachments,
+            "flags": flags,
+            "message_id": msg.get("Message-ID", ""),
+            "in_reply_to": msg.get("In-Reply-To", ""),
+            "references": msg.get("References", ""),
+            "email_id": f"{self._email_address}:{folder}:{uid_int}",
+        }
+
+    def search(self, folder: str, query: str) -> list[str]:
+        """Server-side IMAP SEARCH with our DSL."""
+        criteria = self._build_search_criteria(query)
+        with self._lock:
+            imap = self._ensure_connected()
+            imap.select_folder(folder, readonly=True)
+            uids = imap.search(criteria)
+        return [str(u) for u in uids]
+
+    @staticmethod
+    def _build_search_criteria(query: str) -> list[bytes]:
+        """Translate our query DSL into imapclient SEARCH criteria.
+
+        Supports: from:<addr> subject:<text> since:YYYY-MM-DD
+                  before:YYYY-MM-DD flagged unseen seen
+        Multiple terms AND-ed.
+        """
+        from datetime import datetime
+        criteria: list[bytes] = []
+        # Split on whitespace, but keep "key:value" tokens together
+        tokens = re.findall(r'(\w+):"([^"]+)"|(\w+):(\S+)|(\S+)', query.strip())
+        for grp in tokens:
+            if grp[0] and grp[1]:
+                key, val = grp[0].lower(), grp[1]
+            elif grp[2] and grp[3]:
+                key, val = grp[2].lower(), grp[3]
+            else:
+                key, val = grp[4].lower(), ""
+            if key == "from" and val:
+                criteria += [b"FROM", val.encode()]
+            elif key == "to" and val:
+                criteria += [b"TO", val.encode()]
+            elif key == "subject" and val:
+                criteria += [b"SUBJECT", val.encode()]
+            elif key == "since" and val:
+                d = datetime.strptime(val, "%Y-%m-%d")
+                criteria += [b"SINCE", d.strftime("%d-%b-%Y").encode()]
+            elif key == "before" and val:
+                d = datetime.strptime(val, "%Y-%m-%d")
+                criteria += [b"BEFORE", d.strftime("%d-%b-%Y").encode()]
+            elif key == "flagged":
+                criteria.append(b"FLAGGED")
+            elif key == "unseen":
+                criteria.append(b"UNSEEN")
+            elif key == "seen":
+                criteria.append(b"SEEN")
+        return criteria or [b"ALL"]
+
+    def store_flags(
+        self, folder: str, uid: str, flags: list[str], action: str = "+FLAGS",
+    ) -> bool:
+        flag_bytes = [f.encode("ascii") for f in flags]
+        with self._lock:
+            imap = self._ensure_connected()
+            imap.select_folder(folder)
+            try:
+                if action == "+FLAGS":
+                    imap.add_flags([int(uid)], flag_bytes)
+                elif action == "-FLAGS":
+                    imap.remove_flags([int(uid)], flag_bytes)
+                else:
+                    imap.set_flags([int(uid)], flag_bytes)
+                return True
+            except IMAPClientError:
+                return False
+
+    def mark_seen(self, folder: str, uid: str) -> bool:
+        return self.store_flags(folder, uid, ["\\Seen"])
+
+    def mark_unseen(self, folder: str, uid: str) -> bool:
+        return self.store_flags(folder, uid, ["\\Seen"], action="-FLAGS")
+
+    def mark_flagged(self, folder: str, uid: str) -> bool:
+        return self.store_flags(folder, uid, ["\\Flagged"])
+
+    def list_folders(self) -> dict[str, str]:
+        return {k: v for k, v in self._folders.items() if v is not None}
+
+    def move_message(self, folder: str, uid: str, dest_folder: str) -> bool:
+        with self._lock:
+            imap = self._ensure_connected()
+            imap.select_folder(folder)
+            try:
+                if self._has_move:
+                    imap.move([int(uid)], dest_folder)
+                else:
+                    imap.copy([int(uid)], dest_folder)
+                    imap.add_flags([int(uid)], [b"\\Deleted"])
+                    imap.expunge()
+                return True
+            except IMAPClientError as e:
+                logger.warning("move failed: %s", e)
+                return False
+
+    def delete_message(self, folder: str, uid: str) -> bool:
+        trash = self.get_folder_by_role("trash")
+        if trash and folder != trash:
+            return self.move_message(folder, uid, trash)
+        with self._lock:
+            imap = self._ensure_connected()
+            imap.select_folder(folder)
+            try:
+                imap.add_flags([int(uid)], [b"\\Deleted"])
+                imap.expunge()
+                return True
+            except IMAPClientError:
+                return False
+
     # -- Listener (added in subsequent tasks) ------------------------------
 
     def start_listening(self, on_message: Callable[[list[dict]], None]) -> None:
