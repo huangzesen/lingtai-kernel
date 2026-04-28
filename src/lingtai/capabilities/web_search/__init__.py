@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 PROVIDERS = {
     "providers": ["duckduckgo", "minimax", "zhipu", "gemini", "anthropic", "openai"],
     "default": "duckduckgo",
+    "fallback_on_inherit": "duckduckgo",
 }
 
 def get_description(lang: str = "en") -> str:
@@ -91,15 +92,30 @@ def setup(
         model: Optional model override for the provider.
     """
     if search_service is None and provider is not None:
-        from .._media_host import resolve_media_host
-        extra_kwargs: dict = {"api_host": resolve_media_host(agent)}
-        if provider == "zhipu":
-            from .._zhipu_mode import resolve_z_ai_mode
-            extra_kwargs["z_ai_mode"] = resolve_z_ai_mode(agent)
-        search_service = create_search_service(
-            provider, api_key=api_key, model=model,
-            **extra_kwargs,
-        )
+        # Graceful fallback: if the resolved provider isn't supported by web_search,
+        # use fallback_on_inherit (duckduckgo). Never raise.
+        if provider not in PROVIDERS["providers"]:
+            agent._log(
+                "capability_fallback",
+                capability="web_search",
+                requested_provider=provider,
+                fallback=PROVIDERS["fallback_on_inherit"],
+            )
+            provider = PROVIDERS["fallback_on_inherit"]
+            api_key = None  # local fallback — no creds
+
+        if provider == "duckduckgo":
+            search_service = create_search_service("duckduckgo")
+        else:
+            from .._media_host import resolve_media_host
+            extra_kwargs: dict = {"api_host": resolve_media_host(agent)}
+            if provider == "zhipu":
+                from .._zhipu_mode import resolve_z_ai_mode
+                extra_kwargs["z_ai_mode"] = resolve_z_ai_mode(agent)
+            search_service = create_search_service(
+                provider, api_key=api_key, model=model,
+                **extra_kwargs,
+            )
     elif search_service is None and provider is None:
         search_service = create_search_service("duckduckgo")
 

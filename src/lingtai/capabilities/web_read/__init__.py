@@ -15,7 +15,7 @@ from ...i18n import t
 if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
 
-PROVIDERS = {"providers": ["zhipu"], "default": "builtin"}
+PROVIDERS = {"providers": ["zhipu"], "default": "builtin", "fallback_on_inherit": None}
 
 
 def get_description(lang: str = "en") -> str:
@@ -74,6 +74,18 @@ def setup(agent: "BaseAgent", web_read_service: Any | None = None,
     If ``provider="zhipu"`` and ``api_key`` is given, uses Z.AI's reader API
     instead of the default trafilatura fallback.
     """
+    # Graceful fallback: if provider is unknown to web_read, drop it so the
+    # builtin trafilatura path handles the request.
+    if provider is not None and provider not in PROVIDERS["providers"]:
+        agent._log(
+            "capability_fallback",
+            capability="web_read",
+            requested_provider=provider,
+            fallback="builtin",
+        )
+        provider = None
+        api_key = None
+
     if web_read_service is None and provider == "zhipu" and api_key:
         from ...services.web_read import ZhipuWebReadService
         from .._zhipu_mode import resolve_z_ai_mode

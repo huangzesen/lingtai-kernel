@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 PROVIDERS = {
     "providers": ["minimax", "zhipu", "gemini", "anthropic", "openai"],
     "default": None,
+    "fallback_on_inherit": None,  # no agnostic fallback for vision
 }
 
 def get_description(lang: str = "en") -> str:
@@ -99,6 +100,17 @@ def setup(
     Raises ``ValueError`` if neither is provided.
     """
     if vision_service is None and provider is not None:
+        # Graceful skip: if the resolved provider isn't supported by vision
+        # and no fallback exists, silently skip registration.
+        if provider not in PROVIDERS["providers"]:
+            agent._log(
+                "capability_skipped",
+                capability="vision",
+                requested_provider=provider,
+                reason=f"no vision support for provider {provider!r}",
+            )
+            return None
+
         from .._media_host import resolve_media_host
         if "api_host" not in kwargs:
             kwargs["api_host"] = resolve_media_host(agent)

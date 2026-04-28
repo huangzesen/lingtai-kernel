@@ -25,6 +25,7 @@ logger = get_logger()
 PROVIDERS = {
     "providers": ["whisper", "gemini"],
     "default": "whisper",
+    "fallback_on_inherit": "whisper",
 }
 
 def get_description(lang: str = "en") -> str:
@@ -261,6 +262,18 @@ def setup(
         **kwargs: Extra kwargs forwarded to the transcription service
             constructor (e.g., ``model_size``, ``device``).
     """
+    # Graceful fallback for unknown providers (e.g. when 'inherit' resolves to one
+    # listen doesn't support).
+    if provider not in PROVIDERS["providers"]:
+        agent._log(
+            "capability_fallback",
+            capability="listen",
+            requested_provider=provider,
+            fallback=PROVIDERS["fallback_on_inherit"],
+        )
+        provider = PROVIDERS["fallback_on_inherit"]
+        api_key = None
+
     lang = agent._config.language
 
     # Build transcription service if not injected
