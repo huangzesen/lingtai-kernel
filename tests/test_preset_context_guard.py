@@ -237,6 +237,59 @@ def test_swap_skips_guard_when_target_limit_is_negative(tmp_path, monkeypatch):
     assert activate_calls == ["negone"]
 
 
+def test_revert_refused_when_current_context_exceeds_default_limit(tmp_path, monkeypatch):
+    """revert_preset=True is subject to the context-limit guard.
+
+    If the default preset has a smaller context_limit than the agent's
+    current usage, revert fails with molt-first error — same as a manual
+    swap to a too-narrow preset."""
+    agent, plib = _make_test_agent(tmp_path)
+
+    # Reconfigure: current is 'big' (200k limit), default is 'small' (8k limit).
+    # The library was already built with big.json (200k) and small.json (8k)
+    # by _make_test_agent. We need to rewrite init.json so active=big, default=small.
+    import json
+    init_path = agent._working_dir / "init.json"
+    data = json.loads(init_path.read_text())
+    data["manifest"]["preset"] = {
+        "active": "big",
+        "default": "small",
+        "path": str(plib),
+    }
+    init_path.write_text(json.dumps(data))
+
+    # Agent's current usage is well above small's 8k limit
+    monkeypatch.setattr(agent, "get_token_usage", lambda: {
+        "ctx_total_tokens": 50000,
+        "input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0,
+        "cached_tokens": 0, "total_tokens": 0, "api_calls": 0,
+        "ctx_system_tokens": 0, "ctx_tools_tokens": 0,
+        "ctx_history_tokens": 50000,
+    })
+
+    activate_default_calls = []
+    perform_calls = []
+    monkeypatch.setattr(agent, "_activate_default_preset",
+                        lambda: activate_default_calls.append(True))
+    monkeypatch.setattr(agent, "_perform_refresh",
+                        lambda: perform_calls.append(True))
+
+    log_events = []
+    real_log = agent._log
+    monkeypatch.setattr(agent, "_log",
+                        lambda evt, **kw: (log_events.append((evt, kw)), real_log(evt, **kw))[1])
+
+    result = agent._intrinsics["system"]({"action": "refresh", "revert_preset": True})
+
+    assert result["status"] == "error"
+    msg = result["message"].lower()
+    assert "molt" in msg
+    events = [e for e, _ in log_events]
+    assert "preset_swap_refused_oversize" in events
+    assert activate_default_calls == []  # default not activated
+    assert perform_calls == []  # refresh not triggered
+
+
 def test_swap_to_unknown_preset_still_returns_not_found(tmp_path, monkeypatch):
     """Guard does not interfere with the existing 'unknown preset' error."""
     agent, plib = _make_test_agent(tmp_path)

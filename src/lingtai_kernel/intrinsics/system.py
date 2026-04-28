@@ -204,7 +204,7 @@ def _refresh(agent, args: dict) -> dict:
     revert_preset = args.get("revert_preset", False)
 
     # Conflict: cannot specify both 'preset' and 'revert_preset'.
-    if preset_name and revert_preset:
+    if preset_name is not None and revert_preset:
         return {
             "status": "error",
             "message": "cannot specify both 'preset' and 'revert_preset' — choose one",

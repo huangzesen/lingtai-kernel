@@ -552,11 +552,26 @@ def test_refresh_revert_preset_with_preset_arg_errors(tmp_path):
     assert "revert" in msg
 
 
+def test_refresh_empty_preset_with_revert_preset_errors(tmp_path):
+    """preset='' (empty string) plus revert_preset=True is still a conflict."""
+    agent = _make_test_agent_for_presets(tmp_path)
+    result = agent._intrinsics["system"]({
+        "action": "refresh",
+        "preset": "",
+        "revert_preset": True,
+    })
+    assert result["status"] == "error"
+    msg = result["message"].lower()
+    assert "preset" in msg
+    assert "revert" in msg
+
+
 def test_refresh_revert_preset_when_no_preset_configured_errors(tmp_path, monkeypatch):
     """system(refresh, revert_preset=True) errors if manifest.preset is absent.
 
-    Implementation does this by letting _activate_default_preset's RuntimeError
-    propagate through the existing exception-handling block."""
+    The error fires upstream of _activate_default_preset: _refresh reads
+    init.json directly, finds no manifest.preset.default, and returns
+    the error before any activation path runs."""
     # Build an agent without a preset block
     from lingtai_kernel.base_agent import BaseAgent
     from unittest.mock import MagicMock
