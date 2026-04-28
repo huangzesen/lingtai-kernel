@@ -425,3 +425,23 @@ def test_store_flags_rejects_non_ascii_flag(
 
     assert account.store_flags("INBOX", "42", ["重要"]) is False
     instance.add_flags.assert_not_called()
+
+
+def test_send_email_rejects_empty(account: IMAPAccount) -> None:
+    err = account.send_email(to=["x@y.com"], subject="", body="")
+    assert err is not None and "empty" in err.lower()
+
+
+def test_send_email_signature(account: IMAPAccount) -> None:
+    """Validate kwargs accepted by send_email — guards against accidental signature drift."""
+    import inspect
+    sig = inspect.signature(account.send_email)
+    params = sig.parameters
+    assert "to" in params
+    assert "subject" in params
+    assert "body" in params
+    assert "cc" in params
+    assert "bcc" in params
+    assert "attachments" in params
+    assert "in_reply_to" in params
+    assert "references" in params

@@ -535,6 +535,74 @@ class IMAPAccount:
             except IMAPClientError:
                 return False
 
+    def send_email(
+        self,
+        to: list[str],
+        subject: str,
+        body: str,
+        *,
+        cc: list[str] | None = None,
+        bcc: list[str] | None = None,
+        attachments: list[str] | None = None,
+        in_reply_to: str | None = None,
+        references: str | None = None,
+    ) -> str | None:
+        if not subject and not body and not attachments:
+            return "Cannot send empty email (no subject, no body, and no attachments)"
+        if attachments:
+            for filepath in attachments:
+                if not Path(filepath).is_file():
+                    return f"Attachment not found: {filepath}"
+        try:
+            if attachments:
+                mime_msg = MIMEMultipart()
+                mime_msg.attach(MIMEText(body, "plain", "utf-8"))
+                for filepath in attachments:
+                    path = Path(filepath)
+                    content_type, _ = mimetypes.guess_type(str(path))
+                    if content_type is None:
+                        content_type = "application/octet-stream"
+                    maintype, subtype = content_type.split("/", 1)
+                    part = MIMEBase(maintype, subtype)
+                    part.set_payload(path.read_bytes())
+                    encoders.encode_base64(part)
+                    part.add_header(
+                        "Content-Disposition", "attachment", filename=path.name,
+                    )
+                    mime_msg.attach(part)
+            else:
+                mime_msg = MIMEText(body, "plain", "utf-8")
+
+            mime_msg["From"] = formataddr(("", self._email_address))
+            mime_msg["To"] = ", ".join(to)
+            mime_msg["Subject"] = subject
+            mime_msg["Date"] = formatdate(localtime=True)
+            mime_msg["Message-ID"] = make_msgid()
+            if cc:
+                mime_msg["CC"] = ", ".join(cc)
+            if in_reply_to:
+                mime_msg["In-Reply-To"] = in_reply_to
+            if references:
+                mime_msg["References"] = references
+
+            all_recipients = list(to)
+            if cc:
+                all_recipients.extend(cc)
+            if bcc:
+                all_recipients.extend(bcc)
+
+            with smtplib.SMTP(self._smtp_host, self._smtp_port) as server:
+                server.starttls()
+                server.login(self._email_address, self._email_password)
+                server.sendmail(
+                    self._email_address, all_recipients, mime_msg.as_string(),
+                )
+            return None
+        except Exception as e:
+            error = f"SMTP send failed: {e}"
+            logger.error(error)
+            return error
+
     # -- Listener (added in subsequent tasks) ------------------------------
 
     def start_listening(self, on_message: Callable[[list[dict]], None]) -> None:
