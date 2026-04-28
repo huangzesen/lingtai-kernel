@@ -411,3 +411,43 @@ def test_manifest_rejects_non_list_pseudo_agent_subscriptions():
     data["manifest"]["pseudo_agent_subscriptions"] = "../human"  # string, not list
     with pytest.raises(ValueError, match="pseudo_agent_subscriptions"):
         validate_init(data)
+
+
+def test_active_preset_field_accepted():
+    """`manifest.active_preset` is a known optional field."""
+    data = _valid_init()
+    data["manifest"]["active_preset"] = "default"
+    validate_init(data)  # should not raise
+
+
+def test_presets_path_field_accepted():
+    """`manifest.presets_path` is a known optional field."""
+    data = _valid_init()
+    data["manifest"]["presets_path"] = "/some/path"
+    data["manifest"]["active_preset"] = "default"
+    validate_init(data)  # should not raise
+
+
+def test_presets_path_set_without_active_preset_raises():
+    """`presets_path` without `active_preset` is invalid."""
+    data = _valid_init()
+    data["manifest"]["presets_path"] = "/some/path"
+    with pytest.raises(ValueError, match="active_preset"):
+        validate_init(data)
+
+
+def test_active_preset_wrong_type_raises():
+    """`active_preset` must be a string."""
+    data = _valid_init()
+    data["manifest"]["active_preset"] = 42
+    with pytest.raises(ValueError, match="active_preset"):
+        validate_init(data)
+
+
+def test_presets_path_wrong_type_raises():
+    """`presets_path` must be a string."""
+    data = _valid_init()
+    data["manifest"]["presets_path"] = ["a", "b"]
+    data["manifest"]["active_preset"] = "default"
+    with pytest.raises(ValueError, match="presets_path"):
+        validate_init(data)

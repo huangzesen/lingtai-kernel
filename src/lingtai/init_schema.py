@@ -44,6 +44,8 @@ MANIFEST_OPTIONAL: dict[str, type | tuple[type, ...]] = {
     "time_awareness": bool,
     "timezone_awareness": bool,
     "pseudo_agent_subscriptions": list,
+    "presets_path": str,
+    "active_preset": str,
 }
 
 MANIFEST_KNOWN: set[str] = set(MANIFEST_REQUIRED) | set(MANIFEST_OPTIONAL)
@@ -92,6 +94,14 @@ def validate_init(data: dict) -> list[str]:
     manifest = data["manifest"]
     _require_keys(manifest, MANIFEST_REQUIRED, prefix="manifest")
     _optional_keys(manifest, MANIFEST_OPTIONAL, prefix="manifest")
+
+    # Cross-field: presets_path requires active_preset.
+    # (active_preset alone is fine — presets_path defaults to ~/.lingtai-tui/presets/)
+    if manifest.get("presets_path") and not manifest.get("active_preset"):
+        raise ValueError(
+            "manifest.presets_path is set but manifest.active_preset is not — "
+            "every presets folder must have an active preset selected"
+        )
 
     for key in manifest:
         if key not in MANIFEST_KNOWN:
