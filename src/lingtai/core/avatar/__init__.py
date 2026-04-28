@@ -240,6 +240,7 @@ class AvatarManager:
         avatar_comment = args.get("comment", "")
         avatar_init = self._make_avatar_init(
             parent_init, peer_name, comment=avatar_comment,
+            parent_working_dir=parent._working_dir,
         )
         (avatar_working_dir / "init.json").write_text(
             json.dumps(avatar_init, indent=2, ensure_ascii=False)
@@ -285,7 +286,9 @@ class AvatarManager:
 
     @staticmethod
     def _make_avatar_init(
-        parent_init: dict, name: str, *, comment: str = "",
+        parent_init: dict, name: str, *,
+        comment: str = "",
+        parent_working_dir: "Path | None" = None,
     ) -> dict:
         """Build avatar's init.json from parent's, setting name.
 
@@ -293,6 +296,11 @@ class AvatarManager:
         via a `.prompt` signal file dropped in the avatar's working dir by the
         caller — see ``_spawn``. Here we only blank the inherited prompt so the
         schema sees a present-but-empty field (no stale prompt carried over).
+
+        If ``parent_working_dir`` is given and the parent's ``presets_path`` is
+        relative, it is resolved to an absolute path before the copy is written
+        so the avatar (which has a different working dir) can still locate the
+        preset library.
         """
         init = json.loads(json.dumps(parent_init))  # deep copy
         init["manifest"]["agent_name"] = name
@@ -311,6 +319,16 @@ class AvatarManager:
         # Addons (IMAP, Telegram) are not inherited — each agent must be
         # explicitly configured to avoid multiple agents polling the same account
         init.pop("addons", None)
+        # Resolve relative presets_path against parent's working dir so it
+        # remains valid from the avatar's different working directory.
+        if parent_working_dir is not None:
+            pp = init["manifest"].get("presets_path")
+            if pp:
+                p = Path(pp).expanduser()
+                if not p.is_absolute():
+                    init["manifest"]["presets_path"] = str(
+                        (Path(parent_working_dir) / p).resolve()
+                    )
         return init
 
     # ------------------------------------------------------------------
