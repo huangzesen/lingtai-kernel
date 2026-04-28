@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from lingtai.presets import discover_presets, load_preset, default_presets_path
+from lingtai.presets import discover_presets, load_preset, default_presets_path, expand_inherit
 
 
 def test_discover_presets_empty_dir(tmp_path):
@@ -49,6 +49,13 @@ def test_discover_presets_missing_dir(tmp_path):
     """Nonexistent directory returns empty dict (no error)."""
     missing = tmp_path / "does_not_exist"
     assert discover_presets(missing) == {}
+
+
+def test_default_presets_path_returns_correct_location():
+    """default_presets_path returns ~/.lingtai-tui/presets/ as a Path."""
+    p = default_presets_path()
+    assert isinstance(p, Path)
+    assert p.parts[-2:] == (".lingtai-tui", "presets")
 
 
 def _write_preset(dir: Path, name: str, content: dict) -> Path:
@@ -112,6 +119,22 @@ def test_load_preset_missing_llm_raises(tmp_path):
         load_preset(tmp_path, "bad")
 
 
+def test_load_preset_empty_provider_raises(tmp_path):
+    """Preset with empty provider string is rejected (not just missing key)."""
+    bad = {"name": "bad", "manifest": {"llm": {"provider": "", "model": "y"}, "capabilities": {}}}
+    (tmp_path / "bad.json").write_text(json.dumps(bad))
+    with pytest.raises(ValueError, match="provider"):
+        load_preset(tmp_path, "bad")
+
+
+def test_load_preset_empty_model_raises(tmp_path):
+    """Preset with empty model string is rejected."""
+    bad = {"name": "bad", "manifest": {"llm": {"provider": "x", "model": ""}, "capabilities": {}}}
+    (tmp_path / "bad.json").write_text(json.dumps(bad))
+    with pytest.raises(ValueError, match="model"):
+        load_preset(tmp_path, "bad")
+
+
 def test_load_preset_malformed_json_raises(tmp_path):
     """Unparseable JSON is rejected with a clear error."""
     (tmp_path / "broken.json").write_text("{ not valid json }")
@@ -130,7 +153,7 @@ def test_load_preset_warns_on_name_mismatch(tmp_path, caplog):
     assert any("name mismatch" in r.message.lower() for r in caplog.records)
 
 
-def test_expand_inherit_resolves_to_main_llm(tmp_path):
+def test_expand_inherit_resolves_to_main_llm():
     """`provider: "inherit"` is replaced with main LLM's provider + creds."""
     main_llm = {
         "provider": "gemini", "model": "gemini-2.5-pro",
@@ -142,7 +165,6 @@ def test_expand_inherit_resolves_to_main_llm(tmp_path):
         "vision":     {"provider": "inherit"},
         "file":       {},
     }
-    from lingtai.presets import expand_inherit
     expand_inherit(caps, main_llm)
     assert caps["web_search"]["provider"] == "gemini"
     assert caps["web_search"]["api_key_env"] == "GEMINI_API_KEY"
@@ -150,23 +172,21 @@ def test_expand_inherit_resolves_to_main_llm(tmp_path):
     assert caps["file"] == {}  # untouched
 
 
-def test_expand_inherit_does_not_inherit_model(tmp_path):
+def test_expand_inherit_does_not_inherit_model():
     """`model` field is NOT inherited — capability picks its own."""
     main_llm = {
         "provider": "openai", "model": "gpt-5",
         "api_key": None, "api_key_env": "OPENAI_API_KEY",
     }
     caps = {"vision": {"provider": "inherit"}}
-    from lingtai.presets import expand_inherit
     expand_inherit(caps, main_llm)
     assert "model" not in caps["vision"]
 
 
-def test_expand_inherit_no_op_for_explicit_provider(tmp_path):
+def test_expand_inherit_no_op_for_explicit_provider():
     """Explicit providers are not touched."""
     main_llm = {"provider": "gemini", "model": "x", "api_key_env": "GEMINI_API_KEY"}
     caps = {"web_search": {"provider": "duckduckgo"}}
-    from lingtai.presets import expand_inherit
     expand_inherit(caps, main_llm)
     assert caps["web_search"] == {"provider": "duckduckgo"}
 
@@ -175,7 +195,6 @@ def test_expand_inherit_handles_missing_main_llm_creds():
     """Inherit from main LLM with no api_key_env still expands provider, with None creds."""
     main_llm = {"provider": "local", "model": "x"}
     caps = {"web_search": {"provider": "inherit"}}
-    from lingtai.presets import expand_inherit
     expand_inherit(caps, main_llm)
     assert caps["web_search"]["provider"] == "local"
     assert caps["web_search"].get("api_key_env") is None

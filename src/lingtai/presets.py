@@ -44,6 +44,14 @@ def discover_presets(presets_path: Path | str) -> dict[str, Path]:
             continue
         if entry.suffix not in (".json", ".jsonc"):
             continue
+        if entry.stem in out:
+            log.warning(
+                "preset stem collision: %r and %r — load_preset will use .json first",
+                str(out[entry.stem]), str(entry),
+            )
+            # If we already have a .json entry, keep it. Otherwise the new one wins.
+            if out[entry.stem].suffix == ".json":
+                continue
         out[entry.stem] = entry
     return out
 
@@ -86,8 +94,8 @@ def load_preset(presets_path: Path | str, name: str) -> dict:
     if not isinstance(llm, dict):
         raise ValueError(f"preset {name!r} ({file_path}): missing or invalid 'manifest.llm' object")
 
-    if "provider" not in llm or "model" not in llm:
-        raise ValueError(f"preset {name!r} ({file_path}): manifest.llm requires 'provider' and 'model'")
+    if not llm.get("provider") or not llm.get("model"):
+        raise ValueError(f"preset {name!r} ({file_path}): manifest.llm requires non-empty 'provider' and 'model'")
 
     caps = manifest.get("capabilities", {})
     if not isinstance(caps, dict):
