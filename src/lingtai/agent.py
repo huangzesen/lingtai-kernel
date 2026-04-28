@@ -522,10 +522,16 @@ class Agent(BaseAgent):
     # ------------------------------------------------------------------
 
     def _read_init(self) -> dict | None:
-        """Read and validate init.json from working directory."""
+        """Read and validate init.json from working directory.
+
+        If ``manifest.active_preset`` is set, materialize the named preset's
+        ``llm`` and ``capabilities`` into the manifest before validation. The
+        running agent thus always sees a fully resolved manifest.
+        """
         import json
         from .init_schema import validate_init
         from .config_resolve import resolve_paths
+        from .presets import load_preset, expand_inherit, default_presets_path
 
         init_path = self._working_dir / "init.json"
         if not init_path.is_file():
@@ -536,6 +542,34 @@ class Agent(BaseAgent):
         except (json.JSONDecodeError, OSError, ValueError):
             self._log("refresh_init_error", error="failed to read init.json")
             return None
+
+        # Materialize active preset, if any, BEFORE validation so the manifest
+        # the schema validates is the fully-resolved one the agent will run on.
+        manifest = data.get("manifest")
+        if isinstance(manifest, dict) and manifest.get("active_preset"):
+            preset_name = manifest["active_preset"]
+            presets_path_str = manifest.get("presets_path")
+            presets_path = (
+                Path(presets_path_str).expanduser()
+                if presets_path_str else default_presets_path()
+            )
+            try:
+                preset = load_preset(presets_path, preset_name)
+            except (KeyError, ValueError) as e:
+                self._log("refresh_init_error",
+                          error=f"preset {preset_name!r} unloadable: {e}")
+                return None
+            preset_manifest = preset.get("manifest", {})
+            manifest["llm"] = preset_manifest.get("llm", manifest.get("llm"))
+            manifest["capabilities"] = preset_manifest.get(
+                "capabilities", manifest.get("capabilities", {}))
+
+        # Resolve "provider": "inherit" in capabilities against the main LLM.
+        if isinstance(manifest, dict):
+            llm = manifest.get("llm") or {}
+            caps = manifest.get("capabilities") or {}
+            if isinstance(caps, dict):
+                expand_inherit(caps, llm)
 
         try:
             warnings = validate_init(data)
