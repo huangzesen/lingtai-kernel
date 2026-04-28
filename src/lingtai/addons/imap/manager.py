@@ -641,13 +641,20 @@ class IMAPMailManager:
         return {"status": "ok", "folders": folders}
 
     def _accounts(self, args: dict) -> dict:
-        acct_list = []
+        out: list[dict] = []
         for acct in self._service.accounts:
-            acct_list.append({
+            listener_connected = (
+                getattr(acct, "_bg_thread", None) is not None
+                and acct._bg_thread.is_alive()
+                and getattr(acct, "_listen_imap", None) is not None
+            )
+            out.append({
                 "address": acct.address,
-                "connected": acct.connected,
+                "tool_connected": acct.connected,
+                "listener_connected": listener_connected,
+                "listening": getattr(acct, "listening", False),
             })
-        return {"status": "ok", "accounts": acct_list}
+        return {"accounts": out}
 
     def _contacts(self, args: dict, account: "IMAPAccount") -> dict:
         return {"status": "ok", "contacts": self._load_contacts(account)}

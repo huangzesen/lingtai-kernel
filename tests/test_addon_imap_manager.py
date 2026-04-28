@@ -162,10 +162,13 @@ def test_read_normalizes_string_email_id(tmp_path):
 def test_accounts_action(tmp_path):
     mgr, agent, svc = _make_manager(tmp_path)
     result = mgr.handle({"action": "accounts"})
-    assert result["status"] == "ok"
+    assert "accounts" in result
     assert len(result["accounts"]) == 1
-    assert result["accounts"][0]["address"] == "alice@gmail.com"
-    assert result["accounts"][0]["connected"] is True
+    a = result["accounts"][0]
+    assert a["address"] == "alice@gmail.com"
+    assert a["tool_connected"] is True
+    assert "listener_connected" in a
+    assert "listening" in a
 
 
 # ---------------------------------------------------------------------------
@@ -467,3 +470,37 @@ def test_start_stop_lifecycle(tmp_path):
     mgr.stop()
     svc.stop.assert_called_once()
     mgr._bridge.stop.assert_called_once()
+
+
+def test_accounts_returns_richer_status_per_account(tmp_path):
+    """`accounts` action returns tool_connected, listener_connected, listening."""
+    from unittest.mock import MagicMock
+    from lingtai.addons.imap.manager import IMAPMailManager
+    from lingtai.addons.imap.service import IMAPMailService
+
+    mock_account = MagicMock()
+    mock_account.address = "alice@example.com"
+    mock_account.connected = True
+    mock_account.listening = True
+    # connection of listener: alive thread + alive client
+    mock_account._listen_imap = MagicMock()
+    mock_account._bg_thread = MagicMock()
+    mock_account._bg_thread.is_alive.return_value = True
+
+    mock_service = MagicMock(spec=IMAPMailService)
+    mock_service.accounts = [mock_account]
+    mock_service.default_account = mock_account
+    mock_service.get_account.return_value = mock_account
+
+    mock_agent = MagicMock()
+    mock_agent._working_dir = str(tmp_path)
+
+    mgr = IMAPMailManager(mock_agent, service=mock_service, tcp_alias="bridge")
+    result = mgr.handle({"action": "accounts"})
+
+    assert "accounts" in result
+    a = result["accounts"][0]
+    assert a["address"] == "alice@example.com"
+    assert a["tool_connected"] is True
+    assert a["listener_connected"] is True
+    assert a["listening"] is True
