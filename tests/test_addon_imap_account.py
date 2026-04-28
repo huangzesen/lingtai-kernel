@@ -329,3 +329,99 @@ def test_delete_message_moves_to_trash_when_available(
 
     assert account.delete_message("INBOX", "42") is True
     instance.move.assert_called_with([42], "Trash")
+
+
+def test_fetch_full_handles_non_ascii_keyword_flag(
+    mock_imapclient_class, account: IMAPAccount,
+) -> None:
+    """fetch_full must not crash on non-ASCII keyword flags."""
+    instance = mock_imapclient_class.return_value
+    instance.capabilities.return_value = (b"IDLE",)
+    instance.list_folders.return_value = []
+    instance.fetch.return_value = {
+        7: {
+            b"FLAGS": (b"\\Seen", b"\xe2\x98\x85important"),
+            b"RFC822": b"From: a@b.com\r\nSubject: hi\r\n\r\nbody\r\n",
+        },
+    }
+    account.connect()
+
+    full = account.fetch_full("INBOX", "7")
+    assert full is not None
+    assert "\\Seen" in full["flags"]
+    assert all(isinstance(f, str) for f in full["flags"])
+
+
+def test_move_message_uses_uid_expunge_when_uidplus_available(
+    mock_imapclient_class, account: IMAPAccount,
+) -> None:
+    """When MOVE absent but UIDPLUS present, fallback uses uid_expunge."""
+    instance = mock_imapclient_class.return_value
+    instance.capabilities.return_value = (b"IDLE", b"UIDPLUS")  # no MOVE
+    instance.list_folders.return_value = []
+    account.connect()
+
+    assert account.move_message("INBOX", "42", "Archive") is True
+    instance.copy.assert_called_with([42], "Archive")
+    instance.add_flags.assert_called_with([42], [b"\\Deleted"])
+    instance.uid_expunge.assert_called_with([42])
+    instance.expunge.assert_not_called()
+
+
+def test_delete_message_uses_uid_expunge_when_uidplus_in_trash(
+    mock_imapclient_class, account: IMAPAccount,
+) -> None:
+    """delete_message in trash with UIDPLUS uses uid_expunge."""
+    instance = mock_imapclient_class.return_value
+    instance.capabilities.return_value = (b"IDLE", b"UIDPLUS")
+    # Make INBOX the only folder and trash absent so we hit the in-place path.
+    instance.list_folders.return_value = []
+    account.connect()
+
+    assert account.delete_message("INBOX", "42") is True
+    instance.add_flags.assert_called_with([42], [b"\\Deleted"])
+    instance.uid_expunge.assert_called_with([42])
+    instance.expunge.assert_not_called()
+
+
+def test_search_invalid_date_skipped(
+    mock_imapclient_class, account: IMAPAccount,
+) -> None:
+    """Malformed since: date is logged and skipped, not raised."""
+    instance = mock_imapclient_class.return_value
+    instance.capabilities.return_value = (b"IDLE",)
+    instance.list_folders.return_value = []
+    instance.search.return_value = []
+    account.connect()
+
+    # Malformed date — should not raise
+    out = account.search("INBOX", "since:not-a-date from:bob@x.com")
+    # Only the from: term made it into the criteria
+    instance.search.assert_called_with([b"FROM", b"bob@x.com"])
+    assert out == []
+
+
+def test_store_flags_rejects_unknown_action(
+    mock_imapclient_class, account: IMAPAccount,
+) -> None:
+    instance = mock_imapclient_class.return_value
+    instance.capabilities.return_value = (b"IDLE",)
+    instance.list_folders.return_value = []
+    account.connect()
+
+    assert account.store_flags("INBOX", "42", ["\\Seen"], action="bogus") is False
+    instance.add_flags.assert_not_called()
+    instance.remove_flags.assert_not_called()
+    instance.set_flags.assert_not_called()
+
+
+def test_store_flags_rejects_non_ascii_flag(
+    mock_imapclient_class, account: IMAPAccount,
+) -> None:
+    instance = mock_imapclient_class.return_value
+    instance.capabilities.return_value = (b"IDLE",)
+    instance.list_folders.return_value = []
+    account.connect()
+
+    assert account.store_flags("INBOX", "42", ["重要"]) is False
+    instance.add_flags.assert_not_called()

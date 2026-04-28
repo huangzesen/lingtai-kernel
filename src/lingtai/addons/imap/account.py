@@ -349,8 +349,11 @@ class IMAPAccount:
             return None
 
         flags_raw = info.get(b"FLAGS", ())
-        flags = [f.decode("ascii") if isinstance(f, bytes) else str(f)
-                 for f in flags_raw]
+        flags = [
+            f.decode("ascii", errors="replace") if isinstance(f, bytes)
+            else str(f)
+            for f in flags_raw
+        ]
         raw_email = info.get(b"RFC822", b"")
         msg = email_mod.message_from_bytes(raw_email, policy=email_policy.default)
 
@@ -415,10 +418,24 @@ class IMAPAccount:
             elif key == "subject" and val:
                 criteria += [b"SUBJECT", val.encode()]
             elif key == "since" and val:
-                d = datetime.strptime(val, "%Y-%m-%d")
+                try:
+                    d = datetime.strptime(val, "%Y-%m-%d")
+                except ValueError:
+                    logger.warning(
+                        "imap search: invalid date %r for since:, skipping",
+                        val,
+                    )
+                    continue
                 criteria += [b"SINCE", d.strftime("%d-%b-%Y").encode()]
             elif key == "before" and val:
-                d = datetime.strptime(val, "%Y-%m-%d")
+                try:
+                    d = datetime.strptime(val, "%Y-%m-%d")
+                except ValueError:
+                    logger.warning(
+                        "imap search: invalid date %r for before:, skipping",
+                        val,
+                    )
+                    continue
                 criteria += [b"BEFORE", d.strftime("%d-%b-%Y").encode()]
             elif key == "flagged":
                 criteria.append(b"FLAGGED")
@@ -431,7 +448,18 @@ class IMAPAccount:
     def store_flags(
         self, folder: str, uid: str, flags: list[str], action: str = "+FLAGS",
     ) -> bool:
-        flag_bytes = [f.encode("ascii") for f in flags]
+        try:
+            flag_bytes = [f.encode("ascii") for f in flags]
+        except UnicodeEncodeError:
+            logger.warning(
+                "imap store_flags: non-ASCII flag in %r, refusing", flags,
+            )
+            return False
+        if action not in ("+FLAGS", "-FLAGS", "FLAGS"):
+            logger.warning(
+                "imap store_flags: unknown action %r, refusing", action,
+            )
+            return False
         with self._lock:
             imap = self._ensure_connected()
             imap.select_folder(folder)
@@ -468,7 +496,18 @@ class IMAPAccount:
                 else:
                     imap.copy([int(uid)], dest_folder)
                     imap.add_flags([int(uid)], [b"\\Deleted"])
-                    imap.expunge()
+                    if self._has_uidplus:
+                        imap.uid_expunge([int(uid)])
+                    else:
+                        # No UIDPLUS — bare EXPUNGE removes ALL \Deleted msgs
+                        # in this folder. Acceptable risk only because the
+                        # server lacks both MOVE and UIDPLUS, which is rare.
+                        logger.warning(
+                            "imap: %s lacks MOVE+UIDPLUS; EXPUNGE may "
+                            "affect other \\Deleted messages",
+                            self._email_address,
+                        )
+                        imap.expunge()
                 return True
             except IMAPClientError as e:
                 logger.warning("move failed: %s", e)
@@ -483,7 +522,15 @@ class IMAPAccount:
             imap.select_folder(folder)
             try:
                 imap.add_flags([int(uid)], [b"\\Deleted"])
-                imap.expunge()
+                if self._has_uidplus:
+                    imap.uid_expunge([int(uid)])
+                else:
+                    logger.warning(
+                        "imap: %s lacks UIDPLUS; EXPUNGE may affect "
+                        "other \\Deleted messages",
+                        self._email_address,
+                    )
+                    imap.expunge()
                 return True
             except IMAPClientError:
                 return False
