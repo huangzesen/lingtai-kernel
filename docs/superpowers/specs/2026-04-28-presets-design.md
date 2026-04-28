@@ -191,6 +191,10 @@ A new top-level action under `system`:
 { "action": "presets" }
 ```
 
+Returns the full library in one shot — every preset's name, `comment`, LLM summary, and capability list. No pagination, no separate "info" action. The agent gets enough information to reason about tradeoffs across the whole library in one tool call.
+
+Why one call: a typical library is 5–20 presets. Each preset summary is a few hundred tokens (mostly the `comment` block + capability list). Total is well under the cost of two round-trips, and it lets the agent compare presets against each other directly — which is exactly what the two-dimensional (LLM × faculties) reasoning needs.
+
 Returns:
 
 ```jsonc
@@ -200,21 +204,33 @@ Returns:
   "available": [
     {
       "name": "default",
-      "comment": { "summary": "main daily-driver", ... },
+      "comment": { "summary": "main daily-driver", "gains": [...], "loses": [...] },
       "llm": { "provider": "gemini", "model": "gemini-2.5-pro" },
-      "capabilities": ["read", "write", "edit", "web_search", "vision", ...]
+      "capabilities": {
+        "read": {}, "write": {}, "edit": {},
+        "web_search": { "provider": "inherit" },
+        "vision":     { "provider": "inherit" },
+        "listen":     { "provider": "whisper" }
+        /* ... full per-preset capabilities map, exactly as authored ... */
+      }
     },
     {
       "name": "cheap",
       "comment": { "summary": "Cheap reasoning, no vision", ... },
       "llm": { "provider": "deepseek", "model": "deepseek-v4-pro" },
-      "capabilities": [...]
+      "capabilities": { /* ... */ }
     }
   ]
 }
 ```
 
-`comment` is surfaced verbatim. `llm` is summarized to `{provider, model}` only (no credentials). `capabilities` is the list of enabled capability names from the preset (does not pre-resolve `inherit` or graceful-fallback — the agent sees what's *configured*, not what would actually load).
+Field semantics:
+
+- **`comment`** — surfaced verbatim, structure preserved. Authors should phrase it as tradeoffs (what this preset gains and loses) so the agent can reason comparatively.
+- **`llm`** — summarized to `{provider, model}` only. Credentials, base_url, api_compat, etc. are stripped (never expose secrets to the agent's context, even on inspection).
+- **`capabilities`** — the full per-preset capabilities object, exactly as authored on disk. Includes any `provider: "inherit"` sentinels and capability-specific kwargs. Does NOT pre-resolve `inherit` or graceful-fallback: the agent sees what's *configured* in the preset file, not what the resolver would produce when the swap happens. This is correct: at swap time, fallback decisions depend on the *target* main LLM, which the agent is choosing right now — pre-resolving would obscure that decision.
+
+The active preset's entry in `available[]` is structurally identical to the others — the only signal of "this is the current one" is the top-level `active` field. The agent can include the active preset in its comparison naturally (e.g. "I'm on `default` now and considering `vision-heavy` — what would I gain?").
 
 ### Daemon and avatar interaction
 
@@ -354,7 +370,7 @@ The agent never gets a half-swap verb. This keeps the agent's mental model simpl
 - `refresh(preset="unknown")` → error returned, `preset_swap_failed` logged, init.json untouched.
 - `refresh(preset="malformed")` → error, log entry, init.json untouched.
 - `refresh()` with no preset arg → behaves as today.
-- `system(action="presets")` → returns active + available with comments.
+- `system(action="presets")` → returns active + available list. Each entry includes name, full structured `comment`, LLM summary `{provider, model}` (no credentials), and the full per-preset `capabilities` object as authored (no inherit/fallback pre-resolution).
 
 ### Integration tests — `tests/test_preset_swap_e2e.py` (new)
 
