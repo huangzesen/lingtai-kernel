@@ -563,6 +563,8 @@ class Agent(BaseAgent):
             manifest["llm"] = preset_manifest.get("llm", manifest.get("llm"))
             manifest["capabilities"] = preset_manifest.get(
                 "capabilities", manifest.get("capabilities", {}))
+            if "context_limit" in preset_manifest:
+                manifest["context_limit"] = preset_manifest["context_limit"]
 
         # Resolve "provider": "inherit" in capabilities against the main LLM.
         if isinstance(manifest, dict):

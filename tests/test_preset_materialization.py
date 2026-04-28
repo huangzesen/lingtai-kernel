@@ -247,6 +247,30 @@ def test_materialize_empty_presets_path_warns_and_falls_back(tmp_path, monkeypat
     assert any("empty string" in w for w in warnings)
 
 
+def test_materialize_picks_up_context_limit_from_preset(tmp_path, monkeypatch):
+    """A preset that sets context_limit substitutes it into the running manifest."""
+    plib = _make_preset_lib(tmp_path, {
+        "narrow": {
+            "name": "narrow",
+            "description": "narrow context",
+            "manifest": {
+                "llm": {"provider": "p", "model": "m",
+                        "api_key": None, "api_key_env": "PKEY"},
+                "capabilities": {"file": {}},
+                "context_limit": 16384,
+            },
+        },
+    })
+    wd = _make_workdir(tmp_path, active_preset="narrow",
+                       presets_path=str(plib))
+    monkeypatch.setenv("PKEY", "sk-test")
+
+    a = _make_probe_agent(wd)
+    data = a._read_init()
+    assert data is not None
+    assert data["manifest"]["context_limit"] == 16384
+
+
 def test_materialize_inherit_expansion_runs(tmp_path, monkeypatch):
     """Capabilities with provider:inherit get the main LLM's provider after materialization."""
     plib = _make_preset_lib(tmp_path, {

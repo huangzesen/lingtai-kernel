@@ -36,7 +36,7 @@
   "system_tool.address_description": "目标智能体的地址（工作目录路径）。interrupt、lull、suspend、cpr、nirvana 操作需要此参数。",
   "system_tool.seconds_description": "用于 nap（小憩）：等待秒数。必填。上限 300。收到书信会提前唤醒。",
   "system_tool.reason_description": "入睡或沐浴的原因（记录到事件日志）。",
-  "system_tool.preset_description": "可选。配 action='refresh' 使用：在刷新前换上行囊中的另一套预设（{胎光, 肉身}组合）——如修行者探囊取出另一套法器。用 action='presets' 查看行囊；每个预设的 description 字段会说明换上后的得失。换装轻便可逆，本心不动，所变者唯一时之器耳。不带此参数时，refresh 仅重读现有配置。",
+  "system_tool.preset_description": "可选。配 action='refresh' 使用：在刷新前换上行囊中的另一套预设（{胎光, 肉身}组合）——如修行者探囊取出另一套法器。用 action='presets' 查看行囊；每个预设的 description 字段会说明换上后的得失。换装轻便可逆，本心不动，所变者唯一时之器耳。不带此参数时，refresh 仅重读现有配置。 若你当下的上下文已超出目标预设的 context_limit，换装将被拒绝并提示先 molt 重生 —— 蜕化清空记忆后再重试。",
   "system_tool.sleep_message": "进入睡眠。身份与手记已保存。可经心肺复苏唤醒。",
   "system_tool.refresh_message": "刷新已启动——你将被挂起并立即重新启动。请勿再进行任何工具调用。",
   "system.refresh_successful": "[system] 沐浴成功。工具与配置已重新加载。可以继续。",

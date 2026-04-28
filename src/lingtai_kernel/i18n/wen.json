@@ -36,7 +36,7 @@
   "system_tool.address_description": "目标智能体之地址（工作目录路径）。interrupt、lull、suspend、cpr、nirvana 须此参数。",
   "system_tool.seconds_description": "用于 nap（小憩）：候之秒数。必填。上限三百。传书至则提前而醒。",
   "system_tool.reason_description": "入寐或更衣之缘由（录于事件日志）。",
-  "system_tool.preset_description": "可选。配 action='refresh' 用：刷新前换行囊中之一预设（{胎光, 肉身} 之合也）——如修真者探囊更易其器。action='presets' 览行囊内所有预设；阅各预设之 description 字段而知所得所失。易形换胎，轻便可还，本心不易，所变唯一时所执之器耳。不携此参，则 refresh 仅重读旧配。",
+  "system_tool.preset_description": "可选。配 action='refresh' 用：刷新前换行囊中之一预设（{胎光, 肉身} 之合也）——如修真者探囊更易其器。action='presets' 览行囊内所有预设；阅各预设之 description 字段而知所得所失。易形换胎，轻便可还，本心不易，所变唯一时所执之器耳。不携此参，则 refresh 仅重读旧配。 若汝当下之文已逾目标预设之 context_limit，则易形换胎不可成，须先 molt 凝蜕——涤旧而后再试。",
   "system_tool.sleep_message": "入寐矣。身与简俱在。可经心肺复苏而醒。",
   "system_tool.refresh_message": "更衣已启——汝将假死而重生。勿再调器。",
   "system.refresh_successful": "[system] 更衣已成。器用与配置俱已重载。可续前事。",

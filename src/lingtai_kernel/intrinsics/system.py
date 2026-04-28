@@ -144,12 +144,69 @@ def _nap(agent, args: dict) -> dict:
 # refresh
 # ---------------------------------------------------------------------------
 
+def _check_context_fits(agent, preset_name: str) -> tuple:
+    """Read the target preset's context_limit and verify the agent's current
+    context usage fits.
+
+    Returns (fits, error_message, log_extra). When fits=True, message is None.
+    When fits=False, returns a user-facing error message and a dict of fields
+    for the preset_swap_refused_oversize log event.
+    """
+    import json
+    from pathlib import Path
+    from lingtai.presets import load_preset, resolve_presets_path
+
+    try:
+        init_path = agent._working_dir / "init.json"
+        raw = json.loads(init_path.read_text(encoding="utf-8"))
+    except Exception:
+        return True, None, None  # can't read init — let activate_preset handle it
+
+    manifest = raw.get("manifest", {})
+    presets_path = resolve_presets_path(manifest, agent._working_dir)
+
+    try:
+        preset = load_preset(presets_path, preset_name)
+    except (KeyError, ValueError):
+        return True, None, None  # let activate_preset surface the error
+
+    target_limit = preset.get("manifest", {}).get("context_limit")
+    if target_limit is None:
+        return True, None, None  # no limit set on target → no guard
+
+    try:
+        usage = agent.get_token_usage()
+        current = usage.get("ctx_total_tokens", 0)
+    except Exception:
+        return True, None, None  # can't measure — fail open (allow swap)
+
+    if current > target_limit:
+        return False, (
+            f"current context ({current} tokens) exceeds preset {preset_name!r}'s "
+            f"context_limit ({target_limit} tokens) — molt first to clear chat history, "
+            f"then retry the swap"
+        ), {
+            "preset": preset_name,
+            "current_tokens": current,
+            "target_limit": target_limit,
+        }
+    return True, None, None
+
+
 def _refresh(agent, args: dict) -> dict:
     from ..i18n import t
     reason = args.get("reason", "")
     preset_name = args.get("preset")
 
     if preset_name is not None:
+        # Guard: refuse swap if the target preset's context_limit is smaller
+        # than the agent's current context usage. The agent must molt first
+        # to clear history before the new (narrower) preset can hold it.
+        fits, refuse_msg, log_extra = _check_context_fits(agent, preset_name)
+        if not fits:
+            agent._log("preset_swap_refused_oversize", **log_extra)
+            return {"status": "error", "message": refuse_msg}
+
         try:
             agent._activate_preset(preset_name)
         except KeyError:
