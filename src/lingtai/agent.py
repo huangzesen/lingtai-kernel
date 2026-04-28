@@ -586,6 +586,51 @@ class Agent(BaseAgent):
         resolve_paths(data, self._working_dir)
         return data
 
+    def _activate_preset(self, name: str) -> None:
+        """Substitute a preset's llm + capabilities into init.json on disk.
+
+        Reads the named preset from ``manifest.presets_path`` (default
+        ``~/.lingtai-tui/presets/``), substitutes its ``manifest.llm`` and
+        ``manifest.capabilities`` into the agent's init.json, sets
+        ``manifest.active_preset = name``, and writes atomically.
+
+        Other manifest fields (admin, soul, stamina, agent_name, etc.)
+        are preserved — they are part of the running agent, not the preset.
+
+        Raises:
+            KeyError: the named preset does not exist
+            ValueError: the preset file is malformed
+            OSError: the on-disk write failed (init.json untouched)
+        """
+        import json
+        import os
+        from .presets import load_preset, default_presets_path
+
+        init_path = self._working_dir / "init.json"
+        data = json.loads(init_path.read_text(encoding="utf-8"))
+        manifest = data.setdefault("manifest", {})
+
+        presets_path_str = manifest.get("presets_path")
+        if presets_path_str:
+            p = Path(presets_path_str).expanduser()
+            presets_path = p if p.is_absolute() else (self._working_dir / p).resolve()
+        else:
+            presets_path = default_presets_path()
+
+        preset = load_preset(presets_path, name)  # raises KeyError / ValueError
+        preset_manifest = preset.get("manifest", {})
+
+        manifest["llm"] = preset_manifest.get("llm", manifest.get("llm"))
+        manifest["capabilities"] = preset_manifest.get(
+            "capabilities", manifest.get("capabilities", {}))
+        manifest["active_preset"] = name
+
+        # Atomic write: tmp + os.replace
+        tmp = init_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False),
+                       encoding="utf-8")
+        os.replace(str(tmp), str(init_path))
+
     def _setup_from_init(self) -> None:
         """Full construct/reconstruct from init.json."""
         self._log("refresh_start")
