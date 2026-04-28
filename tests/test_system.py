@@ -276,3 +276,190 @@ def test_system_unknown_action(tmp_path):
     agent = BaseAgent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test")
     result = agent._intrinsics["system"]({"action": "bogus"})
     assert result["status"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# refresh + preset arg, presets action
+# ---------------------------------------------------------------------------
+
+
+def _make_test_agent_for_presets(tmp_path, presets_path=None, active_preset=None):
+    """Build a BaseAgent for preset tests with init.json containing optional
+    presets_path/active_preset fields. The agent's _activate_preset and
+    _perform_refresh are intentionally left as the BaseAgent defaults; tests
+    monkeypatch them to observe call patterns."""
+    import json
+    wd = tmp_path / "test"
+    wd.mkdir(exist_ok=True)
+    manifest = {
+        "agent_name": "alice",
+        "language": "en",
+        "llm": {"provider": "gemini", "model": "gemini-test",
+                "api_key": None, "api_key_env": "GEMINI_API_KEY"},
+        "capabilities": {},
+        "soul": {"delay": 120}, "stamina": 3600,
+        "molt_pressure": 0.8, "molt_prompt": "", "max_turns": 50,
+        "admin": {}, "streaming": False,
+    }
+    if active_preset:
+        manifest["active_preset"] = active_preset
+    if presets_path:
+        manifest["presets_path"] = str(presets_path)
+    init = {
+        "manifest": manifest,
+        "principle": "p", "covenant": "c", "pad": "", "prompt": "",
+        "soul": "",
+    }
+    (wd / "init.json").write_text(json.dumps(init))
+    agent = BaseAgent(service=make_mock_service(), agent_name="alice",
+                      working_dir=wd)
+    return agent
+
+
+def test_refresh_with_unknown_preset_returns_error(tmp_path, monkeypatch):
+    """system(action='refresh', preset='ghost') returns error and logs preset_swap_failed."""
+    import json
+    plib = tmp_path / "presets"
+    plib.mkdir()
+    (plib / "minimax.json").write_text(json.dumps({
+        "name": "minimax", "description": "x",
+        "manifest": {"llm": {"provider": "minimax", "model": "y",
+                             "api_key": None, "api_key_env": "MINIMAX_API_KEY"},
+                     "capabilities": {"file": {}}},
+    }))
+    agent = _make_test_agent_for_presets(tmp_path, presets_path=plib,
+                                          active_preset="minimax")
+
+    log_events = []
+    real_log = agent._log
+    def log_capture(event, **kw):
+        log_events.append((event, kw))
+        return real_log(event, **kw)
+    monkeypatch.setattr(agent, "_log", log_capture)
+
+    # Track _perform_refresh calls — should NOT be called when preset swap fails
+    perform_calls = []
+    monkeypatch.setattr(agent, "_perform_refresh",
+                        lambda: perform_calls.append(True))
+
+    # Stub _activate_preset to raise KeyError for unknown preset
+    def fake_activate(name):
+        raise KeyError(f"preset not found: {name!r}")
+    monkeypatch.setattr(agent, "_activate_preset", fake_activate)
+
+    result = agent._intrinsics["system"]({"action": "refresh", "preset": "ghost"})
+
+    assert result["status"] == "error"
+    assert "ghost" in result["message"]
+    events = [e for e, _ in log_events]
+    assert "preset_swap_failed" in events
+    assert perform_calls == []  # refresh NOT triggered
+
+
+def test_refresh_with_known_preset_calls_activate_then_perform(tmp_path, monkeypatch):
+    """system(action='refresh', preset='minimax') calls _activate_preset then _perform_refresh."""
+    agent = _make_test_agent_for_presets(tmp_path)
+
+    activate_calls = []
+    perform_calls = []
+    monkeypatch.setattr(agent, "_activate_preset",
+                        lambda n: activate_calls.append(n))
+    monkeypatch.setattr(agent, "_perform_refresh",
+                        lambda: perform_calls.append(True))
+
+    result = agent._intrinsics["system"]({"action": "refresh",
+                                           "preset": "minimax"})
+
+    assert activate_calls == ["minimax"]
+    assert perform_calls == [True]
+    assert result["status"] == "ok"
+
+
+def test_refresh_no_preset_arg_unchanged(tmp_path, monkeypatch):
+    """system(action='refresh') with no preset arg behaves as today (no _activate_preset call)."""
+    agent = _make_test_agent_for_presets(tmp_path)
+
+    activate_calls = []
+    perform_calls = []
+    monkeypatch.setattr(agent, "_activate_preset",
+                        lambda n: activate_calls.append(n))
+    monkeypatch.setattr(agent, "_perform_refresh",
+                        lambda: perform_calls.append(True))
+
+    agent._intrinsics["system"]({"action": "refresh"})
+
+    assert activate_calls == []  # not called
+    assert perform_calls == [True]
+
+
+def test_presets_action_lists_full_library(tmp_path):
+    """system(action='presets') returns full library with descriptions and capabilities."""
+    import json
+    plib = tmp_path / "presets"
+    plib.mkdir()
+    (plib / "alpha.json").write_text(json.dumps({
+        "name": "alpha", "description": "alpha desc",
+        "manifest": {"llm": {"provider": "p1", "model": "m1",
+                             "api_key": None, "api_key_env": "X"},
+                     "capabilities": {"file": {}, "vision": {"provider": "p1"}}},
+    }))
+    (plib / "beta.json").write_text(json.dumps({
+        "name": "beta", "description": {"summary": "structured", "gains": ["a"]},
+        "manifest": {"llm": {"provider": "p2", "model": "m2",
+                             "api_key": None, "api_key_env": "Y"},
+                     "capabilities": {"file": {}}},
+    }))
+    agent = _make_test_agent_for_presets(tmp_path, presets_path=plib,
+                                          active_preset="alpha")
+
+    result = agent._intrinsics["system"]({"action": "presets"})
+
+    assert result["status"] == "ok"
+    assert result["active"] == "alpha"
+    names = [p["name"] for p in result["available"]]
+    assert names == ["alpha", "beta"]   # alphabetically sorted
+
+    alpha = next(p for p in result["available"] if p["name"] == "alpha")
+    assert alpha["description"] == "alpha desc"
+    assert alpha["llm"] == {"provider": "p1", "model": "m1"}
+    assert "vision" in alpha["capabilities"]
+
+    beta = next(p for p in result["available"] if p["name"] == "beta")
+    assert beta["description"] == {"summary": "structured", "gains": ["a"]}
+
+
+def test_presets_action_strips_credentials(tmp_path):
+    """presets action does not surface api_key, api_key_env, base_url, api_compat."""
+    import json
+    plib = tmp_path / "presets"
+    plib.mkdir()
+    (plib / "secret.json").write_text(json.dumps({
+        "name": "secret", "description": "x",
+        "manifest": {"llm": {"provider": "p", "model": "m",
+                             "api_key": "SECRET", "api_key_env": "ENVKEY",
+                             "base_url": "https://example.com",
+                             "api_compat": "openai"},
+                     "capabilities": {"file": {}}},
+    }))
+    agent = _make_test_agent_for_presets(tmp_path, presets_path=plib,
+                                          active_preset="secret")
+
+    result = agent._intrinsics["system"]({"action": "presets"})
+
+    secret = result["available"][0]
+    assert set(secret["llm"].keys()) == {"provider", "model"}
+    assert "SECRET" not in json.dumps(result)
+    assert "ENVKEY" not in json.dumps(result)
+    assert "example.com" not in json.dumps(result)
+
+
+def test_presets_action_empty_library(tmp_path):
+    """Empty library returns empty available[] without error."""
+    plib = tmp_path / "presets"
+    plib.mkdir()
+    agent = _make_test_agent_for_presets(tmp_path, presets_path=plib)
+
+    result = agent._intrinsics["system"]({"action": "presets"})
+
+    assert result["status"] == "ok"
+    assert result["available"] == []

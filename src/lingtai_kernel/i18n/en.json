@@ -36,6 +36,7 @@
   "system_tool.address_description": "Target agent's address (working directory path). Required for interrupt, lull, suspend, cpr, nirvana.",
   "system_tool.seconds_description": "For nap: seconds to wait. Required. Capped at 300. Nap wakes early on incoming mail.",
   "system_tool.reason_description": "Reason for sleep or refresh (logged to event log).",
+  "system_tool.preset_description": "Optional preset name for action='refresh' (placeholder; T9 will replace with full description).",
   "system_tool.sleep_message": "Going to sleep. Your identity and pad are preserved. You may be resuscitated via cpr.",
   "system_tool.refresh_message": "Refresh initiated — you will be suspended and relaunched momentarily. Do not make any more tool calls.",
   "system.refresh_successful": "[system] Refresh successful. Tools and configuration reloaded. You may continue.",

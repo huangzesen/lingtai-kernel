@@ -31,7 +31,7 @@ def get_schema(lang: str = "en") -> dict:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["show", "nap", "refresh", "sleep", "lull", "interrupt", "suspend", "cpr", "clear", "nirvana"],
+                "enum": ["show", "nap", "refresh", "sleep", "lull", "interrupt", "suspend", "cpr", "clear", "nirvana", "presets"],
                 "description": t(lang, "system_tool.action_description"),
             },
             "seconds": {
@@ -45,6 +45,10 @@ def get_schema(lang: str = "en") -> dict:
             "address": {
                 "type": "string",
                 "description": t(lang, "system_tool.address_description"),
+            },
+            "preset": {
+                "type": "string",
+                "description": t(lang, "system_tool.preset_description"),
             },
         },
         "required": ["action"],
@@ -65,6 +69,7 @@ def handle(agent, args: dict) -> dict:
         "interrupt": _interrupt,
         "clear": _clear,
         "nirvana": _nirvana,
+        "presets": _presets,
     }.get(action)
     if handler is None:
         return {"status": "error", "message": f"Unknown system action: {action}"}
@@ -142,11 +147,81 @@ def _nap(agent, args: dict) -> dict:
 def _refresh(agent, args: dict) -> dict:
     from ..i18n import t
     reason = args.get("reason", "")
+    preset_name = args.get("preset")
+
+    if preset_name is not None:
+        try:
+            agent._activate_preset(preset_name)
+        except KeyError:
+            agent._log("preset_swap_failed",
+                       requested=preset_name,
+                       reason="not_found")
+            return {"status": "error",
+                    "message": f"preset {preset_name!r} not found"}
+        except (ValueError, OSError) as e:
+            agent._log("preset_swap_failed",
+                       requested=preset_name,
+                       reason=str(e))
+            return {"status": "error",
+                    "message": f"failed to activate preset {preset_name!r}: {e}"}
+        agent._log("preset_swap_started",
+                   preset=preset_name, reason=reason)
+
     agent._log("refresh_requested", reason=reason)
     agent._perform_refresh()
     return {
         "status": "ok",
         "message": t(agent._config.language, "system_tool.refresh_message"),
+    }
+
+
+def _presets(agent, args: dict) -> dict:
+    """List available presets in the agent's library, with active marker.
+
+    Reads init.json from disk to discover presets_path and active_preset,
+    then enumerates the library. Strips credentials from llm summary.
+    """
+    import json
+    from pathlib import Path
+    from lingtai.presets import discover_presets, load_preset, default_presets_path
+
+    init_path = agent._working_dir / "init.json"
+    try:
+        raw = json.loads(init_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        return {"status": "error", "message": f"failed to read init.json: {e}"}
+
+    manifest = raw.get("manifest", {})
+    active = manifest.get("active_preset")
+    presets_path_str = manifest.get("presets_path")
+    if presets_path_str:
+        p = Path(presets_path_str).expanduser()
+        presets_path = p if p.is_absolute() else (agent._working_dir / p).resolve()
+    else:
+        presets_path = default_presets_path()
+
+    available = []
+    for name in sorted(discover_presets(presets_path).keys()):
+        try:
+            preset = load_preset(presets_path, name)
+        except (KeyError, ValueError):
+            continue  # malformed presets are silently skipped from listing
+        pm = preset.get("manifest", {})
+        llm = pm.get("llm", {})
+        available.append({
+            "name": name,
+            "description": preset.get("description", ""),
+            "llm": {
+                "provider": llm.get("provider"),
+                "model": llm.get("model"),
+            },
+            "capabilities": pm.get("capabilities", {}),
+        })
+
+    return {
+        "status": "ok",
+        "active": active,
+        "available": available,
     }
 
 

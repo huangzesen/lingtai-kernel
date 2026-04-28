@@ -1086,6 +1086,16 @@ class BaseAgent:
         )
         self._log("refresh_deferred_relaunch", cmd=cmd[0])
 
+    def _activate_preset(self, name: str) -> None:
+        """Swap to a named preset — override in subclasses that support presets.
+
+        BaseAgent raises NotImplementedError; Agent (lingtai.agent) overrides
+        this with the real implementation (T5).
+        """
+        raise NotImplementedError(
+            f"_activate_preset not supported on {type(self).__name__}"
+        )
+
     def _build_launch_cmd(self) -> list[str] | None:
         """Return the command to relaunch this agent. Override in subclasses."""
         return None

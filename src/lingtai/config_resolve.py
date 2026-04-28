@@ -8,9 +8,28 @@ from pathlib import Path
 
 
 def load_jsonc(path: str | Path) -> dict:
-    """Load a JSON or JSONC file (strips // comments and trailing commas)."""
+    """Load a JSON or JSONC file (strips // comments and trailing commas).
+
+    Comment stripping is string-aware: // inside a quoted JSON string value
+    is never treated as a comment (preserving URLs like "https://host/...").
+    """
     text = Path(path).read_text(encoding="utf-8")
-    text = re.sub(r'//.*$', '', text, flags=re.MULTILINE)
+    # Strip // comments only when not inside a JSON string.
+    # Strategy: tokenise by alternating between string spans and non-string
+    # spans; within non-string spans, replace //...EOL with nothing.
+    _STRING_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
+    parts: list[str] = []
+    pos = 0
+    for m in _STRING_RE.finditer(text):
+        # Non-string chunk before this string: strip comments
+        chunk = re.sub(r'//[^\n]*', '', text[pos:m.start()])
+        parts.append(chunk)
+        # String literal: preserve verbatim
+        parts.append(m.group())
+        pos = m.end()
+    # Trailing non-string chunk after last string
+    parts.append(re.sub(r'//[^\n]*', '', text[pos:]))
+    text = ''.join(parts)
     text = re.sub(r',\s*([}\]])', r'\1', text)
     return json.loads(text)
 
