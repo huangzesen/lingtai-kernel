@@ -335,7 +335,7 @@ def _check_karma_gate(agent, action: str, args: dict) -> dict | None:
     if action in _KARMA_ACTIONS and not agent._admin.get("karma"):
         return {"error": True, "message": f"Not authorized for {action} (requires admin.karma=True)"}
     if action in _NIRVANA_ACTIONS and not (agent._admin.get("karma") and agent._admin.get("nirvana")):
-        return {"error": True, "message": f"Not authorized for {action} (requires admin.nirvana=True)"}
+        return {"error": True, "message": f"Not authorized for {action} (requires admin.karma=True AND admin.nirvana=True)"}
     address = args.get("address")
     if not address:
         return {"error": True, "message": f"{action} requires an address"}
