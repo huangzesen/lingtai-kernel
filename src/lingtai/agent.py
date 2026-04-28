@@ -531,7 +531,7 @@ class Agent(BaseAgent):
         import json
         from .init_schema import validate_init
         from .config_resolve import resolve_paths
-        from .presets import load_preset, expand_inherit, default_presets_path
+        from .presets import load_preset, expand_inherit, default_presets_path, resolve_presets_path
 
         init_path = self._working_dir / "init.json"
         if not init_path.is_file():
@@ -549,14 +549,10 @@ class Agent(BaseAgent):
         if isinstance(manifest, dict) and manifest.get("active_preset"):
             preset_name = manifest["active_preset"]
             presets_path_str = manifest.get("presets_path")
-            if presets_path_str:
-                p = Path(presets_path_str).expanduser()
-                presets_path = p if p.is_absolute() else (self._working_dir / p).resolve()
-            else:
-                if presets_path_str == "":
-                    self._log("refresh_init_warning",
-                              warning="manifest.presets_path is empty string — falling back to default")
-                presets_path = default_presets_path()
+            if presets_path_str == "":
+                self._log("refresh_init_warning",
+                          warning="manifest.presets_path is empty string — falling back to default")
+            presets_path = resolve_presets_path(manifest, self._working_dir)
             try:
                 preset = load_preset(presets_path, preset_name)
             except (KeyError, ValueError) as e:
@@ -604,18 +600,13 @@ class Agent(BaseAgent):
         """
         import json
         import os
-        from .presets import load_preset, default_presets_path
+        from .presets import load_preset, resolve_presets_path
 
         init_path = self._working_dir / "init.json"
         data = json.loads(init_path.read_text(encoding="utf-8"))
         manifest = data.setdefault("manifest", {})
 
-        presets_path_str = manifest.get("presets_path")
-        if presets_path_str:
-            p = Path(presets_path_str).expanduser()
-            presets_path = p if p.is_absolute() else (self._working_dir / p).resolve()
-        else:
-            presets_path = default_presets_path()
+        presets_path = resolve_presets_path(manifest, self._working_dir)
 
         preset = load_preset(presets_path, name)  # raises KeyError / ValueError
         preset_manifest = preset.get("manifest", {})

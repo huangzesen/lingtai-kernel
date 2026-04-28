@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from lingtai.presets import discover_presets, load_preset, default_presets_path, expand_inherit
+from lingtai.presets import discover_presets, load_preset, default_presets_path, expand_inherit, resolve_presets_path
 
 
 def test_discover_presets_empty_dir(tmp_path):
@@ -198,3 +198,38 @@ def test_expand_inherit_handles_missing_main_llm_creds():
     expand_inherit(caps, main_llm)
     assert caps["web_search"]["provider"] == "local"
     assert caps["web_search"].get("api_key_env") is None
+
+
+# ---------------------------------------------------------------------------
+# resolve_presets_path
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_presets_path_absolute(tmp_path):
+    abs_path = tmp_path / "presets"
+    manifest = {"presets_path": str(abs_path)}
+    result = resolve_presets_path(manifest, tmp_path / "wd")
+    assert result == abs_path
+
+
+def test_resolve_presets_path_relative(tmp_path):
+    """Relative path resolves against working_dir, not CWD."""
+    wd = tmp_path / "wd"
+    wd.mkdir()
+    manifest = {"presets_path": "./my_presets"}
+    result = resolve_presets_path(manifest, wd)
+    assert result == (wd / "my_presets").resolve()
+
+
+def test_resolve_presets_path_default_when_missing(tmp_path):
+    """Missing presets_path falls back to default_presets_path."""
+    manifest = {}
+    result = resolve_presets_path(manifest, tmp_path)
+    assert result == default_presets_path()
+
+
+def test_resolve_presets_path_default_when_empty(tmp_path):
+    """Empty-string presets_path falls back to default."""
+    manifest = {"presets_path": ""}
+    result = resolve_presets_path(manifest, tmp_path)
+    assert result == default_presets_path()

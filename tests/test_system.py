@@ -463,3 +463,20 @@ def test_presets_action_empty_library(tmp_path):
 
     assert result["status"] == "ok"
     assert result["available"] == []
+
+
+def test_refresh_with_preset_handles_not_implemented(tmp_path):
+    """When _activate_preset is the BaseAgent stub (raises NotImplementedError),
+    _refresh returns a clean error dict instead of letting the exception escape."""
+    agent = _make_test_agent_for_presets(tmp_path)
+    # Don't monkeypatch _activate_preset — let the BaseAgent stub fire.
+    # _perform_refresh must NOT be called when activation fails.
+    perform_calls = []
+    import unittest.mock as _mock
+    with _mock.patch.object(agent, "_perform_refresh",
+                            lambda: perform_calls.append(True)):
+        result = agent._intrinsics["system"](
+            {"action": "refresh", "preset": "anything"})
+    assert result["status"] == "error"
+    assert "anything" in result["message"]
+    assert perform_calls == []  # refresh NOT triggered

@@ -10,6 +10,7 @@ This module owns:
 - `load_preset`: read + validate one preset
 - `expand_inherit`: resolve `"provider": "inherit"` sentinels against main LLM
 - `default_presets_path`: the TUI's per-machine library at ~/.lingtai-tui/presets/
+- `resolve_presets_path`: resolve manifest.presets_path against working_dir
 
 The TUI's existing schema is `{name, description, manifest: {...}}`. The kernel
 adopts it unchanged. The `description` field may be a plain string or a
@@ -26,6 +27,25 @@ log = logging.getLogger(__name__)
 def default_presets_path() -> Path:
     """The TUI's per-machine preset library."""
     return Path.home() / ".lingtai-tui" / "presets"
+
+
+def resolve_presets_path(manifest: dict, working_dir: Path) -> Path:
+    """Resolve manifest.presets_path against working_dir, defaulting to
+    ~/.lingtai-tui/presets/ when unset.
+
+    Relative paths are resolved against working_dir (not the process CWD)
+    so an agent's library reference remains valid regardless of where the
+    process was launched.
+
+    Empty-string and missing both fall back to the default; the difference
+    (silent fallback for missing, warning-eligible for empty string) is the
+    caller's concern — _read_init emits the warning before calling this.
+    """
+    presets_path_str = manifest.get("presets_path")
+    if presets_path_str:
+        p = Path(presets_path_str).expanduser()
+        return p if p.is_absolute() else (working_dir / p).resolve()
+    return default_presets_path()
 
 
 def discover_presets(presets_path: Path | str) -> dict[str, Path]:

@@ -158,7 +158,7 @@ def _refresh(agent, args: dict) -> dict:
                        reason="not_found")
             return {"status": "error",
                     "message": f"preset {preset_name!r} not found"}
-        except (ValueError, OSError) as e:
+        except (ValueError, OSError, NotImplementedError) as e:
             agent._log("preset_swap_failed",
                        requested=preset_name,
                        reason=str(e))
@@ -182,8 +182,7 @@ def _presets(agent, args: dict) -> dict:
     then enumerates the library. Strips credentials from llm summary.
     """
     import json
-    from pathlib import Path
-    from lingtai.presets import discover_presets, load_preset, default_presets_path
+    from lingtai.presets import discover_presets, load_preset, resolve_presets_path
 
     init_path = agent._working_dir / "init.json"
     try:
@@ -193,12 +192,7 @@ def _presets(agent, args: dict) -> dict:
 
     manifest = raw.get("manifest", {})
     active = manifest.get("active_preset")
-    presets_path_str = manifest.get("presets_path")
-    if presets_path_str:
-        p = Path(presets_path_str).expanduser()
-        presets_path = p if p.is_absolute() else (agent._working_dir / p).resolve()
-    else:
-        presets_path = default_presets_path()
+    presets_path = resolve_presets_path(manifest, agent._working_dir)
 
     available = []
     for name in sorted(discover_presets(presets_path).keys()):

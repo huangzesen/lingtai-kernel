@@ -7,6 +7,12 @@ import re
 from pathlib import Path
 
 
+# Module-level: pre-compiled regex for JSONC string literals (matches "..."
+# with escape sequences). Used by load_jsonc to skip over string contents
+# when stripping // comments.
+_JSONC_STRING_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
+
+
 def load_jsonc(path: str | Path) -> dict:
     """Load a JSON or JSONC file (strips // comments and trailing commas).
 
@@ -17,10 +23,9 @@ def load_jsonc(path: str | Path) -> dict:
     # Strip // comments only when not inside a JSON string.
     # Strategy: tokenise by alternating between string spans and non-string
     # spans; within non-string spans, replace //...EOL with nothing.
-    _STRING_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
     parts: list[str] = []
     pos = 0
-    for m in _STRING_RE.finditer(text):
+    for m in _JSONC_STRING_RE.finditer(text):
         # Non-string chunk before this string: strip comments
         chunk = re.sub(r'//[^\n]*', '', text[pos:m.start()])
         parts.append(chunk)
