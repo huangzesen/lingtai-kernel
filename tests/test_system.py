@@ -283,11 +283,15 @@ def test_system_unknown_action(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _make_test_agent_for_presets(tmp_path, presets_path=None, active_preset=None):
+def _make_test_agent_for_presets(tmp_path, presets_path=None, active_preset=None, default_preset=None):
     """Build a BaseAgent for preset tests with init.json containing optional
     manifest.preset umbrella. The agent's _activate_preset and
     _perform_refresh are intentionally left as the BaseAgent defaults; tests
-    monkeypatch them to observe call patterns."""
+    monkeypatch them to observe call patterns.
+
+    default_preset: if provided, writes manifest.preset.default to this value
+    (instead of mirroring active_preset).
+    """
     import json
     wd = tmp_path / "test"
     wd.mkdir(exist_ok=True)
@@ -302,7 +306,8 @@ def _make_test_agent_for_presets(tmp_path, presets_path=None, active_preset=None
         "admin": {}, "streaming": False,
     }
     if active_preset:
-        preset_block: dict = {"active": active_preset, "default": active_preset}
+        resolved_default = default_preset if default_preset is not None else active_preset
+        preset_block: dict = {"active": active_preset, "default": resolved_default}
         if presets_path:
             preset_block["path"] = str(presets_path)
         manifest["preset"] = preset_block
@@ -486,3 +491,152 @@ def test_refresh_with_preset_handles_not_implemented(tmp_path):
     assert result["status"] == "error"
     assert "anything" in result["message"]
     assert perform_calls == []  # refresh NOT triggered
+
+
+# ---------------------------------------------------------------------------
+# revert_preset flag
+# ---------------------------------------------------------------------------
+
+
+def test_refresh_revert_preset_swaps_to_default(tmp_path, monkeypatch):
+    """system(refresh, revert_preset=True) calls _activate_default_preset then _perform_refresh."""
+    # Make active != default by editing init.json after agent construction
+    import json
+    plib = tmp_path / "presets"
+    plib.mkdir()
+    (plib / "boring.json").write_text(json.dumps({
+        "name": "boring", "description": "default",
+        "manifest": {"llm": {"provider": "p1", "model": "m1",
+                             "api_key": None, "api_key_env": "P1KEY"},
+                     "capabilities": {"file": {}}},
+    }))
+    (plib / "fancy.json").write_text(json.dumps({
+        "name": "fancy", "description": "non-default",
+        "manifest": {"llm": {"provider": "p2", "model": "m2",
+                             "api_key": None, "api_key_env": "P2KEY"},
+                     "capabilities": {"file": {}}},
+    }))
+    agent = _make_test_agent_for_presets(tmp_path,
+                                          presets_path=plib,
+                                          active_preset="fancy",
+                                          default_preset="boring")
+
+    activate_default_calls = []
+    perform_calls = []
+    monkeypatch.setattr(agent, "_activate_default_preset",
+                        lambda: activate_default_calls.append(True))
+    monkeypatch.setattr(agent, "_perform_refresh",
+                        lambda: perform_calls.append(True))
+
+    result = agent._intrinsics["system"]({"action": "refresh", "revert_preset": True})
+
+    assert result["status"] == "ok"
+    assert activate_default_calls == [True]
+    assert perform_calls == [True]
+
+
+def test_refresh_revert_preset_with_preset_arg_errors(tmp_path):
+    """system(refresh, preset='x', revert_preset=True) returns error."""
+    agent = _make_test_agent_for_presets(tmp_path)
+
+    result = agent._intrinsics["system"]({
+        "action": "refresh",
+        "preset": "minimax",
+        "revert_preset": True,
+    })
+
+    assert result["status"] == "error"
+    msg = result["message"].lower()
+    assert "both" in msg or "either" in msg or "one" in msg
+    assert "preset" in msg
+    assert "revert" in msg
+
+
+def test_refresh_revert_preset_when_no_preset_configured_errors(tmp_path, monkeypatch):
+    """system(refresh, revert_preset=True) errors if manifest.preset is absent.
+
+    Implementation does this by letting _activate_default_preset's RuntimeError
+    propagate through the existing exception-handling block."""
+    # Build an agent without a preset block
+    from lingtai_kernel.base_agent import BaseAgent
+    from unittest.mock import MagicMock
+    import json
+    svc = MagicMock()
+    svc.get_adapter.return_value = MagicMock()
+    svc.provider = "x"
+    svc.model = "y"
+    wd = tmp_path / "test"
+    wd.mkdir()
+    init = {
+        "manifest": {
+            "agent_name": "alice", "language": "en",
+            "llm": {"provider": "x", "model": "y", "api_key": None, "api_key_env": "X"},
+            "capabilities": {}, "soul": {"delay": 120}, "stamina": 3600,
+            "molt_pressure": 0.8, "molt_prompt": "", "max_turns": 50,
+            "admin": {}, "streaming": False,
+        },
+        "principle": "p", "covenant": "c", "pad": "", "prompt": "", "soul": "",
+    }
+    (wd / "init.json").write_text(json.dumps(init))
+    agent = BaseAgent(service=svc, agent_name="alice", working_dir=wd)
+
+    # Don't actually relaunch on _perform_refresh
+    monkeypatch.setattr(agent, "_perform_refresh", lambda: None)
+
+    result = agent._intrinsics["system"]({"action": "refresh", "revert_preset": True})
+    assert result["status"] == "error"
+    msg = result["message"].lower()
+    assert "default" in msg or "no preset" in msg or "configured" in msg
+
+
+def test_refresh_revert_preset_false_is_noop(tmp_path, monkeypatch):
+    """revert_preset=False behaves identically to omitting the flag."""
+    agent = _make_test_agent_for_presets(tmp_path)
+
+    activate_default_calls = []
+    activate_calls = []
+    perform_calls = []
+    monkeypatch.setattr(agent, "_activate_default_preset",
+                        lambda: activate_default_calls.append(True))
+    monkeypatch.setattr(agent, "_activate_preset",
+                        lambda n: activate_calls.append(n))
+    monkeypatch.setattr(agent, "_perform_refresh",
+                        lambda: perform_calls.append(True))
+
+    result = agent._intrinsics["system"]({"action": "refresh", "revert_preset": False})
+
+    assert result["status"] == "ok"
+    assert activate_default_calls == []  # not called
+    assert activate_calls == []  # not called
+    assert perform_calls == [True]
+
+
+def test_refresh_revert_preset_when_active_equals_default_still_succeeds(tmp_path, monkeypatch):
+    """Reverting when already on default is fine — _activate_default_preset is
+    effectively a no-op rewrite, refresh proceeds normally."""
+    import json
+    plib = tmp_path / "presets"
+    plib.mkdir()
+    (plib / "home.json").write_text(json.dumps({
+        "name": "home", "description": "x",
+        "manifest": {"llm": {"provider": "p", "model": "m",
+                             "api_key": None, "api_key_env": "PKEY"},
+                     "capabilities": {"file": {}}},
+    }))
+    agent = _make_test_agent_for_presets(tmp_path,
+                                          presets_path=plib,
+                                          active_preset="home",
+                                          default_preset="home")  # same as active
+
+    activate_default_calls = []
+    perform_calls = []
+    monkeypatch.setattr(agent, "_activate_default_preset",
+                        lambda: activate_default_calls.append(True))
+    monkeypatch.setattr(agent, "_perform_refresh",
+                        lambda: perform_calls.append(True))
+
+    result = agent._intrinsics["system"]({"action": "refresh", "revert_preset": True})
+
+    assert result["status"] == "ok"
+    assert activate_default_calls == [True]  # called even though it's effectively a no-op
+    assert perform_calls == [True]

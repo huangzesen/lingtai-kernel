@@ -50,6 +50,10 @@ def get_schema(lang: str = "en") -> dict:
                 "type": "string",
                 "description": t(lang, "system_tool.preset_description"),
             },
+            "revert_preset": {
+                "type": "boolean",
+                "description": t(lang, "system_tool.revert_preset_description"),
+            },
         },
         "required": ["action"],
     }
@@ -197,6 +201,31 @@ def _refresh(agent, args: dict) -> dict:
     from ..i18n import t
     reason = args.get("reason", "")
     preset_name = args.get("preset")
+    revert_preset = args.get("revert_preset", False)
+
+    # Conflict: cannot specify both 'preset' and 'revert_preset'.
+    if preset_name and revert_preset:
+        return {
+            "status": "error",
+            "message": "cannot specify both 'preset' and 'revert_preset' — choose one",
+        }
+
+    # Revert path: read default name from disk, then route through the same
+    # context-limit guard and activation as a named swap.
+    if revert_preset:
+        try:
+            import json as _json
+            init_path = agent._working_dir / "init.json"
+            data = _json.loads(init_path.read_text(encoding="utf-8"))
+            preset_block = data.get("manifest", {}).get("preset") or {}
+            default_name = preset_block.get("default") if isinstance(preset_block, dict) else None
+        except Exception as e:
+            return {"status": "error",
+                    "message": f"failed to read default preset: {e}"}
+        if not default_name:
+            return {"status": "error",
+                    "message": "no default preset configured — manifest.preset.default is missing"}
+        preset_name = default_name
 
     if preset_name is not None:
         # Guard: refuse swap if the target preset's context_limit is smaller
@@ -208,21 +237,24 @@ def _refresh(agent, args: dict) -> dict:
             return {"status": "error", "message": refuse_msg}
 
         try:
-            agent._activate_preset(preset_name)
+            if revert_preset:
+                agent._activate_default_preset()
+            else:
+                agent._activate_preset(preset_name)
         except KeyError:
             agent._log("preset_swap_failed",
                        requested=preset_name,
                        reason="not_found")
             return {"status": "error",
                     "message": f"preset {preset_name!r} not found — call system(action='presets') to see available presets"}
-        except (ValueError, OSError, NotImplementedError) as e:
+        except (ValueError, OSError, NotImplementedError, RuntimeError) as e:
             agent._log("preset_swap_failed",
                        requested=preset_name,
                        reason=str(e))
             return {"status": "error",
                     "message": f"failed to activate preset {preset_name!r}: {e}"}
         agent._log("preset_swap_started",
-                   preset=preset_name, reason=reason)
+                   preset=preset_name, reason=reason, revert=revert_preset)
 
     agent._log("refresh_requested", reason=reason)
     agent._perform_refresh()
