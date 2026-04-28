@@ -174,15 +174,27 @@ class DaemonManager:
 
     def _run_emanation(self, em_id: str, run_dir, schemas, dispatch,
                        task: str, model: str | None,
-                       cancel_event: threading.Event) -> str:
+                       cancel_event: threading.Event,
+                       timeout_event: threading.Event | None = None) -> str:
         """Run a single emanation's tool loop. Called in a worker thread.
 
         run_dir is the DaemonRunDir constructed in _handle_emanate. All
         filesystem effects flow through it.
+
+        timeout_event distinguishes watchdog-fired cancellation (timeout) from
+        manual reclaim. When set alongside cancel_event, the run loop calls
+        mark_timeout instead of mark_cancelled. None is allowed for direct-call
+        tests and the cancellation defaults to "cancelled" semantics.
         """
-        if cancel_event.is_set():
-            run_dir.mark_cancelled()
+        def _exit_cancelled() -> str:
+            if timeout_event is not None and timeout_event.is_set():
+                run_dir.mark_timeout()
+            else:
+                run_dir.mark_cancelled()
             return "[cancelled]"
+
+        if cancel_event.is_set():
+            return _exit_cancelled()
 
         session = self._agent.service.create_session(
             system_prompt=run_dir.prompt_path.read_text(encoding="utf-8"),
@@ -212,8 +224,7 @@ class DaemonManager:
 
             while response.tool_calls and turns < self._max_turns:
                 if cancel_event.is_set():
-                    run_dir.mark_cancelled()
-                    return "[cancelled]"
+                    return _exit_cancelled()
 
                 # Intermediate text → notify parent
                 if response.text:
@@ -306,6 +317,11 @@ class DaemonManager:
                                  max=self._max_emanations)}
 
         cancel_event = threading.Event()
+        # Separate event so the watchdog can distinguish timeout from manual
+        # reclaim. Watchdog sets BOTH on timeout; reclaim sets only cancel_event.
+        # The run loop checks timeout_event first to call mark_timeout vs
+        # mark_cancelled.
+        timeout_event = threading.Event()
         pool = ThreadPoolExecutor(max_workers=len(tasks))
         self._pools.append((pool, cancel_event))
 
@@ -342,6 +358,7 @@ class DaemonManager:
                     parent_addr=parent_addr,
                     parent_pid=parent_pid,
                     system_prompt=system_prompt,
+                    log_callback=self._log,
                 )
             except OSError as e:
                 return {"status": "error",
@@ -350,7 +367,7 @@ class DaemonManager:
             future = pool.submit(
                 self._run_emanation,
                 em_id, run_dir, schemas, dispatch,
-                spec["task"], spec.get("model"), cancel_event,
+                spec["task"], spec.get("model"), cancel_event, timeout_event,
             )
             future.add_done_callback(
                 lambda f, eid=em_id, task=spec["task"]:
@@ -361,14 +378,16 @@ class DaemonManager:
                 "task": spec["task"],
                 "start_time": time.time(),
                 "cancel_event": cancel_event,
+                "timeout_event": timeout_event,
                 "followup_buffer": "",
                 "followup_lock": threading.Lock(),
                 "run_dir": run_dir,
             }
 
-        # Start watchdog
+        # Start watchdog — sets timeout_event AND cancel_event when timer fires
         watchdog = threading.Thread(
-            target=self._watchdog, args=(cancel_event, self._timeout),
+            target=self._watchdog,
+            args=(cancel_event, timeout_event, self._timeout),
             daemon=True,
         )
         watchdog.start()
@@ -460,13 +479,20 @@ class DaemonManager:
         else:
             self._notify_parent(em_id, text)
 
-    def _watchdog(self, cancel_event: threading.Event, timeout: float) -> None:
-        """Kill emanations that exceed the timeout."""
+    def _watchdog(self, cancel_event: threading.Event,
+                  timeout_event: threading.Event, timeout: float) -> None:
+        """Kill emanations that exceed the timeout.
+
+        Sets timeout_event BEFORE cancel_event so the run loop can observe
+        the timeout flag at its next checkpoint and call mark_timeout instead
+        of mark_cancelled.
+        """
         deadline = time.time() + timeout
         while time.time() < deadline:
             if cancel_event.is_set():
                 return
             time.sleep(1.0)
+        timeout_event.set()
         cancel_event.set()
 
     def _log(self, event_type: str, **fields) -> None:

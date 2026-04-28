@@ -621,3 +621,85 @@ def test_e2e_emanate_writes_full_fs_artifact(tmp_path):
     # daemon.json still readable, still state=done (reclaim doesn't rewrite completed daemons)
     data_after = json.loads((folder / "daemon.json").read_text())
     assert data_after["state"] == "done"
+
+
+def test_run_emanation_timeout_calls_mark_timeout(tmp_path):
+    """When timeout_event is set alongside cancel_event, the run loop calls
+    mark_timeout (state=timeout) instead of mark_cancelled (state=cancelled)."""
+    agent = _make_agent(tmp_path, ["file", "daemon"])
+    mgr = agent.get_capability("daemon")
+    schemas, dispatch = mgr._build_tool_surface(["file"])
+    run_dir = _make_run_dir(agent, em_id="em-test")
+
+    cancel = threading.Event()
+    timeout_event = threading.Event()
+    # Watchdog-style: set both, with timeout_event marking the cause
+    timeout_event.set()
+    cancel.set()
+
+    mgr._emanations["em-test"] = {
+        "followup_buffer": "",
+        "followup_lock": threading.Lock(),
+        "run_dir": run_dir,
+    }
+    result = mgr._run_emanation("em-test", run_dir, schemas, dispatch,
+                                 "task", None, cancel, timeout_event)
+    assert result == "[cancelled]"
+    data = json.loads(run_dir.daemon_json_path.read_text())
+    assert data["state"] == "timeout"
+    last_event = json.loads(run_dir.events_path.read_text().splitlines()[-1])
+    assert last_event["event"] == "daemon_timeout"
+
+
+def test_run_emanation_manual_reclaim_calls_mark_cancelled(tmp_path):
+    """When cancel_event is set WITHOUT timeout_event, the run loop calls
+    mark_cancelled (the manual-reclaim semantic)."""
+    agent = _make_agent(tmp_path, ["file", "daemon"])
+    mgr = agent.get_capability("daemon")
+    schemas, dispatch = mgr._build_tool_surface(["file"])
+    run_dir = _make_run_dir(agent, em_id="em-test")
+
+    cancel = threading.Event()
+    timeout_event = threading.Event()
+    # Reclaim-style: only cancel_event set
+    cancel.set()
+
+    mgr._emanations["em-test"] = {
+        "followup_buffer": "",
+        "followup_lock": threading.Lock(),
+        "run_dir": run_dir,
+    }
+    result = mgr._run_emanation("em-test", run_dir, schemas, dispatch,
+                                 "task", None, cancel, timeout_event)
+    assert result == "[cancelled]"
+    data = json.loads(run_dir.daemon_json_path.read_text())
+    assert data["state"] == "cancelled"
+    last_event = json.loads(run_dir.events_path.read_text().splitlines()[-1])
+    assert last_event["event"] == "daemon_cancelled"
+
+
+def test_watchdog_sets_both_events(tmp_path):
+    """Watchdog must set timeout_event before cancel_event so the run loop
+    can observe the cause when it next checks."""
+    agent = _make_agent(tmp_path, ["daemon"])
+    mgr = agent.get_capability("daemon")
+    cancel = threading.Event()
+    timeout_event = threading.Event()
+    # Use a tiny timeout so the watchdog fires almost immediately
+    mgr._watchdog(cancel, timeout_event, timeout=0.01)
+    assert timeout_event.is_set()
+    assert cancel.is_set()
+
+
+def test_watchdog_returns_when_already_cancelled(tmp_path):
+    """Watchdog must NOT set timeout_event when cancel_event was set first
+    (manual reclaim path — timeout_event must remain unset)."""
+    agent = _make_agent(tmp_path, ["daemon"])
+    mgr = agent.get_capability("daemon")
+    cancel = threading.Event()
+    timeout_event = threading.Event()
+    cancel.set()  # simulate manual reclaim before watchdog deadline
+    # Long timeout so we'd notice if it fired
+    mgr._watchdog(cancel, timeout_event, timeout=60.0)
+    assert cancel.is_set()
+    assert not timeout_event.is_set()

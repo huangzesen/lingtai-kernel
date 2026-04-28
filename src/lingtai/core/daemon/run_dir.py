@@ -44,9 +44,14 @@ class DaemonRunDir:
         parent_addr: str,
         parent_pid: int,
         system_prompt: str,
+        log_callback=None,
     ):
         self._handle = handle
         self._parent_token_ledger = parent_working_dir / "logs" / "token_ledger.jsonl"
+        # Optional callback for swallowed OSError visibility — invoked as
+        # log_callback("daemon_fs_error", op=<op_name>, error=<str(exc)>).
+        # When None, _safe stays silent (preserves prior behavior for tests).
+        self._log_callback = log_callback
         self._started_monotonic = time.monotonic()
         started_at_iso = self._now_iso()
 
@@ -154,14 +159,27 @@ class DaemonRunDir:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     def _safe(self, op: str, fn) -> None:
-        """Run `fn`; swallow OSError (best-effort policy for mutation writes)."""
+        """Run `fn`; swallow OSError (best-effort policy for mutation writes).
+
+        If a log_callback was provided at construction, the swallowed error is
+        forwarded so the parent agent can record it without breaking the run.
+        """
         try:
             fn()
-        except OSError:
-            # Best-effort: missing a status update is far less harmful than
-            # crashing the LLM loop. Not logged here — the DaemonManager
-            # owns logging via _agent._log.
-            pass
+        except OSError as e:
+            if self._log_callback is not None:
+                try:
+                    self._log_callback(
+                        "daemon_fs_error",
+                        em_id=self._handle,
+                        run_id=self._run_id,
+                        op=op,
+                        error=str(e),
+                    )
+                except Exception:
+                    # Logging itself must never break the run — secondary
+                    # failure is silent by design.
+                    pass
 
     # ------------------------------------------------------------------
     # Per-turn hooks

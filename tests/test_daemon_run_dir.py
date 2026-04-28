@@ -471,3 +471,51 @@ def test_mark_failed_event_includes_elapsed_s(tmp_path):
     last = json.loads(rd.events_path.read_text().splitlines()[-1])
     assert last["event"] == "daemon_error"
     assert "elapsed_s" in last
+
+
+def test_log_callback_invoked_on_oserror(tmp_path, monkeypatch):
+    """When _safe swallows an OSError, the optional log_callback is invoked."""
+    captured = []
+    rd = _make_run_dir(tmp_path, log_callback=lambda event, **fields: captured.append((event, fields)))
+
+    # Force the atomic-write step to raise so _safe catches an OSError
+    def failing_replace(src, dst):
+        raise OSError("simulated disk full")
+    monkeypatch.setattr("os.replace", failing_replace)
+
+    rd.set_current_tool("read", {})
+
+    assert len(captured) >= 1
+    event, fields = captured[0]
+    assert event == "daemon_fs_error"
+    assert fields["op"] == "set_current_tool"
+    assert fields["em_id"] == rd.handle
+    assert fields["run_id"] == rd.run_id
+    assert "error" in fields
+
+
+def test_log_callback_optional_no_op(tmp_path, monkeypatch):
+    """When log_callback is None, _safe stays silent on OSError (prior behavior)."""
+    rd = _make_run_dir(tmp_path)  # no log_callback
+
+    def failing_replace(src, dst):
+        raise OSError("simulated")
+    monkeypatch.setattr("os.replace", failing_replace)
+
+    # Should not raise even with no callback
+    rd.set_current_tool("read", {})
+
+
+def test_log_callback_failures_swallowed(tmp_path, monkeypatch):
+    """If the log_callback itself raises, _safe still returns cleanly."""
+    def bad_callback(event, **fields):
+        raise RuntimeError("callback exploded")
+
+    rd = _make_run_dir(tmp_path, log_callback=bad_callback)
+
+    def failing_replace(src, dst):
+        raise OSError("simulated")
+    monkeypatch.setattr("os.replace", failing_replace)
+
+    # Should not raise — secondary failure (callback exception) is silent
+    rd.set_current_tool("read", {})
