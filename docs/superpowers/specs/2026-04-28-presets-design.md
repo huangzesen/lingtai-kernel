@@ -20,7 +20,7 @@ Design tenets:
 
 - **Preset is a chosen configuration, not an identity.** The agent remains itself across swaps: same memory, pad, codex, chat history, name, agent_id, peer relations, running daemons. Only the **胎光 (LLM)** and **肉身 (capability set)** change — the implements the agent currently uses, not who the agent is.
 - **Atomic bundle.** A preset always carries both halves. Power users who want to flip only one half edit `init.json` directly; the agent never sees a half-swap verb.
-- **Soul-light + body in one motion.** The agent does not care that LLM and capabilities are technically separate. It picks "cheap" or "stealth" or "vision-heavy" — one name, one act.
+- **Two halves, one motion.** Each swap rebuilds both 胎光 and 肉身 atomically — but the agent reasons about the two halves separately when *choosing* which preset to swap to. A preset may bundle a weaker LLM with stronger faculties (e.g. Minimax with multi-modal vision); the agent can deliberately accept the LLM cost to gain the faculty, do the visual work, then swap back. The structured `comment` field exists precisely so authors can document these tradeoffs and the agent can read them. The act is one motion; the *reasoning* about it is two-dimensional.
 - **Swap is folded into `refresh`.** Refresh already means "re-read `init.json` and rebuild." Swap is "edit `init.json` first, then refresh." Same engine, optional new parameter.
 
 ## Non-Goals
@@ -403,4 +403,4 @@ Across the spec, the following framing terms are used in agent-facing i18n descr
 - **行囊** (xíng náng) — the preset library. The agent's bag of implements.
 - **易形换胎** — the swap act. Light, deliberate, identity-preserving.
 
-The agent reads `refresh` schema description as: *"Re-read your config and rebuild yourself. Optional `preset` argument: pick a different bundle of mind-light and hands from your library — like a practitioner reaching into their bag for a different set of implements. You remain yourself; only your current implements change."*
+The agent reads `refresh` schema description as: *"Re-read your config and rebuild yourself. Optional `preset` argument: pick a different bundle of mind-light (LLM) and hands (capabilities) from your library — like a practitioner reaching into their bag for a different set of implements. Each preset is a deliberate tradeoff between the two halves: a smarter LLM with fewer faculties, a weaker LLM with multi-modal vision, a fast model with stealth web tools. Read each preset's `comment` field to know what you'd gain and lose. The swap is light, takes one call, and reversible. You remain yourself; only your current implements change."*
