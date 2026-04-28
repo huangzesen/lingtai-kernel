@@ -536,3 +536,88 @@ def test_handle_list_includes_run_id_and_path(tmp_path):
     assert "path" in em
     assert em["run_id"].startswith("em-1-")
     assert em["path"].endswith(em["run_id"])
+
+
+def test_e2e_emanate_writes_full_fs_artifact(tmp_path):
+    """Full lifecycle: emanate → tool dispatch → completion → forensic folder."""
+    agent = _make_agent(tmp_path, ["file", "daemon"])
+    agent.inbox = queue.Queue()
+    mgr = agent.get_capability("daemon")
+
+    # Two LLM rounds: first emits a tool call, second completes.
+    tc = ToolCall(name="read", args={"file_path": "/tmp/x"}, id="tc-1")
+    resp1 = MagicMock()
+    resp1.text = "Checking..."
+    resp1.tool_calls = [tc]
+    resp1.usage = MagicMock(input_tokens=100, output_tokens=20,
+                             thinking_tokens=5, cached_tokens=10)
+    resp2 = MagicMock()
+    resp2.text = "Task done. Found 3 TODOs."
+    resp2.tool_calls = []
+    resp2.usage = MagicMock(input_tokens=80, output_tokens=15,
+                             thinking_tokens=3, cached_tokens=5)
+
+    mock_session = MagicMock()
+    mock_session.send = MagicMock(side_effect=[resp1, resp2])
+    agent.service.create_session = MagicMock(return_value=mock_session)
+    agent.service.make_tool_result = MagicMock(return_value="mock_result")
+    agent._tool_handlers["read"] = MagicMock(return_value={"content": "file text"})
+
+    result = mgr.handle({"action": "emanate", "tasks": [
+        {"task": "find TODOs", "tools": ["file"]},
+    ]})
+    assert result["status"] == "dispatched"
+    em_id = result["ids"][0]
+
+    # Wait for completion
+    time.sleep(2.0)
+
+    # Find the folder
+    daemons_dir = agent._working_dir / "daemons"
+    folders = list(daemons_dir.iterdir())
+    assert len(folders) == 1
+    folder = folders[0]
+
+    # daemon.json shows terminal state with full info
+    data = json.loads((folder / "daemon.json").read_text())
+    assert data["state"] == "done"
+    assert data["finished_at"] is not None
+    assert data["task"] == "find TODOs"
+    assert data["tool_call_count"] == 1
+    assert data["result_preview"] == "Task done. Found 3 TODOs."
+    assert data["tokens"]["input"] == 180
+    assert data["tokens"]["output"] == 35
+
+    # chat_history.jsonl has user+assistant entries across both rounds
+    chat_lines = (folder / "history" / "chat_history.jsonl").read_text().splitlines()
+    assert len(chat_lines) >= 4  # task + assistant1 + tool_results + assistant2
+    chat_entries = [json.loads(line) for line in chat_lines]
+    assert any(e["role"] == "user" and e["kind"] == "task" for e in chat_entries)
+    assert any(e["role"] == "assistant" and "Found 3 TODOs" in e["text"] for e in chat_entries)
+
+    # events.jsonl has daemon_start, tool_call, tool_result, daemon_done
+    events = [json.loads(line) for line in (folder / "logs" / "events.jsonl").read_text().splitlines()]
+    event_types = [e["event"] for e in events]
+    assert "daemon_start" in event_types
+    assert "tool_call" in event_types
+    assert "tool_result" in event_types
+    assert "daemon_done" in event_types
+
+    # Daemon's own token ledger has 2 entries
+    daemon_ledger = (folder / "logs" / "token_ledger.jsonl").read_text().splitlines()
+    assert len(daemon_ledger) == 2
+
+    # Parent's ledger has the same 2 entries, tagged
+    parent_ledger_path = agent._working_dir / "logs" / "token_ledger.jsonl"
+    parent_lines = parent_ledger_path.read_text().splitlines()
+    daemon_tagged = [json.loads(line) for line in parent_lines
+                     if json.loads(line).get("source") == "daemon"]
+    assert len(daemon_tagged) == 2
+    assert all(e["em_id"] == em_id for e in daemon_tagged)
+
+    # Reclaim does not touch folder
+    mgr.handle({"action": "reclaim"})
+    assert folder.is_dir()
+    # daemon.json still readable, still state=done (reclaim doesn't rewrite completed daemons)
+    data_after = json.loads((folder / "daemon.json").read_text())
+    assert data_after["state"] == "done"
