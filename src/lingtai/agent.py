@@ -549,10 +549,14 @@ class Agent(BaseAgent):
         if isinstance(manifest, dict) and manifest.get("active_preset"):
             preset_name = manifest["active_preset"]
             presets_path_str = manifest.get("presets_path")
-            presets_path = (
-                Path(presets_path_str).expanduser()
-                if presets_path_str else default_presets_path()
-            )
+            if presets_path_str:
+                p = Path(presets_path_str).expanduser()
+                presets_path = p if p.is_absolute() else (self._working_dir / p).resolve()
+            else:
+                if presets_path_str == "":
+                    self._log("refresh_init_warning",
+                              warning="manifest.presets_path is empty string — falling back to default")
+                presets_path = default_presets_path()
             try:
                 preset = load_preset(presets_path, preset_name)
             except (KeyError, ValueError) as e:

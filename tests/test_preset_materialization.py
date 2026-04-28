@@ -141,6 +141,112 @@ def test_materialize_default_presets_path(tmp_path, monkeypatch):
     assert data["manifest"]["llm"]["provider"] == "deepseek-NEW"
 
 
+def test_materialize_relative_presets_path_resolves_against_workdir(tmp_path, monkeypatch):
+    """A relative presets_path is resolved against the agent's working dir, not CWD."""
+    wd = tmp_path / "agent"
+    wd.mkdir()
+    plib = wd / "my_presets"
+    plib.mkdir()
+    (plib / "local.json").write_text(json.dumps({
+        "name": "local",
+        "description": "local preset",
+        "manifest": {
+            "llm": {"provider": "p1", "model": "m1",
+                    "api_key": None, "api_key_env": "P1KEY"},
+            "capabilities": {"file": {}},
+        },
+    }))
+    # Set up env_file (validate_init requires it when api_key_env is set)
+    env = wd / ".env"
+    env.write_text("P1KEY=sk-test\n")
+
+    init = {
+        "manifest": {
+            "agent_name": "alice",
+            "language": "en",
+            "presets_path": "./my_presets",  # RELATIVE to agent workdir
+            "active_preset": "local",
+            "llm": {"provider": "PLACEHOLDER", "model": "PLACEHOLDER",
+                    "api_key": None, "api_key_env": "P1KEY"},
+            "capabilities": {},
+            "soul": {"delay": 120},
+            "stamina": 3600,
+            "molt_pressure": 0.8,
+            "molt_prompt": "",
+            "max_turns": 50,
+            "admin": {"karma": True},
+            "streaming": False,
+        },
+        "principle": "p", "covenant": "c", "pad": "", "prompt": "",
+        "soul": "",
+        "env_file": str(env),
+    }
+    (wd / "init.json").write_text(json.dumps(init))
+
+    # Change CWD to a different location entirely so a CWD-relative resolution would fail
+    monkeypatch.chdir(tmp_path)
+
+    a = _make_probe_agent(wd)
+    data = a._read_init()
+    assert data is not None
+    assert data["manifest"]["llm"]["provider"] == "p1"
+
+
+def test_materialize_empty_presets_path_warns_and_falls_back(tmp_path, monkeypatch):
+    """Empty-string presets_path warns and falls back to default."""
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+    plib = fake_home / ".lingtai-tui" / "presets"
+    plib.mkdir(parents=True)
+    (plib / "fallback.json").write_text(json.dumps({
+        "name": "fallback",
+        "description": "fallback preset",
+        "manifest": {
+            "llm": {"provider": "p2", "model": "m2",
+                    "api_key": None, "api_key_env": "P2KEY"},
+            "capabilities": {"file": {}},
+        },
+    }))
+
+    wd = tmp_path / "agent"
+    wd.mkdir()
+    env = wd / ".env"
+    env.write_text("P2KEY=sk-test\n")
+
+    init = {
+        "manifest": {
+            "agent_name": "alice",
+            "language": "en",
+            "presets_path": "",  # explicit empty string
+            "active_preset": "fallback",
+            "llm": {"provider": "PLACEHOLDER", "model": "PLACEHOLDER",
+                    "api_key": None, "api_key_env": "P2KEY"},
+            "capabilities": {},
+            "soul": {"delay": 120},
+            "stamina": 3600,
+            "molt_pressure": 0.8,
+            "molt_prompt": "",
+            "max_turns": 50,
+            "admin": {"karma": True},
+            "streaming": False,
+        },
+        "principle": "p", "covenant": "c", "pad": "", "prompt": "",
+        "soul": "",
+        "env_file": str(env),
+    }
+    (wd / "init.json").write_text(json.dumps(init))
+
+    a = _make_probe_agent(wd)
+    data = a._read_init()
+    assert data is not None
+    assert data["manifest"]["llm"]["provider"] == "p2"
+    # Verify the warning was logged
+    warnings = [kw.get("warning") for evt, kw in a._log_events
+                if evt == "refresh_init_warning"]
+    assert any("empty string" in w for w in warnings)
+
+
 def test_materialize_inherit_expansion_runs(tmp_path, monkeypatch):
     """Capabilities with provider:inherit get the main LLM's provider after materialization."""
     plib = _make_preset_lib(tmp_path, {
