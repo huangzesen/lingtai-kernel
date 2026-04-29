@@ -44,7 +44,7 @@ def get_schema(lang: str = "en") -> dict:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["emanate", "list", "ask", "reclaim"],
+                "enum": ["emanate", "list", "ask", "check", "reclaim"],
                 "description": t(lang, "daemon.action"),
             },
             "tasks": {
@@ -67,6 +67,16 @@ def get_schema(lang: str = "en") -> dict:
             "message": {
                 "type": "string",
                 "description": t(lang, "daemon.message"),
+            },
+            "last": {
+                "type": "integer",
+                "minimum": 1,
+                "description": t(lang, "daemon.last"),
+            },
+            "truncate": {
+                "type": "integer",
+                "minimum": 0,
+                "description": t(lang, "daemon.truncate"),
             },
         },
         "required": ["action"],
@@ -105,6 +115,12 @@ class DaemonManager:
             return self._handle_list()
         elif action == "ask":
             return self._handle_ask(args.get("id", ""), args.get("message", ""))
+        elif action == "check":
+            return self._handle_check(
+                args.get("id", ""),
+                last=int(args.get("last", 20)),
+                truncate=int(args.get("truncate", 500)),
+            )
         elif action == "reclaim":
             return self._handle_reclaim()
         else:
@@ -510,6 +526,65 @@ class DaemonManager:
                 entry["followup_buffer"] = message
         self._log("daemon_ask", em_id=em_id, message_length=len(message))
         return {"status": "sent", "id": em_id}
+
+    def _handle_check(self, em_id: str, last: int = 20, truncate: int = 500) -> dict:
+        """Read-only progress tail for one emanation.
+
+        Returns a snapshot of daemon.json plus the last N events from
+        events.jsonl, with string fields truncated. Pure read — no
+        coordination with the run thread (atomic writes + append-only JSONL
+        guarantee a consistent view).
+        """
+        entry = self._emanations.get(em_id)
+        if not entry:
+            return {"status": "error", "message": f"Unknown emanation: {em_id}"}
+        run_dir = entry.get("run_dir")
+        if run_dir is None:
+            return {"status": "error", "message": f"emanation {em_id} has no run_dir"}
+
+        # daemon.json — atomic-replaced, may transiently miss but never partial
+        try:
+            state = json.loads(run_dir.daemon_json_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            return {"status": "error", "message": f"daemon.json read failed: {e}"}
+
+        # events.jsonl — append-only, missing means no events yet
+        events: list[dict] = []
+        events_total = 0
+        if run_dir.events_path.is_file():
+            try:
+                with open(run_dir.events_path, "r", encoding="utf-8") as f:
+                    raw_lines = f.readlines()
+            except OSError as e:
+                return {"status": "error", "message": f"events.jsonl read failed: {e}"}
+            events_total = len(raw_lines)
+            tail = raw_lines[-last:] if last > 0 else []
+            for line in tail:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if truncate > 0:
+                    ev = {k: (v[:truncate] + "…[truncated]"
+                              if isinstance(v, str) and len(v) > truncate else v)
+                          for k, v in ev.items()}
+                events.append(ev)
+
+        return {
+            "id": em_id,
+            "run_id": state.get("run_id"),
+            "state": state.get("state"),
+            "turn": state.get("turn"),
+            "current_tool": state.get("current_tool"),
+            "elapsed_s": state.get("elapsed_s"),
+            "tokens": state.get("tokens", {}),
+            "events": events,
+            "events_total": events_total,
+            "events_returned": len(events),
+        }
 
     def _handle_reclaim(self) -> dict:
         cancelled = sum(1 for e in self._emanations.values()
