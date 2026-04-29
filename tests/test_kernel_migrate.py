@@ -375,7 +375,10 @@ def test_m001_moves_context_limit_into_llm_block(tmp_path):
 
 
 def test_m001_leaves_already_migrated_presets_alone(tmp_path):
-    """A preset where context_limit is already inside llm is unchanged."""
+    """A preset where context_limit is already inside llm is unchanged
+    by m001. m002 (description_object) still runs and synthesizes a
+    description block when one is missing — that's expected.
+    """
     plib = tmp_path / "presets"
     plib.mkdir()
     body = {
@@ -389,11 +392,14 @@ def test_m001_leaves_already_migrated_presets_alone(tmp_path):
 
     run_migrations(plib)
 
-    assert _read(p) == body
+    expected = {**body, "description": {"summary": ""}}
+    assert _read(p) == expected
 
 
 def test_m001_leaves_presets_without_context_limit_alone(tmp_path):
-    """No context_limit anywhere → no rewrite."""
+    """No context_limit anywhere → m001 doesn't rewrite. m002 still
+    synthesizes a description block when one is missing.
+    """
     plib = tmp_path / "presets"
     plib.mkdir()
     body = {
@@ -407,7 +413,8 @@ def test_m001_leaves_presets_without_context_limit_alone(tmp_path):
 
     run_migrations(plib)
 
-    assert _read(p) == body
+    expected = {**body, "description": {"summary": ""}}
+    assert _read(p) == expected
 
 
 def test_m001_warns_and_skips_when_both_locations_set(tmp_path, caplog):
@@ -429,7 +436,10 @@ def test_m001_warns_and_skips_when_both_locations_set(tmp_path, caplog):
                      logger="lingtai_kernel.migrate.m001_context_limit_relocation")
     run_migrations(plib)
 
-    assert _read(p) == body  # untouched
+    # m001 leaves the ambiguous preset untouched (just warns); m002 still
+    # synthesizes a description block for the missing field.
+    expected = {**body, "description": {"summary": ""}}
+    assert _read(p) == expected
     assert any("both" in r.message.lower() for r in caplog.records)
 
 
