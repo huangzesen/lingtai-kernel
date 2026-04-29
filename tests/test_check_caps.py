@@ -12,8 +12,7 @@ def test_get_all_providers_returns_all_capabilities():
     result = get_all_providers()
     expected = {
         "file", "email", "bash", "web_search", "psyche", "codex", "library",
-        "vision", "talk", "draw", "compose", "video", "listen",
-        "web_read", "avatar", "daemon",
+        "vision", "web_read", "avatar", "daemon",
     }
     assert expected == set(result.keys())
 
@@ -28,7 +27,7 @@ def test_get_all_providers_structure():
 
 def test_builtin_capabilities_have_empty_providers():
     result = get_all_providers()
-    builtins = ["file", "email", "bash", "psyche", "codex", "library", "web_read", "avatar", "daemon"]
+    builtins = ["file", "email", "bash", "psyche", "codex", "library", "avatar", "daemon"]
     for name in builtins:
         assert result[name]["providers"] == [], f"{name} should have empty providers"
         assert result[name]["default"] == "builtin", f"{name} should default to builtin"
@@ -43,8 +42,6 @@ def test_provider_dependent_capabilities():
     # via explicit opt-in (add_capability(..., provider="local")) but
     # should not appear in check-caps output. See capabilities/vision.py.
     assert "local" not in result["vision"]["providers"]
-    assert result["listen"]["default"] == "whisper"
-    assert result["compose"]["providers"] == ["minimax"]
 
 
 def test_check_caps_cli_output():

@@ -42,14 +42,6 @@ def test_web_search_unknown_provider_falls_back_to_duckduckgo():
     assert "web_search" in a._tool_handlers
 
 
-def test_listen_unknown_provider_falls_back_to_whisper():
-    """listen with provider='openrouter' (no STT) falls back to whisper."""
-    from lingtai.capabilities.listen import setup as listen_setup
-    a = _stub_agent()
-    listen_setup(a, provider="openrouter", api_key=None)
-    assert "listen" in a._tool_handlers
-
-
 def test_vision_unknown_provider_silently_skips():
     """vision with provider='deepseek' (no vision, no fallback) skips registration."""
     from lingtai.capabilities.vision import setup as vision_setup
