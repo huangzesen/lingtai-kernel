@@ -1,4 +1,4 @@
-"""Tests for lingtai_feishu.manager — FeishuManager."""
+"""Tests for lingtai.addons.feishu.manager — FeishuManager."""
 from __future__ import annotations
 
 import json
@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lingtai_feishu.manager import FeishuManager
-from lingtai_feishu.service import FeishuService
+from lingtai.addons.feishu.manager import FeishuManager
+from lingtai.addons.feishu.service import FeishuService
 
 
 # ---------------------------------------------------------------------------
@@ -18,9 +18,10 @@ from lingtai_feishu.service import FeishuService
 def _agent() -> MagicMock:
     agent = MagicMock()
     agent.working_dir = Path("/tmp")
-    agent.wake = MagicMock()
-    agent.notify = MagicMock()
-    agent.log = MagicMock()
+    agent._wake_nap = MagicMock()
+    agent.inbox = MagicMock()
+    agent.inbox.put = MagicMock()
+    agent._log = MagicMock()
     return agent
 
 
@@ -315,8 +316,8 @@ def test_on_incoming_writes_to_inbox_dir(tmp_path):
 def test_on_incoming_notifies_agent(tmp_path):
     mgr, agent = _make_manager(tmp_path)
     _deliver_message(mgr, tmp_path)
-    agent.wake.assert_called_once_with("message_received")
-    agent.notify.assert_called_once()
+    agent._wake_nap.assert_called_once_with("message_received")
+    agent.inbox.put.assert_called_once()
 
 
 def test_on_incoming_upserts_contact(tmp_path):
@@ -329,8 +330,8 @@ def test_on_incoming_upserts_contact(tmp_path):
 def test_on_incoming_logs_event(tmp_path):
     mgr, agent = _make_manager(tmp_path)
     _deliver_message(mgr, tmp_path, text="Test log")
-    agent.log.assert_called_once()
-    log_kwargs = agent.log.call_args
+    agent._log.assert_called_once()
+    log_kwargs = agent._log.call_args
     assert "feishu_received" in str(log_kwargs)
 
 
@@ -339,4 +340,4 @@ def test_on_incoming_no_event_attr(tmp_path):
     mgr, agent = _make_manager(tmp_path)
     data = MagicMock(spec=[])
     mgr.on_incoming("default", data)
-    agent.notify.assert_not_called()
+    agent.inbox.put.assert_not_called()

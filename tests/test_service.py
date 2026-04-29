@@ -1,4 +1,4 @@
-"""Tests for lingtai_feishu.service — FeishuService."""
+"""Tests for lingtai.addons.feishu.service — FeishuService."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lingtai_feishu.service import FeishuService
+from lingtai.addons.feishu.service import FeishuService
 
 
 def _service(tmp_path: Path, accounts: list[dict] | None = None) -> FeishuService:

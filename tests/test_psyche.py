@@ -43,13 +43,14 @@ def test_psyche_manager_accessible(tmp_path):
 
 
 def test_anima_alias_removed(tmp_path):
-    """'anima' alias was removed — should raise ValueError."""
-    import pytest
-    with pytest.raises(ValueError, match="Unknown capability"):
-        Agent(
-            service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
-            capabilities=["anima"],
-        )
+    """'anima' alias was removed — agent skips it (unknown capabilities are logged, not raised)."""
+    agent = Agent(
+        service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+        capabilities=["anima"],
+    )
+    assert agent.get_capability("anima") is None
+    assert "anima" not in [name for name, _ in agent._capabilities]
+    agent.stop(timeout=1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -308,21 +309,21 @@ def test_molt_via_system_context_forget_still_works(tmp_path):
 
 
 def test_psyche_schema_has_correct_objects():
-    from lingtai.capabilities.psyche import get_schema
+    from lingtai.core.psyche import get_schema
     SCHEMA = get_schema("en")
     objects = SCHEMA["properties"]["object"]["enum"]
     assert set(objects) == {"lingtai", "pad", "context"}
 
 
 def test_psyche_schema_has_correct_actions():
-    from lingtai.capabilities.psyche import get_schema
+    from lingtai.core.psyche import get_schema
     SCHEMA = get_schema("en")
     actions = SCHEMA["properties"]["action"]["enum"]
     assert set(actions) == {"update", "load", "edit", "append", "molt"}
 
 
 def test_psyche_schema_has_files_field():
-    from lingtai.capabilities.psyche import get_schema
+    from lingtai.core.psyche import get_schema
     SCHEMA = get_schema("en")
     assert "files" in SCHEMA["properties"]
 

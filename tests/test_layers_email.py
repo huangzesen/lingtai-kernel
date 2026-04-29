@@ -1853,7 +1853,7 @@ def test_schedule_list_returns_status_field(tmp_path):
 # _coerce_address_list — normalize LLM-quirky address args to list[str]
 # ---------------------------------------------------------------------------
 
-from lingtai.capabilities.email import _coerce_address_list
+from lingtai.core.email import _coerce_address_list
 
 
 def test_coerce_address_list_empty_string():

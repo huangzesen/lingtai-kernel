@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock
 
-from lingtai.capabilities.bash import BashManager, BashPolicy, setup as setup_bash
+from lingtai.core.bash import BashManager, BashPolicy, setup as setup_bash
 
 
 # ---------------------------------------------------------------------------

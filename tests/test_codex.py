@@ -333,7 +333,7 @@ def test_export_to_pad_edit_workflow(tmp_path):
 
 
 def test_schema_has_all_fields():
-    from lingtai.capabilities.codex import get_schema
+    from lingtai.core.codex import get_schema
     SCHEMA = get_schema("en")
     actions = SCHEMA["properties"]["action"]["enum"]
     assert set(actions) == {"submit", "filter", "view", "consolidate", "delete", "export"}
@@ -354,7 +354,7 @@ def test_schema_has_all_fields():
 
 
 def test_id_deterministic():
-    from lingtai.capabilities.codex import CodexManager
+    from lingtai.core.codex import CodexManager
     id1 = CodexManager._make_id("hello", "2026-03-16T00:00:00Z")
     id2 = CodexManager._make_id("hello", "2026-03-16T00:00:00Z")
     assert id1 == id2
@@ -362,7 +362,7 @@ def test_id_deterministic():
 
 
 def test_id_differs_by_content():
-    from lingtai.capabilities.codex import CodexManager
+    from lingtai.core.codex import CodexManager
     id1 = CodexManager._make_id("hello", "2026-03-16T00:00:00Z")
     id2 = CodexManager._make_id("world", "2026-03-16T00:00:00Z")
     assert id1 != id2

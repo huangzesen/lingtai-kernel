@@ -1,4 +1,4 @@
-"""Tests for lingtai_feishu.account — FeishuAccount."""
+"""Tests for lingtai.addons.feishu.account — FeishuAccount."""
 from __future__ import annotations
 
 import json
@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import sys
 
-from lingtai_feishu.account import FeishuAccount
+from lingtai.addons.feishu.account import FeishuAccount
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ def test_save_state_no_state_dir():
 def test_start_creates_ws_thread(tmp_path):
     acct = _make_acct(tmp_path)
     fake_lark = _fake_lark()
-    import lingtai_feishu.account as mod
+    import lingtai.addons.feishu.account as mod
 
     original = mod.lark
     mod.lark = fake_lark
@@ -141,7 +141,7 @@ def test_start_idempotent(tmp_path):
     """Calling start() twice should not spawn a second thread."""
     acct = _make_acct(tmp_path)
     fake_lark = _fake_lark()
-    import lingtai_feishu.account as mod
+    import lingtai.addons.feishu.account as mod
 
     original = mod.lark
     mod.lark = fake_lark
