@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from lingtai_kernel.base_agent import BaseAgent
 
 PROVIDERS = {
-    "providers": ["minimax", "zhipu", "gemini", "anthropic", "openai"],
+    "providers": ["minimax", "zhipu", "mimo", "gemini", "anthropic", "openai"],
     "default": None,
     "fallback_on_inherit": None,  # no agnostic fallback for vision
 }
@@ -111,8 +111,13 @@ def setup(
             )
             return None
 
-        from .._media_host import resolve_media_host
-        if "api_host" not in kwargs:
+        # Provider-specific kwarg injection. Each branch is opt-in because
+        # vision services have heterogeneous constructor signatures —
+        # passing api_host to a service that doesn't accept it raises
+        # TypeError at construction (silently swallowed by the agent's
+        # capability-setup try/except, leaving the agent without vision).
+        if provider == "minimax" and "api_host" not in kwargs:
+            from .._media_host import resolve_media_host
             kwargs["api_host"] = resolve_media_host(agent)
         if provider == "zhipu" and "z_ai_mode" not in kwargs:
             from .._zhipu_mode import resolve_z_ai_mode

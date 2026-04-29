@@ -99,8 +99,11 @@ def create_vision_service(provider: str, *, api_key: str | None = None, **kwargs
     elif provider == "zhipu":
         from .zhipu import ZhipuVisionService
         return ZhipuVisionService(api_key=api_key, **kwargs)
+    elif provider == "mimo":
+        from .mimo import MiMoVisionService
+        return MiMoVisionService(api_key=api_key, **kwargs)
     else:
         raise ValueError(
             f"Unsupported vision provider: {provider!r}. "
-            f"Supported: anthropic, openai, gemini, minimax, zhipu, local."
+            f"Supported: anthropic, openai, gemini, minimax, zhipu, mimo, local."
         )
