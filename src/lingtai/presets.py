@@ -232,10 +232,11 @@ def load_preset(
         raise ValueError(f"preset {name!r} ({file_path}): manifest.capabilities must be an object")
 
     # Optional top-level `tags` field — list of namespaced strings like
-    # "tier:opus" or "specialty:code". Used by agents (and the TUI) to
-    # pick presets by category. The first namespace shipped is "tier:",
-    # whose vocabulary is mythos|opus|sonnet|haiku|freebie — see
-    # `valid_tier_tags()` and the procedures.md daemon-selection guidance.
+    # "tier:4" or "specialty:code". Used by agents (and the TUI) to pick
+    # presets by category. The first namespace shipped is "tier:",
+    # whose vocabulary is the numeric strings 1|2|3|4|5 (higher = better;
+    # see TIER_VALUES below) — and the procedures.md daemon-selection
+    # guidance for when to reach for which tier.
     tags = data.get("tags", [])
     if not isinstance(tags, list):
         raise ValueError(
