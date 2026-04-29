@@ -557,11 +557,16 @@ class Agent(BaseAgent):
                           error=f"preset {preset_name!r} unloadable: {e}")
                 return None
             preset_manifest = preset.get("manifest", {})
-            manifest["llm"] = preset_manifest.get("llm", manifest.get("llm"))
+            preset_llm = dict(preset_manifest.get("llm") or manifest.get("llm") or {})
+            # context_limit lives inside manifest.llm in the preset, but stays
+            # at manifest root in init.json — strip it from the llm dict before
+            # substitution and write it to the root.
+            preset_ctx = preset_llm.pop("context_limit", None)
+            manifest["llm"] = preset_llm
             manifest["capabilities"] = preset_manifest.get(
                 "capabilities", manifest.get("capabilities", {}))
-            if "context_limit" in preset_manifest:
-                manifest["context_limit"] = preset_manifest["context_limit"]
+            if preset_ctx is not None:
+                manifest["context_limit"] = preset_ctx
 
         # Resolve "provider": "inherit" in capabilities against the main LLM.
         if isinstance(manifest, dict):
@@ -609,11 +614,16 @@ class Agent(BaseAgent):
         preset = load_preset(presets_path, name)  # raises KeyError / ValueError
         preset_manifest = preset.get("manifest", {})
 
-        manifest["llm"] = preset_manifest.get("llm", manifest.get("llm"))
+        preset_llm = dict(preset_manifest.get("llm") or manifest.get("llm") or {})
+        # context_limit lives inside manifest.llm in the preset, but stays
+        # at manifest root in init.json — strip it from the llm dict before
+        # substitution and write it to the root.
+        preset_ctx = preset_llm.pop("context_limit", None)
+        manifest["llm"] = preset_llm
         manifest["capabilities"] = preset_manifest.get(
             "capabilities", manifest.get("capabilities", {}))
-        if "context_limit" in preset_manifest:
-            manifest["context_limit"] = preset_manifest["context_limit"]
+        if preset_ctx is not None:
+            manifest["context_limit"] = preset_ctx
 
         # Set active in the umbrella. Preserve default if already set; otherwise
         # initialize default to the same value as active (first activation).

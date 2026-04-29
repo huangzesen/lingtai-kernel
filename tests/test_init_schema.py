@@ -461,11 +461,43 @@ def test_preset_block_default_wrong_type_raises():
         validate_init(data)
 
 
-def test_preset_block_path_wrong_type_raises():
-    """`manifest.preset.path` must be a string when present."""
+def test_preset_block_path_accepts_string():
+    """`manifest.preset.path` accepts a single string (back-compat)."""
     data = _valid_init()
     data["manifest"]["preset"] = {
-        "active": "minimax", "default": "minimax", "path": ["bad"]
+        "active": "minimax", "default": "minimax", "path": "/some/lib"
+    }
+    validate_init(data)  # must not raise
+
+
+def test_preset_block_path_accepts_list_of_strings():
+    """`manifest.preset.path` accepts a list of strings (multi-library)."""
+    data = _valid_init()
+    data["manifest"]["preset"] = {
+        "active": "minimax",
+        "default": "minimax",
+        "path": ["/lib/a", "./lib_b"],
+    }
+    validate_init(data)  # must not raise
+
+
+def test_preset_block_path_rejects_int():
+    """`manifest.preset.path` must be a string or a list of strings."""
+    data = _valid_init()
+    data["manifest"]["preset"] = {
+        "active": "minimax", "default": "minimax", "path": 42
+    }
+    with pytest.raises(ValueError, match="manifest.preset.path"):
+        validate_init(data)
+
+
+def test_preset_block_path_rejects_list_with_non_string_element():
+    """Inside a list, every entry must be a string."""
+    data = _valid_init()
+    data["manifest"]["preset"] = {
+        "active": "minimax",
+        "default": "minimax",
+        "path": ["/lib/a", 42],
     }
     with pytest.raises(ValueError, match="manifest.preset.path"):
         validate_init(data)

@@ -107,8 +107,18 @@ def validate_init(data: dict) -> list[str]:
             raise ValueError(f"manifest.preset.active: expected str, got {type(preset['active']).__name__}")
         if not isinstance(preset["default"], str):
             raise ValueError(f"manifest.preset.default: expected str, got {type(preset['default']).__name__}")
-        if "path" in preset and not isinstance(preset["path"], str):
-            raise ValueError(f"manifest.preset.path: expected str, got {type(preset['path']).__name__}")
+        if "path" in preset:
+            path_val = preset["path"]
+            if isinstance(path_val, list):
+                for i, entry in enumerate(path_val):
+                    if not isinstance(entry, str):
+                        raise ValueError(
+                            f"manifest.preset.path[{i}]: expected str, got {type(entry).__name__}"
+                        )
+            elif not isinstance(path_val, str):
+                raise ValueError(
+                    f"manifest.preset.path: expected str | list[str], got {type(path_val).__name__}"
+                )
         # Warn on unknown keys
         for key in preset:
             if key not in {"active", "default", "path"}:

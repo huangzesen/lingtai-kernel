@@ -237,6 +237,48 @@ def test_swap_skips_guard_when_target_limit_is_negative(tmp_path, monkeypatch):
     assert activate_calls == ["negone"]
 
 
+def test_guard_reads_context_limit_from_llm_block(tmp_path, monkeypatch):
+    """Canonical layout: target preset's context_limit lives in manifest.llm.
+
+    The guard must find it there (not just at manifest root). This is the
+    layout new presets will use; the existing test_swap_refused/allowed
+    cases prove the old root-level layout still works (back-compat).
+    """
+    agent, plib = _make_test_agent(tmp_path)
+
+    # Add a preset with context_limit nested inside llm.
+    (plib / "tight.json").write_text(json.dumps({
+        "name": "tight",
+        "description": "context_limit lives in llm block",
+        "manifest": {
+            "llm": {"provider": "px", "model": "mx",
+                    "api_key": None, "api_key_env": "PXKEY",
+                    "context_limit": 8000},
+            "capabilities": {"file": {}},
+        },
+    }))
+
+    # Current usage exceeds the 8000 cap → swap should be refused.
+    monkeypatch.setattr(agent, "get_token_usage", lambda: {
+        "ctx_total_tokens": 50000,
+        "input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0,
+        "cached_tokens": 0, "total_tokens": 0, "api_calls": 0,
+        "ctx_system_tokens": 0, "ctx_tools_tokens": 0,
+        "ctx_history_tokens": 50000,
+    })
+
+    activate_calls = []
+    monkeypatch.setattr(agent, "_activate_preset",
+                        lambda n: activate_calls.append(n))
+    monkeypatch.setattr(agent, "_perform_refresh", lambda: None)
+
+    result = agent._intrinsics["system"]({"action": "refresh", "preset": "tight"})
+
+    assert result["status"] == "error"
+    assert "molt" in result["message"].lower()
+    assert activate_calls == []  # swap aborted
+
+
 def test_revert_refused_when_current_context_exceeds_default_limit(tmp_path, monkeypatch):
     """revert_preset=True is subject to the context-limit guard.
 

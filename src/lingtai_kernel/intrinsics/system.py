@@ -158,7 +158,7 @@ def _check_context_fits(agent, preset_name: str) -> tuple:
     """
     import json
     from pathlib import Path
-    from lingtai.presets import load_preset, resolve_presets_path
+    from lingtai.presets import load_preset, preset_context_limit, resolve_presets_path
 
     try:
         init_path = agent._working_dir / "init.json"
@@ -174,7 +174,7 @@ def _check_context_fits(agent, preset_name: str) -> tuple:
     except (KeyError, ValueError):
         return True, None, None  # let activate_preset surface the error
 
-    target_limit = preset.get("manifest", {}).get("context_limit")
+    target_limit = preset_context_limit(preset.get("manifest", {}))
     if target_limit is None or target_limit <= 0:
         return True, None, None  # no usable limit → no guard
 
@@ -298,6 +298,7 @@ def _presets(agent, args: dict) -> dict:
         available.append({
             "name": name,
             "description": preset.get("description", ""),
+            "tags": preset.get("tags", []),
             "llm": {
                 "provider": llm.get("provider"),
                 "model": llm.get("model"),

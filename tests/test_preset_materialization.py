@@ -249,8 +249,16 @@ def test_materialize_omitted_path_falls_back_to_default(tmp_path, monkeypatch):
     assert data["manifest"]["llm"]["provider"] == "p2"
 
 
-def test_materialize_picks_up_context_limit_from_preset(tmp_path, monkeypatch):
-    """A preset that sets context_limit substitutes it into the running manifest."""
+def test_materialize_picks_up_context_limit_from_legacy_layout(tmp_path, monkeypatch):
+    """A legacy preset (context_limit at manifest root) still works end-to-end.
+
+    The kernel migration system (m001) runs from inside load_preset and
+    relocates the field to the canonical location before the materializer
+    reads the preset. The materializer then writes it into init.json's
+    manifest root (init.json's schema is unchanged).
+    """
+    from lingtai_kernel.migrate.migrate import reset_process_cache
+    reset_process_cache()
     plib = _make_preset_lib(tmp_path, {
         "narrow": {
             "name": "narrow",
@@ -271,6 +279,42 @@ def test_materialize_picks_up_context_limit_from_preset(tmp_path, monkeypatch):
     data = a._read_init()
     assert data is not None
     assert data["manifest"]["context_limit"] == 16384
+    # The migration rewrote the on-disk preset to the canonical layout.
+    on_disk = json.loads((plib / "narrow.json").read_text())
+    assert "context_limit" not in on_disk["manifest"]
+    assert on_disk["manifest"]["llm"]["context_limit"] == 16384
+
+
+def test_materialize_picks_up_context_limit_from_llm_block(tmp_path, monkeypatch):
+    """Canonical layout: context_limit lives inside manifest.llm in the preset.
+
+    The materializer must lift it out of llm and write it to manifest root
+    in init.json (the runtime contract — init.json schema is unchanged).
+    The materialized llm block must NOT carry context_limit forward, since
+    init.json's llm block doesn't have that field.
+    """
+    plib = _make_preset_lib(tmp_path, {
+        "narrow": {
+            "name": "narrow",
+            "description": "narrow context",
+            "manifest": {
+                "llm": {"provider": "p", "model": "m",
+                        "api_key": None, "api_key_env": "PKEY",
+                        "context_limit": 16384},
+                "capabilities": {"file": {}},
+            },
+        },
+    })
+    wd = _make_workdir(tmp_path, active_preset="narrow",
+                       presets_path=str(plib))
+    monkeypatch.setenv("PKEY", "sk-test")
+
+    a = _make_probe_agent(wd)
+    data = a._read_init()
+    assert data is not None
+    assert data["manifest"]["context_limit"] == 16384
+    # llm block in init.json schema does not carry context_limit
+    assert "context_limit" not in data["manifest"]["llm"]
 
 
 def test_materialize_inherit_expansion_runs(tmp_path, monkeypatch):
