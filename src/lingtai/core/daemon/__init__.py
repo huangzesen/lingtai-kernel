@@ -140,8 +140,20 @@ class DaemonManager:
         else:
             return {"status": "error", "message": f"Unknown action: {action}"}
 
-    def _build_tool_surface(self, requested: list[str]) -> tuple[list[FunctionSchema], dict]:
-        """Build filtered tool schemas and dispatch map for an emanation."""
+    def _build_tool_surface(
+        self,
+        requested: list[str],
+        preset_surface: tuple[dict, dict] | None = None,
+    ) -> tuple[list[FunctionSchema], dict]:
+        """Build filtered tool schemas and dispatch map for an emanation.
+
+        When ``preset_surface`` is provided (preset-driven emanation), the
+        capability tools come from the preset's pre-instantiated sandbox
+        (``preset_surface = (schemas_by_name, handlers_by_name)``), unioned
+        with the parent's MCP tools (those don't bind to an LLM, so they
+        carry over). When ``preset_surface`` is None, the parent's currently
+        registered tool surface is used (today's behavior).
+        """
         from ...capabilities import _GROUPS
 
         # Expand groups and filter blacklist
@@ -154,7 +166,37 @@ class DaemonManager:
             else:
                 tool_names.add(name)
 
-        # Identify MCP tools (all non-capability, non-blacklisted)
+        if preset_surface is not None:
+            preset_schemas, preset_handlers = preset_surface
+            # Available surface = preset capabilities ∪ parent's MCP tools
+            capability_names = {cap_name for cap_name, _ in self._agent._capabilities}
+            all_registered = {s.name for s in self._agent._tool_schemas}
+            mcp_names = all_registered - capability_names - EMANATION_BLACKLIST
+            available = set(preset_schemas.keys()) | mcp_names
+            # MCP tools auto-included (parent-bound, LLM-agnostic)
+            tool_names |= mcp_names
+
+            missing = tool_names - available
+            if missing:
+                raise ValueError(f"Unknown tools for emanation: {missing}")
+
+            # Build merged schemas + dispatch — preset tools first, MCP fills in
+            schemas: list[FunctionSchema] = []
+            dispatch: dict = {}
+            parent_schema_map = {s.name: s for s in self._agent._tool_schemas}
+            for n in sorted(tool_names):
+                if n in preset_schemas:
+                    schemas.append(preset_schemas[n])
+                    if n in preset_handlers:
+                        dispatch[n] = preset_handlers[n]
+                elif n in parent_schema_map:
+                    # MCP tool from parent
+                    schemas.append(parent_schema_map[n])
+                    if n in self._agent._tool_handlers:
+                        dispatch[n] = self._agent._tool_handlers[n]
+            return schemas, dispatch
+
+        # Default path: emanation runs on parent's tool surface
         capability_names = {cap_name for cap_name, _ in self._agent._capabilities}
         all_registered = {s.name for s in self._agent._tool_schemas}
         mcp_names = all_registered - capability_names - EMANATION_BLACKLIST
@@ -172,6 +214,62 @@ class DaemonManager:
         dispatch = {n: self._agent._tool_handlers[n]
                     for n in tool_names if n in self._agent._tool_handlers}
         return schemas, dispatch
+
+    def _instantiate_preset_capabilities(
+        self,
+        preset_caps: dict,
+        preset_llm: dict,
+    ) -> tuple[dict, dict]:
+        """Instantiate a preset's manifest.capabilities into a sandbox.
+
+        Returns ``(schemas_by_name, handlers_by_name)``. Capabilities run
+        their ``setup()`` against a ``_CapabilitySandbox`` so the parent's
+        own tool registry is not mutated. ``provider: "inherit"`` sentinels
+        in the preset's capability kwargs resolve against the *preset's*
+        LLM, not the parent's — capabilities follow the body that hosts
+        them.
+
+        Raises ``ValueError`` for unknown or broken capabilities. The caller
+        (``_handle_emanate``) converts that into a tool-level error and
+        refuses the whole batch.
+        """
+        from ...capabilities import setup_capability, _GROUPS
+        from ...presets import expand_inherit
+        from ._capability_sandbox import _CapabilitySandbox
+
+        # Resolve provider:"inherit" sentinels against the preset's LLM
+        # (not the parent's). expand_inherit mutates in place — work on a
+        # deep enough copy so the original preset dict is unchanged.
+        import copy
+        resolved = copy.deepcopy(preset_caps)
+        expand_inherit(resolved, preset_llm)
+
+        # Expand group names (e.g. 'file' → read/write/edit/glob/grep). Groups
+        # inherit the same kwargs as the group entry — same convention as
+        # agent.py:790. Without this, setup_capability would reject 'file'
+        # as an unknown capability.
+        expanded: dict = {}
+        for name, kwargs in resolved.items():
+            if name in _GROUPS:
+                for sub in _GROUPS[name]:
+                    expanded[sub] = kwargs if isinstance(kwargs, dict) else {}
+            else:
+                expanded[name] = kwargs
+
+        sandbox = _CapabilitySandbox(self._agent)
+        for name, kwargs in expanded.items():
+            if name in EMANATION_BLACKLIST:
+                continue
+            if not isinstance(kwargs, dict):
+                kwargs = {}
+            try:
+                setup_capability(sandbox, name, **kwargs)
+            except Exception as e:
+                raise ValueError(
+                    f"preset capability {name!r} failed to set up: {e}"
+                ) from e
+
+        return sandbox.schemas, sandbox.handlers
 
     def _build_emanation_prompt(self, task: str, schemas: list[FunctionSchema]) -> str:
         """Build the system prompt for an emanation."""
@@ -433,10 +531,25 @@ class DaemonManager:
                 return {"status": "error",
                         "message": f"preset {preset_name!r}: {conn['status']} — "
                                    f"{conn.get('error', 'cannot reach LLM')}"}
+            preset_caps = preset.get("manifest", {}).get("capabilities", {})
+            # Instantiate preset capabilities into a sandbox up front so any
+            # setup-time failure refuses the whole batch (consistent with
+            # connectivity refusal). Empty caps dict → empty sandbox surface,
+            # which means the emanation only gets MCP tools — that's a valid
+            # if unusual configuration.
+            try:
+                preset_schemas, preset_handlers = self._instantiate_preset_capabilities(
+                    preset_caps, preset_llm,
+                )
+            except ValueError as e:
+                return {"status": "error",
+                        "message": f"preset {preset_name!r}: {e}"}
             resolved_presets.append({
                 "name": preset_name,
                 "llm": preset_llm,
-                "capabilities": preset.get("manifest", {}).get("capabilities", {}),
+                "capabilities": preset_caps,
+                "preset_schemas": preset_schemas,
+                "preset_handlers": preset_handlers,
             })
 
         cancel_event = threading.Event()
@@ -461,8 +574,16 @@ class DaemonManager:
             # Build tool surface and system prompt up front so the run_dir
             # records the prompt verbatim before any LLM call. Validation
             # (unknown tools) raises here and aborts before scheduling.
+            preset_surface = None
+            if resolved is not None:
+                preset_surface = (
+                    resolved["preset_schemas"],
+                    resolved["preset_handlers"],
+                )
             try:
-                schemas, dispatch = self._build_tool_surface(spec["tools"])
+                schemas, dispatch = self._build_tool_surface(
+                    spec["tools"], preset_surface=preset_surface,
+                )
             except ValueError as e:
                 return {"status": "error", "message": str(e)}
             system_prompt = self._build_emanation_prompt(spec["task"], schemas)

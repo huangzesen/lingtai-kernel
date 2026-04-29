@@ -111,7 +111,7 @@
   "daemon.truncate": "'check' 操作：返回事件中任意字符串字段的最大长度，超出部分以省略号截断。默认 500。设为 0 以关闭截断。",
   "daemon.max_turns": "'emanate' 操作：本批每个分神的工具循环最大轮数。默认采用智能体上限（200）；所提之值会被截至上限——不可上调，仅可下调。简单任务可设较小之值以加约束。",
   "daemon.timeout": "'emanate' 操作：整批的最大壁钟秒数。默认采用智能体上限（3600 秒 = 1 小时）；所提之值会被截至上限。计时到时仍在运行的分神由看门狗强制终止。",
-  "daemon.tasks": "'emanate' 的任务列表。每项：{task: str（必填——包含保存位置的指令），tools: list[str]（必填——能力名称列表，如 ['file', 'bash']），preset: str（可选——让此分神使用指定预设，如 preset='deepseek' 用廉价思维，preset='minimax' 用视觉能力）}。省略 preset 则继承父灵当前激活的模型。内核在派遣前会校验预设名称并检查连通性——未知或不可达的预设将拒绝整批任务。注意：能力仍绑定父灵已配置的服务商；每预设仅 LLM 供应商/模型有所不同。指定每任务 preset 时，内核在派遣前会进行连通性检查——不可达的预设将拒绝该分神，分神绝不会在故障的服务商上启动。",
+  "daemon.tasks": "'emanate' 的任务列表。每项：{task: str（必填——包含保存位置的指令），tools: list[str]（必填——能力名称列表，如 ['file', 'bash']），preset: str（可选——让此分神使用指定预设，如 preset='deepseek' 用廉价思维，preset='minimax' 用视觉能力）}。省略 preset 则继承父灵当前激活的工具面（LLM + 能力）。指定 preset 时，分神的工具面来自预设的 manifest.capabilities（重新实例化——预设可携带父灵未配置的能力，如 'minimax' 预设可让分神获得 'vision' 即便父灵从未启用过它）。MCP 工具始终从父灵继承。预设能力内部的 provider:'inherit' 解析为预设自身的 LLM，而非父灵的。内核在派遣前会校验预设名称、实例化其能力并检查连通性——未知、有误或不可达的预设将拒绝整批任务。",
   "daemon.id": "'ask' 操作的分神 ID（如 'em-1'）",
   "daemon.message": "'ask' 操作的跟进消息",
   "daemon.limit_reached": "分神过多（运行中：{running}，请求：{requested}，上限：{max}）",
