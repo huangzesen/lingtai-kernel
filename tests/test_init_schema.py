@@ -144,7 +144,7 @@ def test_api_key_env_wrong_type():
         validate_init(data)
 
 
-# --- addons ---
+# --- addons (list of curated MCP names; mcp capability handles the rest) ---
 
 
 def test_addons_optional():
@@ -152,120 +152,54 @@ def test_addons_optional():
     validate_init(data)  # no addons — should pass
 
 
-def test_addons_imap_valid():
+def test_addons_list_of_names_valid():
     data = _valid_init()
-    data["addons"] = {
-        "imap": {
-            "email_address": "test@gmail.com",
-            "email_password": "secret",
-        },
-    }
+    data["addons"] = ["imap", "telegram", "feishu"]
     validate_init(data)
 
 
-def test_addons_imap_with_env():
+def test_addons_empty_list_valid():
     data = _valid_init()
-    data["addons"] = {
-        "imap": {
-            "email_address": "test@gmail.com",
-            "email_password_env": "IMAP_PASS",
-        },
-    }
+    data["addons"] = []
     validate_init(data)
 
 
-def test_addons_imap_missing_password():
+def test_addons_dict_shape_rejected():
+    """Legacy dict shape was removed in v0.7.3; the migration converts."""
     data = _valid_init()
-    data["addons"] = {
-        "imap": {
-            "email_address": "test@gmail.com",
-        },
-    }
-    with pytest.raises(ValueError, match="email_password"):
+    data["addons"] = {"imap": {"config": "imap.json"}}
+    with pytest.raises(ValueError, match="addons.*list"):
         validate_init(data)
 
 
-def test_addons_imap_missing_email():
+def test_addons_non_string_entries_warn():
     data = _valid_init()
-    data["addons"] = {
-        "imap": {
-            "email_password": "secret",
-        },
-    }
-    with pytest.raises(ValueError, match="email_address"):
-        validate_init(data)
-
-
-def test_addons_telegram_valid():
-    data = _valid_init()
-    data["addons"] = {
-        "telegram": {
-            "bot_token": "123:ABC",
-        },
-    }
-    validate_init(data)
-
-
-def test_addons_telegram_with_env():
-    data = _valid_init()
-    data["addons"] = {
-        "telegram": {
-            "bot_token_env": "TG_TOKEN",
-        },
-    }
-    validate_init(data)
-
-
-def test_addons_telegram_missing_token():
-    data = _valid_init()
-    data["addons"] = {
-        "telegram": {},
-    }
-    with pytest.raises(ValueError, match="bot_token"):
-        validate_init(data)
-
-
-def test_addons_feishu_valid():
-    data = _valid_init()
-    data["addons"] = {
-        "feishu": {
-            "config": "feishu.json",
-        },
-    }
-    validate_init(data)
-
-
-def test_addons_feishu_with_env():
-    data = _valid_init()
-    data["addons"] = {
-        "feishu": {
-            "app_id_env": "FEISHU_APP_ID",
-            "app_secret_env": "FEISHU_APP_SECRET",
-        },
-    }
+    data["addons"] = ["imap", 42]
     warnings = validate_init(data)
-    # inline credentials without config file should produce a warning
-    assert any("feishu" in w and "config" in w for w in warnings)
+    assert any("strings" in w for w in warnings)
 
 
-def test_addons_feishu_missing_config_warns():
+def test_mcp_section_optional():
     data = _valid_init()
-    data["addons"] = {"feishu": {}}
-    warnings = validate_init(data)
-    assert any("feishu" in w for w in warnings)
+    validate_init(data)  # no mcp — should pass
 
 
-def test_addons_feishu_config_wrong_type():
+def test_mcp_section_dict_valid():
     data = _valid_init()
-    data["addons"] = {"feishu": {"config": 42}}
-    with pytest.raises(ValueError, match="feishu.config"):
-        validate_init(data)
+    data["mcp"] = {
+        "imap": {
+            "type": "stdio",
+            "command": "/usr/bin/python",
+            "args": ["-m", "lingtai_imap"],
+        },
+    }
+    validate_init(data)
 
 
-def test_addons_feishu_not_object():
+def test_mcp_section_wrong_type_rejected():
     data = _valid_init()
-    data["addons"] = {"feishu": "cli_xxx"}
-    with pytest.raises(ValueError, match="feishu"):
+    data["mcp"] = ["imap"]
+    with pytest.raises(ValueError, match="mcp.*object"):
         validate_init(data)
 
 

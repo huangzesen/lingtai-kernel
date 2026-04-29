@@ -21,6 +21,7 @@ _BUILTIN: dict[str, str] = {
     "daemon": "lingtai.core.daemon",
     "email": "lingtai.core.email",
     "library": "lingtai.core.library",
+    "mcp": "lingtai.core.mcp",
     "read": "lingtai.core.read",
     "write": "lingtai.core.write",
     "edit": "lingtai.core.edit",

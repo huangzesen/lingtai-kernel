@@ -32,7 +32,7 @@ class Agent(BaseAgent):
         self,
         *args: Any,
         capabilities: list[str] | dict[str, dict] | None = None,
-        addons: dict[str, dict] | None = None,
+        addons: list[str] | None = None,
         combo_name: str | None = None,
         **kwargs: Any,
     ):
@@ -51,9 +51,6 @@ class Agent(BaseAgent):
         if self._file_io is None:
             from .services.file_io import LocalFileIOService
             self._file_io = LocalFileIOService(root=self._working_dir)
-
-        # Auto-load MCP servers from working directory
-        self._load_mcp_from_workdir()
 
         # Expand groups and normalize to dict
         if isinstance(capabilities, list):
@@ -75,6 +72,16 @@ class Agent(BaseAgent):
         self._capabilities: list[tuple[str, dict]] = []
         self._capability_managers: dict[str, Any] = {}
 
+        # Decompress addons BEFORE capability setup so the `mcp` capability
+        # sees the populated registry on its first reconcile.
+        if addons:
+            try:
+                from .core.mcp import decompress_addons
+                report = decompress_addons(self._working_dir, addons)
+                self._log("mcp_decompress", **report)
+            except Exception as e:
+                self._log("mcp_decompress_failed", reason=str(e))
+
         # Register capabilities — provider kwarg flows through to setup() naturally
         if capabilities:
             for name, cap_kwargs in capabilities.items():
@@ -83,21 +90,14 @@ class Agent(BaseAgent):
                 except (ValueError, ImportError) as e:
                     self._log("capability_skipped", capability=name, reason=str(e))
 
-        # Register addons (after capabilities, may depend on them)
-        self._addon_managers: dict[str, Any] = {}
-        if addons:
-            from .addons import setup_addon
-            for addon_name, addon_kwargs in addons.items():
-                try:
-                    mgr = setup_addon(self, addon_name, **(addon_kwargs or {}))
-                    self._addon_managers[addon_name] = mgr
-                except Exception as e:
-                    self._log("addon_skipped", addon=addon_name, reason=str(e))
-                    self._notify_addon_failure(addon_name, e)
-
         # Install intrinsic manuals (wipe-and-rewrite .library/intrinsic/)
-        # from the bundles shipped with each enabled capability/addon.
+        # from the bundles shipped with each enabled capability.
         self._install_intrinsic_manuals()
+
+        # Auto-load MCP servers from working directory.
+        # Runs AFTER addon decompression so init.json mcp entries can reference
+        # newly-decompressed registry records.
+        self._load_mcp_from_workdir()
 
         # Re-write manifest now that capabilities are registered
         if self._capabilities:
@@ -150,18 +150,16 @@ class Agent(BaseAgent):
 
         Runs near the end of ``__init__`` and ``_setup_from_init``. Installs
         every capability's ``manual/`` bundle into
-        ``.library/intrinsic/capabilities/<name>/`` and every addon's
-        ``manual/`` bundle into ``.library/intrinsic/addons/<name>/``,
-        **regardless of whether this agent enabled the capability/addon**.
-        The library is kernel-shipped documentation — agents should be able
-        to read "how IMAP works" before they configure it.
+        ``.library/intrinsic/capabilities/<name>/``, **regardless of whether
+        this agent enabled the capability**. The library is kernel-shipped
+        documentation — agents should be able to read about a capability
+        before they configure it.
 
         Never touches ``.library/custom/``. That is the agent's territory.
         """
         import shutil
         import lingtai.capabilities as caps_pkg
         import lingtai.core as core_pkg
-        import lingtai.addons as addons_pkg
 
         library_dir = self._working_dir / ".library"
         intrinsic_dir = library_dir / "intrinsic"
@@ -171,7 +169,6 @@ class Agent(BaseAgent):
         if intrinsic_dir.exists():
             shutil.rmtree(intrinsic_dir)
         (intrinsic_dir / "capabilities").mkdir(parents=True, exist_ok=True)
-        (intrinsic_dir / "addons").mkdir(parents=True, exist_ok=True)
 
         def install_from(pkg, subdir: str) -> None:
             pkg_file = getattr(pkg, "__file__", None)
@@ -189,7 +186,6 @@ class Agent(BaseAgent):
         # agents see one flat capability namespace.
         install_from(core_pkg, "capabilities")
         install_from(caps_pkg, "capabilities")
-        install_from(addons_pkg, "addons")
 
         # If the library capability is loaded, re-run its reconcile now that
         # the manuals are on disk — so the injected catalog reflects them on
@@ -258,9 +254,14 @@ class Agent(BaseAgent):
         )
 
     def _load_mcp_from_workdir(self) -> None:
-        """Auto-load MCP servers declared in working_dir/mcp/servers.json.
+        """Auto-load MCP servers from two sources, in order:
 
-        Supports both stdio and HTTP MCP servers:
+        1. ``working_dir/mcp/servers.json`` — legacy, ungated. Loaded as-is.
+        2. ``init.json`` top-level ``mcp`` field — gated by the per-agent
+           registry at ``working_dir/mcp_registry.jsonl``. An init.json mcp
+           entry whose name is not in the registry is skipped with a warning.
+
+        Both sources accept stdio and HTTP entries:
 
             {
               "vision-server": {
@@ -276,52 +277,100 @@ class Agent(BaseAgent):
               }
             }
 
-        The ``type`` field defaults to ``"stdio"`` if omitted (backward
-        compatible). Each server's tools are auto-registered via
-        connect_mcp() or connect_mcp_http().
+        The ``type`` field defaults to ``"stdio"`` if omitted.
         """
         import json
-
-        mcp_config = self._working_dir / "mcp" / "servers.json"
-        if not mcp_config.is_file():
-            return
-
-        try:
-            servers = json.loads(mcp_config.read_text())
-        except (json.JSONDecodeError, OSError):
-            return
-
-        if not isinstance(servers, dict):
-            return
 
         from lingtai_kernel.logging import get_logger
         logger = get_logger()
 
-        for name, cfg in servers.items():
-            if not isinstance(cfg, dict):
-                continue
+        # LICC env injection — every spawned MCP gets these so it can
+        # locate the agent's working dir + know its own registry name and
+        # write events into the LICC inbox. User-supplied env in cfg wins.
+        licc_env = {
+            "LINGTAI_AGENT_DIR": str(self._working_dir),
+        }
+
+        def _spawn(name: str, cfg: dict, source: str) -> None:
             try:
                 server_type = cfg.get("type", "stdio")
                 if server_type == "http":
                     if "url" not in cfg:
-                        continue
+                        return
                     tools = self.connect_mcp_http(
                         url=cfg["url"],
                         headers=cfg.get("headers"),
                     )
                 else:
                     if "command" not in cfg:
-                        continue
+                        return
+                    # Merge: LICC defaults < per-MCP env (user-supplied).
+                    # Add LINGTAI_MCP_NAME per-spawn so each MCP knows its
+                    # own registry name without needing to be told elsewhere.
+                    merged_env = {
+                        **licc_env,
+                        "LINGTAI_MCP_NAME": name,
+                        **(cfg.get("env") or {}),
+                    }
                     tools = self.connect_mcp(
                         command=cfg["command"],
                         args=cfg.get("args"),
-                        env=cfg.get("env"),
+                        env=merged_env,
                     )
-                logger.info("[%s] MCP %s: loaded %d tools (%s)",
-                            self.agent_name, name, len(tools), ", ".join(tools))
+                logger.info("[%s] MCP %s (%s): loaded %d tools (%s)",
+                            self.agent_name, name, source, len(tools),
+                            ", ".join(tools))
             except Exception as e:
-                logger.warning("[%s] MCP %s: failed to load: %s",
-                               self.agent_name, name, e)
+                logger.warning("[%s] MCP %s (%s): failed to load: %s",
+                               self.agent_name, name, source, e)
+
+        # Source 1: legacy mcp/servers.json
+        legacy_config = self._working_dir / "mcp" / "servers.json"
+        if legacy_config.is_file():
+            try:
+                servers = json.loads(legacy_config.read_text())
+                if isinstance(servers, dict):
+                    for name, cfg in servers.items():
+                        if isinstance(cfg, dict):
+                            _spawn(name, cfg, source="mcp/servers.json")
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning("[%s] mcp/servers.json: failed to read: %s",
+                               self.agent_name, e)
+
+        # Source 2: init.json top-level mcp section, gated by registry.
+        init_path = self._working_dir / "init.json"
+        if not init_path.is_file():
+            return
+        try:
+            init_data = json.loads(init_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+
+        init_mcp = init_data.get("mcp")
+        if not isinstance(init_mcp, dict) or not init_mcp:
+            return
+
+        # Cross-reference against the registry.
+        try:
+            from .core.mcp import read_registry
+            registered, _problems = read_registry(self._working_dir)
+            registered_names = {r["name"] for r in registered}
+        except Exception as e:
+            logger.warning("[%s] mcp registry read failed: %s",
+                           self.agent_name, e)
+            registered_names = set()
+
+        for name, cfg in init_mcp.items():
+            if not isinstance(cfg, dict):
+                continue
+            if name not in registered_names:
+                logger.warning(
+                    "[%s] init.json mcp %r: skipped — not in mcp_registry.jsonl. "
+                    "Register it first (see mcp-manual skill).",
+                    self.agent_name, name,
+                )
+                continue
+            _spawn(name, cfg, source="init.json:mcp")
 
     def _cpr_agent(self, address: str) -> "Agent | None":
         """Resuscitate a suspended agent by launching it as a detached process.
@@ -371,29 +420,10 @@ class Agent(BaseAgent):
 
     def start(self) -> None:
         super().start()
-        _failed_addons = []
-        for name, mgr in self._addon_managers.items():
-            if hasattr(mgr, "start"):
-                try:
-                    mgr.start()
-                except Exception as e:
-                    self._log("addon_skipped", addon=name, reason=f"start failed: {e}")
-                    self._notify_addon_failure(name, e)
-                    _failed_addons.append(name)
-        for name in _failed_addons:
-            self._addon_managers.pop(name, None)
-            # Remove tool registered during setup so the LLM doesn't see it
-            self._tool_handlers.pop(name, None)
-            self._tool_schemas = [s for s in self._tool_schemas if s.name != name]
-
-    def _notify_addon_failure(self, addon_name: str, error: Exception) -> None:
-        """Queue a [system] message so the agent can inform the user."""
-        from lingtai_kernel.message import _make_message, MSG_REQUEST
-        msg = _make_message(
-            MSG_REQUEST, "system",
-            f"[system] Addon '{addon_name}' failed to load: {error}",
-        )
-        self.inbox.put(msg)
+        # LICC poller: watch .mcp_inbox/ for events from out-of-process MCPs.
+        from .core.mcp.inbox import MCPInboxPoller
+        self._mcp_inbox_poller = MCPInboxPoller(self)
+        self._mcp_inbox_poller.start()
 
     def connect_mcp(
         self,
@@ -494,6 +524,15 @@ class Agent(BaseAgent):
         return registered
 
     def stop(self, timeout: float = 5.0) -> None:
+        # Stop LICC poller before closing MCP clients so any in-flight events
+        # finish dispatching before subprocess teardown.
+        poller = getattr(self, "_mcp_inbox_poller", None)
+        if poller is not None:
+            try:
+                poller.stop()
+            except Exception:
+                pass
+
         # Close MCP clients
         for client in getattr(self, "_mcp_clients", []):
             try:
@@ -501,12 +540,6 @@ class Agent(BaseAgent):
             except Exception:
                 pass
 
-        for name, mgr in self._addon_managers.items():
-            if hasattr(mgr, "stop"):
-                try:
-                    mgr.stop()
-                except Exception:
-                    pass
         super().stop(timeout=timeout)
 
     def has_capability(self, name: str) -> bool:
@@ -662,7 +695,6 @@ class Agent(BaseAgent):
             resolve_env,
             resolve_file,
             _resolve_capabilities,
-            _resolve_addons,
         )
         from lingtai_kernel.config import AgentConfig
 
@@ -690,13 +722,6 @@ class Agent(BaseAgent):
         # Cancel soul timer to prevent racing on config/service during rebuild
         self._cancel_soul_timer()
 
-        for name, mgr in self._addon_managers.items():
-            if hasattr(mgr, "stop"):
-                try:
-                    mgr.stop()
-                except Exception:
-                    pass
-
         for client in getattr(self, "_mcp_clients", []):
             try:
                 client.close()
@@ -709,7 +734,6 @@ class Agent(BaseAgent):
         self._tool_schemas.clear()
         self._capabilities.clear()
         self._capability_managers.clear()
-        self._addon_managers.clear()
 
         self._intrinsics.clear()
         self._wire_intrinsics()
@@ -781,6 +805,17 @@ class Agent(BaseAgent):
         # rules, pad, comment) from init.json and disk.
         self._reload_prompt_sections(data)
 
+        # Decompress addons BEFORE capability setup so the `mcp` capability
+        # sees the populated registry on its first reconcile.
+        addons = data.get("addons") or []
+        if addons:
+            try:
+                from .core.mcp import decompress_addons
+                report = decompress_addons(self._working_dir, addons)
+                self._log("mcp_decompress", **report)
+            except Exception as e:
+                self._log("mcp_decompress_failed", reason=str(e))
+
         # Re-run capability setup
         capabilities = _resolve_capabilities(m.get("capabilities", {}))
         if capabilities:
@@ -799,20 +834,8 @@ class Agent(BaseAgent):
                 except (ValueError, ImportError) as e:
                     self._log("capability_skipped", capability=name, reason=str(e))
 
-        # Re-run addon setup — only from explicit init.json declarations
-        addons = _resolve_addons(data.get("addons")) or {}
-        if addons:
-            from .addons import setup_addon
-            for addon_name, addon_kwargs in addons.items():
-                try:
-                    mgr = setup_addon(self, addon_name, **(addon_kwargs or {}))
-                    self._addon_managers[addon_name] = mgr
-                except Exception as e:
-                    self._log("addon_skipped", addon=addon_name, reason=str(e))
-                    self._notify_addon_failure(addon_name, e)
-
         # Install intrinsic manuals (wipe-and-rewrite .library/intrinsic/)
-        # from the bundles shipped with each enabled capability/addon.
+        # from the bundles shipped with each enabled capability.
         self._install_intrinsic_manuals()
 
         # Register system prompt reload as post-molt hook — molt should
@@ -837,26 +860,9 @@ class Agent(BaseAgent):
         if saved_interface is not None:
             self._session._rebuild_session(saved_interface)
 
-        # Start addon managers
-        _failed_addons = []
-        for name, mgr in self._addon_managers.items():
-            if hasattr(mgr, "start"):
-                try:
-                    mgr.start()
-                except Exception as e:
-                    self._log("addon_skipped", addon=name, reason=f"start failed: {e}")
-                    self._notify_addon_failure(name, e)
-                    _failed_addons.append(name)
-        for name in _failed_addons:
-            self._addon_managers.pop(name, None)
-            # Remove tool registered during setup so the LLM doesn't see it
-            self._tool_handlers.pop(name, None)
-            self._tool_schemas = [s for s in self._tool_schemas if s.name != name]
-
         self._log(
             "refresh_complete",
             capabilities=[name for name, _ in self._capabilities],
-            addons=list(self._addon_managers.keys()),
             tools=list(self._tool_handlers.keys()),
         )
 

@@ -49,7 +49,9 @@ def test_library_setup_creates_per_agent_directories(tmp_path):
         assert (workdir / ".library").is_dir()
         assert (workdir / ".library" / "intrinsic").is_dir()
         assert (workdir / ".library" / "intrinsic" / "capabilities").is_dir()
-        assert (workdir / ".library" / "intrinsic" / "addons").is_dir()
+        # Note: intrinsic/addons/ no longer created since lingtai.addons was
+        # removed in v0.7.3 — addons are now MCP servers (curated catalog
+        # decompressed into mcp_registry.jsonl by the `mcp` capability).
         assert (workdir / ".library" / "custom").is_dir()
     finally:
         agent.stop(timeout=1.0)

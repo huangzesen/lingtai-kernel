@@ -1,0 +1,39 @@
+{
+  "_comment": "LingTai curated MCP catalog. Each entry is a registry record template that the `mcp` capability decompresses into the agent's mcp_registry.jsonl when the addon name appears in init.json's `addons` list. The `homepage` field points at the canonical setup docs (typically a GitHub README) — agents fetch it via web_read or curl when they need install/config instructions. See core/mcp/manual/SKILL.md for the schema.",
+  "imap": {
+    "name": "imap",
+    "summary": "Real email via IMAP/SMTP — multi-account support.",
+    "transport": "stdio",
+    "command": "{python}",
+    "args": ["-m", "lingtai_imap"],
+    "source": "lingtai-curated",
+    "homepage": "https://github.com/Lingtai-AI/lingtai-imap"
+  },
+  "telegram": {
+    "name": "telegram",
+    "summary": "Telegram bot client — Bot API send/receive with LICC inbox callback.",
+    "transport": "stdio",
+    "command": "{python}",
+    "args": ["-m", "lingtai_telegram"],
+    "source": "lingtai-curated",
+    "homepage": "https://github.com/Lingtai-AI/lingtai-telegram"
+  },
+  "feishu": {
+    "name": "feishu",
+    "summary": "Feishu/Lark message client — Open API send/receive with LICC inbox callback.",
+    "transport": "stdio",
+    "command": "{python}",
+    "args": ["-m", "lingtai_feishu"],
+    "source": "lingtai-curated",
+    "homepage": "https://github.com/Lingtai-AI/lingtai-feishu"
+  },
+  "wechat": {
+    "name": "wechat",
+    "summary": "WeChat client via iLink Bot API — text/media send/receive with LICC inbox callback.",
+    "transport": "stdio",
+    "command": "{python}",
+    "args": ["-m", "lingtai_wechat"],
+    "source": "lingtai-curated",
+    "homepage": "https://github.com/Lingtai-AI/lingtai-wechat"
+  }
+}

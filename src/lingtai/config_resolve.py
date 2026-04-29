@@ -1,4 +1,4 @@
-"""Shared config resolution helpers — env vars, capabilities, addons."""
+"""Shared config resolution helpers — env vars, capabilities, paths."""
 from __future__ import annotations
 
 import json
@@ -98,13 +98,15 @@ def _resolve_file_fields(d: dict) -> dict:
 def resolve_paths(data: dict, working_dir: str | Path) -> None:
     """Make every path field in init.json absolute, resolved against working_dir.
 
-    Mutates *data* in place. Handles:
-    - Top-level: env_file, venv_path, *_file (covenant_file, etc.)
-    - Addon configs: addons.*.config
+    Mutates *data* in place. Handles top-level: env_file, venv_path, and
+    *_file (covenant_file, principle_file, etc.).
+
+    MCP-related paths (init.json's `mcp.<name>.env.LINGTAI_*_CONFIG`) are
+    intentionally left relative — each MCP server resolves its own config
+    path against LINGTAI_AGENT_DIR at startup, which the kernel injects.
     """
     wd = Path(working_dir)
 
-    # Top-level path fields
     for key in ("env_file", "venv_path",
                 "covenant_file", "principle_file", "procedures_file",
                 "brief_file", "pad_file",
@@ -114,16 +116,6 @@ def resolve_paths(data: dict, working_dir: str | Path) -> None:
             if not p.is_absolute():
                 p = wd / p
             data[key] = str(p)
-
-    # Addon config paths
-    addons = data.get("addons")
-    if isinstance(addons, dict):
-        for cfg in addons.values():
-            if isinstance(cfg, dict) and "config" in cfg:
-                p = Path(cfg["config"]).expanduser()
-                if not p.is_absolute():
-                    p = wd / p
-                cfg["config"] = str(p)
 
 
 def _resolve_capabilities(capabilities: dict) -> dict:
@@ -137,12 +129,3 @@ def _resolve_capabilities(capabilities: dict) -> dict:
     return resolved
 
 
-def _resolve_addons(addons: dict | None) -> dict | None:
-    """Resolve *_env fields in addon configs to actual values."""
-    if not addons:
-        return None
-    resolved = {}
-    for name, cfg in addons.items():
-        if isinstance(cfg, dict):
-            resolved[name] = _resolve_env_fields(cfg)
-    return resolved or None

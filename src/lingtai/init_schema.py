@@ -13,11 +13,17 @@ log = logging.getLogger(__name__)
 TOP_OPTIONAL: dict[str, type | tuple[type, ...]] = {
     "env_file": str,
     "venv_path": str,
-    "addons": dict,
+    # addons is a list of curated MCP names — looked up in the kernel
+    # catalog and decompressed into mcp_registry.jsonl by the `mcp`
+    # capability on agent boot.
+    "addons": list,
+    # mcp is the per-MCP activation map — see core/mcp/manual/SKILL.md.
+    # Keys must match registered names; values are subprocess specs.
+    "mcp": dict,
 }
 
 TOP_KNOWN: set[str] = {
-    "manifest", "env_file", "venv_path", "addons",
+    "manifest", "env_file", "venv_path", "addons", "mcp",
     "principle", "principle_file", "covenant", "covenant_file",
     "procedures", "procedures_file", "brief", "brief_file",
     "pad", "pad_file", "prompt", "prompt_file",
@@ -153,15 +159,13 @@ def validate_init(data: dict) -> list[str]:
                 "— the agent cannot resolve the API key without it"
             )
 
-    # Validate addons if present
+    # Validate addons: must be a list of curated MCP names. The `mcp`
+    # capability validates each catalog record at decompression time, so
+    # there's no per-name validation here.
     addons = data.get("addons")
-    if addons is not None:
-        if "imap" in addons:
-            warnings.extend(_validate_imap_addon(addons["imap"]))
-        if "telegram" in addons:
-            warnings.extend(_validate_telegram_addon(addons["telegram"]))
-        if "feishu" in addons:
-            warnings.extend(_validate_feishu_addon(addons["feishu"]))
+    if isinstance(addons, list):
+        if not all(isinstance(x, str) for x in addons):
+            warnings.append("addons: all entries must be strings (curated MCP names)")
 
     # Validate manifest.capabilities.library shape if present.
     caps = manifest.get("capabilities") or {}
@@ -181,66 +185,6 @@ def validate_init(data: dict) -> list[str]:
             if key != "paths":
                 warnings.append(f"unknown field in manifest.capabilities.library: {key}")
 
-    return warnings
-
-
-def _validate_imap_addon(cfg: dict) -> list[str]:
-    """Validate imap addon config within init.json.
-
-    Expects ``{"config": "<path>"}``. Inline fields are accepted
-    but produce warnings (credentials belong in config files).
-    """
-    warnings: list[str] = []
-    if not isinstance(cfg, dict):
-        raise ValueError("addons.imap: expected object")
-    if "config" not in cfg:
-        warnings.append(
-            "addons.imap: missing 'config' — "
-            "use {\"config\": \"imap.json\"} and put credentials in the config file"
-        )
-    else:
-        if not isinstance(cfg["config"], str):
-            raise ValueError("addons.imap.config: expected str")
-    return warnings
-
-
-def _validate_telegram_addon(cfg: dict) -> list[str]:
-    """Validate telegram addon config within init.json.
-
-    Expects ``{"config": "<path>"}``. Inline fields are accepted
-    but produce warnings (credentials belong in config files).
-    """
-    warnings: list[str] = []
-    if not isinstance(cfg, dict):
-        raise ValueError("addons.telegram: expected object")
-    if "config" not in cfg:
-        warnings.append(
-            "addons.telegram: missing 'config' — "
-            "use {\"config\": \"telegram.json\"} and put credentials in the config file"
-        )
-    else:
-        if not isinstance(cfg["config"], str):
-            raise ValueError("addons.telegram.config: expected str")
-    return warnings
-
-
-def _validate_feishu_addon(cfg: dict) -> list[str]:
-    """Validate feishu addon config within init.json.
-
-    Expects ``{"config": "<path>"}``. Inline fields are accepted
-    but produce warnings (credentials belong in config files).
-    """
-    warnings: list[str] = []
-    if not isinstance(cfg, dict):
-        raise ValueError("addons.feishu: expected object")
-    if "config" not in cfg:
-        warnings.append(
-            "addons.feishu: missing 'config' — "
-            "use {\"config\": \"feishu.json\"} and put credentials in the config file"
-        )
-    else:
-        if not isinstance(cfg["config"], str):
-            raise ValueError("addons.feishu.config: expected str")
     return warnings
 
 

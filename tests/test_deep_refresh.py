@@ -27,17 +27,9 @@ def test_resolve_capabilities_resolves_env():
     assert result == {"bash": {"policy_file": "p.json"}, "vision": {}}
 
 
-def test_resolve_addons_none():
-    """_resolve_addons returns None for None/empty input."""
-    from lingtai.config_resolve import _resolve_addons
-
-    assert _resolve_addons(None) is None
-    assert _resolve_addons({}) is None
-
-
 def _make_init(
     capabilities: dict | None = None,
-    addons: dict | None = None,
+    addons: list[str] | None = None,
     provider: str = "openai",
     model: str = "gpt-4o",
     covenant: str = "",
