@@ -88,18 +88,27 @@ def test_agent_seal_after_start(tmp_path):
 
 
 def test_vision_requires_provider(tmp_path):
-    """Vision capability raises ValueError without provider or service."""
-    with pytest.raises(ValueError, match="vision capability requires"):
-        Agent(
-            service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
-            capabilities=["vision"],
-        )
+    """Vision capability is skipped when no provider or service is given.
+
+    setup() raises ValueError, but the agent catches it (capability_skipped)
+    and simply doesn't register the tool.
+    """
+    agent = Agent(
+        service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+        capabilities=["vision"],
+    )
+    assert agent.get_capability("vision") is None
+    assert "vision" not in {s.name for s in agent._tool_schemas}
+    agent.stop(timeout=1.0)
 
 
-def test_web_search_requires_provider(tmp_path):
-    """Web search capability raises ValueError without provider or service."""
-    with pytest.raises(ValueError, match="web_search capability requires"):
-        Agent(
-            service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
-            capabilities=["web_search"],
-        )
+def test_web_search_defaults_to_duckduckgo(tmp_path):
+    """Web search capability falls back to duckduckgo when no provider given."""
+    agent = Agent(
+        service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+        capabilities=["web_search"],
+    )
+    mgr = agent.get_capability("web_search")
+    assert mgr is not None
+    assert "web_search" in {s.name for s in agent._tool_schemas}
+    agent.stop(timeout=1.0)

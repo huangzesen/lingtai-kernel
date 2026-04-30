@@ -1,6 +1,7 @@
 """Tests for file I/O capabilities (read, write, edit, glob, grep)."""
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -99,7 +100,11 @@ def test_glob_via_capability(tmp_path):
     result = agent._tool_handlers["glob"](
         {"pattern": "*.py", "path": str(agent.working_dir)}
     )
-    assert result["count"] == 2
+    # Agent init may create library files; assert user files are present.
+    matched_names = {Path(p).name for p in result["matches"]}
+    assert "a.py" in matched_names
+    assert "b.py" in matched_names
+    assert "c.txt" not in matched_names
     agent.stop(timeout=1.0)
 
 
