@@ -32,6 +32,22 @@ def _generate_session_id() -> str:
     return f"st_{uuid.uuid4().hex[:12]}"
 
 
+def _generate_tool_call_id() -> str:
+    """Generate a LingTai-issued tool-call correlation id.
+
+    Format: ``tc_<unix_seconds>_<4-hex>``. Stamped onto every tool-result
+    dict by ``LLMService.make_tool_result`` so the agent has a stable,
+    provider-agnostic id for each tool call <-> result pair.
+
+    Distinct from the *provider*-issued id (Anthropic ``tool_use_id`` /
+    OpenAI ``tool_call_id``) which still flows through the wire protocol
+    via the ``tool_call_id`` kwarg — that id is for the LLM's API server,
+    this one is for the agent's reasoning layer.
+    """
+    import time
+    return f"tc_{int(time.time())}_{uuid.uuid4().hex[:4]}"
+
+
 class LLMService(LLMServiceABC):
     """Concrete LLM service — adapter registry, session management, generation.
 
@@ -257,7 +273,16 @@ class LLMService(LLMServiceABC):
         self, tool_name: str, result: dict, *, tool_call_id: str | None = None,
         provider: str | None = None,
     ) -> ToolResultBlock:
-        """Build a canonical ToolResultBlock."""
+        """Build a canonical ToolResultBlock.
+
+        Stamps a LingTai-issued ``_tool_call_id`` onto the result dict so the
+        agent sees a uniform correlation id regardless of which provider
+        underneath issued the wire-protocol id. The provider's id flows
+        through the ``tool_call_id`` kwarg untouched — it is what the LLM's
+        API server uses for tool_use <-> tool_result pairing on the wire.
+        """
+        if isinstance(result, dict):
+            result["_tool_call_id"] = _generate_tool_call_id()
         adapter = self.get_adapter(provider) if provider else self.get_adapter(self._provider, self._base_url)
         return adapter.make_tool_result_message(
             tool_name, result, tool_call_id=tool_call_id,
