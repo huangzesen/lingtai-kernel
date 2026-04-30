@@ -561,6 +561,7 @@ def test_e2e_emanate_writes_full_fs_artifact(tmp_path):
     mock_session.send = MagicMock(side_effect=[resp1, resp2])
     agent.service.create_session = MagicMock(return_value=mock_session)
     agent.service.make_tool_result = MagicMock(return_value="mock_result")
+    agent.service._base_url = "https://mock.example.com"
     agent._tool_handlers["read"] = MagicMock(return_value={"content": "file text"})
 
     result = mgr.handle({"action": "emanate", "tasks": [
@@ -728,6 +729,7 @@ def _write_preset_file(presets_dir, name, provider="deepseek", model="deepseek-v
         },
     }
     (presets_dir / f"{name}.json").write_text(json.dumps(preset))
+    return f"{name}.json"
 
 
 def _make_agent_with_presets(tmp_path, presets_dir):
@@ -766,15 +768,16 @@ def test_emanate_with_preset_validates_preset_exists(tmp_path, monkeypatch):
 
     presets_dir = tmp_path / "presets"
     presets_dir.mkdir()
-    _write_preset_file(presets_dir, "deepseek")
+    preset_file = _write_preset_file(presets_dir, "deepseek")
 
     agent = _make_agent_with_presets(tmp_path, presets_dir)
     agent.inbox = queue.Queue()
     mgr = agent.get_capability("daemon")
 
+    ghost_path = str(presets_dir / "ghost.json")
     # 'ghost' doesn't exist in the library
     result = mgr.handle({"action": "emanate", "tasks": [
-        {"task": "task A", "tools": ["file"], "preset": "ghost"},
+        {"task": "task A", "tools": ["file"], "preset": ghost_path},
         {"task": "task B", "tools": ["file"]},  # valid task, but should be refused too
     ]})
     assert result["status"] == "error"
@@ -791,7 +794,7 @@ def test_emanate_with_preset_unreachable_refuses(tmp_path, monkeypatch):
 
     presets_dir = tmp_path / "presets"
     presets_dir.mkdir()
-    _write_preset_file(presets_dir, "deepseek", api_key_env="DEEPSEEK_API_KEY")
+    preset_file = _write_preset_file(presets_dir, "deepseek", api_key_env="DEEPSEEK_API_KEY")
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
 
@@ -799,10 +802,11 @@ def test_emanate_with_preset_unreachable_refuses(tmp_path, monkeypatch):
     agent.inbox = queue.Queue()
     mgr = agent.get_capability("daemon")
 
+    preset_path = str(presets_dir / "deepseek.json")
     with patch.object(preset_connectivity, "_probe_host",
                       side_effect=OSError("connection refused")):
         result = mgr.handle({"action": "emanate", "tasks": [
-            {"task": "task A", "tools": ["file"], "preset": "deepseek"},
+            {"task": "task A", "tools": ["file"], "preset": preset_path},
         ]})
     assert result["status"] == "error"
     assert "unreachable" in result["message"]
@@ -822,8 +826,9 @@ def test_emanate_with_preset_no_credentials_refuses(tmp_path, monkeypatch):
     agent.inbox = queue.Queue()
     mgr = agent.get_capability("daemon")
 
+    preset_path = str(presets_dir / "deepseek.json")
     result = mgr.handle({"action": "emanate", "tasks": [
-        {"task": "task A", "tools": ["file"], "preset": "deepseek"},
+        {"task": "task A", "tools": ["file"], "preset": preset_path},
     ]})
     assert result["status"] == "error"
     assert "no_credentials" in result["message"]
@@ -860,11 +865,13 @@ def test_emanate_with_preset_passes_through(tmp_path, monkeypatch):
     preset_svc = MagicMock()
     preset_svc.create_session = MagicMock(return_value=mock_session)
     preset_svc.make_tool_result = MagicMock(return_value="mock_result")
+    preset_svc._base_url = "https://mock.deepseek.com"
 
+    preset_path = str(presets_dir / "deepseek.json")
     with patch.object(preset_connectivity, "_probe_host", return_value=42), \
          patch("lingtai.llm.service.LLMService", return_value=preset_svc):
         result = mgr.handle({"action": "emanate", "tasks": [
-            {"task": "find todos", "tools": ["file"], "preset": "deepseek"},
+            {"task": "find todos", "tools": ["file"], "preset": preset_path},
         ]})
 
     assert result["status"] == "dispatched"
@@ -878,7 +885,7 @@ def test_emanate_with_preset_passes_through(tmp_path, monkeypatch):
     folders = list(daemons_dir.iterdir())
     assert len(folders) == 1
     data = json.loads((folders[0] / "daemon.json").read_text())
-    assert data.get("preset_name") == "deepseek"
+    assert data.get("preset_name") == preset_path
     assert data.get("preset_provider") == "deepseek"
     assert data.get("preset_model") == "deepseek-v3"
 
