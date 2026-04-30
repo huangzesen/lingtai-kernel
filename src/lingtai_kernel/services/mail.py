@@ -162,7 +162,8 @@ class FilesystemMailService(MailService):
             return f"Agent at {address} is not running"
 
         # --- create inbox entry ---------------------------------------
-        msg_id = str(uuid.uuid4())
+        from ..intrinsics.mail import _new_mailbox_id
+        msg_id = _new_mailbox_id()
         inbox_dir = recipient_dir / self._mailbox_rel / "inbox"
         msg_dir = inbox_dir / msg_id
 

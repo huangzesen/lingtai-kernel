@@ -537,9 +537,9 @@ class BaseAgent:
         Capabilities configure ``_mailbox_name`` and ``_mailbox_tool``
         to change the notification text (e.g. "email box" / "email").
         """
-        from uuid import uuid4
+        from .intrinsics.mail import _new_mailbox_id
 
-        email_id = payload.get("_mailbox_id") or str(uuid4())
+        email_id = payload.get("_mailbox_id") or _new_mailbox_id()
         address = payload.get("from", "unknown")
         identity = payload.get("identity")
         name = address

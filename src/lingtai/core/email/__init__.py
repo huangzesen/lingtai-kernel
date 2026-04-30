@@ -874,7 +874,8 @@ class EmailManager:
             t.start()
 
         # Write ONE sent record (email-level, preserving the "one email" view)
-        sent_id = str(uuid4())
+        from lingtai_kernel.intrinsics.mail import _new_mailbox_id
+        sent_id = _new_mailbox_id()
         sent_dir = self._mailbox_path / "sent" / sent_id
         sent_dir.mkdir(parents=True, exist_ok=True)
         sent_record = {

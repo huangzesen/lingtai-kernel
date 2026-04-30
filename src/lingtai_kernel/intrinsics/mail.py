@@ -19,6 +19,27 @@ from pathlib import Path
 
 from ..time_veil import scrub_time_fields
 
+
+def _new_mailbox_id() -> str:
+    """Build a sortable, human-scannable mailbox id.
+
+    Format: ``<YYYYMMDDTHHMMSS>-<4 hex>`` — 20 chars total. The
+    timestamp prefix gives natural lexical ordering and tells the
+    reader when the message was filed; the 4-hex suffix
+    (collision-resistant within the same second) keeps the directory
+    name unique on disk. We use uuid4 hex bytes for the suffix rather
+    than a counter so two listeners writing in the same second don't
+    need to coordinate.
+
+    Replaces the historical ``str(uuid.uuid4())`` (36 chars) which was
+    correct for storage but visually overwhelming when surfaced to the
+    agent in tool output. Existing inbox dirs with UUID names are NOT
+    migrated — they continue to work as opaque keys; only new messages
+    use the new shape.
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    return f"{ts}-{uuid.uuid4().hex[:4]}"
+
 def get_description(lang: str = "en") -> str:
     from ..i18n import t
     return t(lang, "mail.description")
@@ -250,7 +271,7 @@ def _persist_to_inbox(agent, payload: dict) -> str:
 
     Returns the message ID.
     """
-    msg_id = str(uuid.uuid4())
+    msg_id = _new_mailbox_id()
     msg_dir = _inbox_dir(agent) / msg_id
     msg_dir.mkdir(parents=True, exist_ok=True)
 
@@ -276,7 +297,7 @@ def _sent_dir(agent) -> Path:
 
 def _persist_to_outbox(agent, payload: dict, deliver_at: datetime) -> str:
     """Write a message to outbox/{uuid}/message.json. Returns the message ID."""
-    msg_id = str(uuid.uuid4())
+    msg_id = _new_mailbox_id()
     msg_dir = _outbox_dir(agent) / msg_id
     msg_dir.mkdir(parents=True, exist_ok=True)
 
