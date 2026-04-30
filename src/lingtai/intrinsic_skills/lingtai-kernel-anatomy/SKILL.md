@@ -1,5 +1,5 @@
 ---
-name: lingtai-anatomy
+name: lingtai-kernel-anatomy
 description: >
   Canonical specification of how LingTai is built — the under-the-hood
   protocols, file formats, and runtime mechanics that tools and capabilities
@@ -67,12 +67,21 @@ description: >
 
   Relationship to per-tool manuals: tool manuals (e.g. `daemon-manual`,
   `mcp-manual`, `library-manual`) are how-to guides — operational steps,
-  worked examples, common pitfalls. lingtai-anatomy references are the
-  canonical specs underneath. A manual says "to register an MCP, do this";
-  the anatomy spec says "the registry file format is exactly this; the
-  validator enforces these constraints; here is the line in agent.py that
-  reads it." Read the manual to *do*, the anatomy to *understand* or
+  worked examples, common pitfalls. lingtai-kernel-anatomy references are
+  the canonical specs underneath. A manual says "to register an MCP, do
+  this"; the anatomy spec says "the registry file format is exactly this;
+  the validator enforces these constraints; here is the line in agent.py
+  that reads it." Read the manual to *do*, the anatomy to *understand* or
   *verify*.
+
+  Relationship to lingtai-anatomy (the umbrella TUI-side skill): the
+  umbrella `lingtai-anatomy` describes the lingtai *system* as users
+  experience it — TUI flows, presets, init.jsonc, migrations, runtime
+  layout under `~/.lingtai-tui/`. This skill (`lingtai-kernel-anatomy`)
+  is the deeper kernel layer that the umbrella points down into for
+  protocol-level questions. If you need to know "how does my init.jsonc
+  get there," start with the umbrella; if you need "what's the exact
+  schema of the mcp_registry.jsonl line the kernel parses," come here.
 
   Cross-references between anatomy files are common — mcp-protocol.md
   cites file-formats.md §6.5 for the registry schema, runtime-loop.md

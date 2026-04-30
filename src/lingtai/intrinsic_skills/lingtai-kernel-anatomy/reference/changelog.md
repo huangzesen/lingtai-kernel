@@ -1,4 +1,4 @@
-# Changelog — LingTai Anatomy Reference
+# Changelog — LingTai Kernel Anatomy Reference
 
 > **Scope:** Living chronicle of system-level breaking changes, renames, and
 > migrations. When tool names, file paths, or behaviour don't match what you
@@ -7,7 +7,61 @@
 > **History:** Originally a standalone `lingtai-changelog` skill (v1.0.0,
 > 2026-04). Absorbed into `lingtai-anatomy` as a sub-reference v2.1.0
 > (2026-04-29) so the canonical architecture doc is also the canonical change
-> log. Entries newest-first.
+> log. Renamed to `lingtai-kernel-anatomy` on 2026-04-30 to free the bare
+> `lingtai-anatomy` name for the umbrella TUI-side anatomy skill that
+> describes the system as users experience it (presets, init.jsonc, runtime
+> layout). Entries newest-first.
+
+---
+
+## 2026-04-30 — `lingtai-anatomy` renamed to `lingtai-kernel-anatomy`; umbrella `lingtai-anatomy` reserved for TUI-side anatomy
+
+### What changed
+
+The kernel-shipped intrinsic skill `lingtai-anatomy` was renamed to
+`lingtai-kernel-anatomy`. It still ships from `lingtai-kernel/src/lingtai/intrinsic_skills/lingtai-kernel-anatomy/`,
+still installs into every agent's `.library/intrinsic/capabilities/lingtai-kernel-anatomy/`
+on every boot, and still contains the same 10 reference files (file-formats,
+filesystem-layout, glossary, mail-protocol, mcp-protocol, memory-system,
+molt-protocol, network-topology, runtime-loop, plus this changelog).
+
+The bare name `lingtai-anatomy` is now reserved for an umbrella TUI-side
+anatomy skill (planned, not yet shipped) that will describe the lingtai
+system as users experience it: TUI flows, presets, `init.jsonc`, migrations,
+runtime layout under `~/.lingtai-tui/`, the TUI/portal split. The umbrella
+`lingtai-anatomy` will point down into `lingtai-kernel-anatomy` for kernel
+mechanics; the two together cover the full stack.
+
+### Why
+
+The bare `lingtai-anatomy` name was claimed first by the kernel-side
+skill simply because the kernel migration shipped first. But "lingtai" in
+users' minds is the *whole product* (kernel + TUI + agents), not the
+narrow kernel layer. The narrower-scope skill takes the narrower-scope
+name; the umbrella name describes the umbrella thing. This also clarifies
+the design philosophy: both anatomies are *living canonical archives* —
+read them, edit them when the system changes, treat them as the
+single-source-of-truth for "how this works."
+
+### Impact
+
+- **Agents:** `<available_skills>` now lists `lingtai-kernel-anatomy`
+  where it previously listed `lingtai-anatomy`. The skill body is unchanged.
+  Cross-references in `daemon-manual`, `mcp-manual`, TUI covenants, TUI
+  procedures, and the debug-toolkit skills were updated to use the new name.
+- **Procedures and workflows:** any "load `lingtai-anatomy` skill"
+  instruction was rewritten to "load `lingtai-kernel-anatomy` skill."
+- **Future:** when the umbrella `lingtai-anatomy` ships, agents will see
+  both skills and choose: umbrella for "where does this artifact come from
+  / how does the TUI route it," kernel-anatomy for "what's the exact
+  protocol / schema / runtime mechanism."
+
+### Migration
+
+None required for end users. Existing on-disk `.library/intrinsic/capabilities/lingtai-anatomy/`
+directories get wiped and rewritten as `.library/intrinsic/capabilities/lingtai-kernel-anatomy/`
+on the next agent boot — the wipe-and-reinstall in `_install_intrinsic_manuals`
+handles this transparently.
 
 ---
 

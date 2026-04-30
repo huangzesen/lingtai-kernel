@@ -4,7 +4,7 @@ description: >
   Operational guide for the `mcp` capability — how to register, activate,
   update, deregister, and troubleshoot MCP (Model Context Protocol) servers
   in your agent. The how-to companion to the canonical spec in
-  `lingtai-anatomy reference/mcp-protocol.md`.
+  `lingtai-kernel-anatomy reference/mcp-protocol.md`.
 
   Reach for this manual when:
     - The human asks to install or remove an MCP server. The decision tree
@@ -32,7 +32,7 @@ description: >
   Does NOT cover the protocol spec itself: schema validation rules, env
   injection mechanics (the `LINGTAI_AGENT_DIR` / `LINGTAI_MCP_NAME`
   variables), the LICC v1 inbox callback contract, and the validator's
-  internal logic all live in `lingtai-anatomy reference/mcp-protocol.md`.
+  internal logic all live in `lingtai-kernel-anatomy reference/mcp-protocol.md`.
   Read this for *what to do*; read anatomy for *how it works*.
 version: 2.0.0
 ---
@@ -41,7 +41,7 @@ version: 2.0.0
 
 The `mcp` capability is your interface to the Model Context Protocol (MCP) servers available to this agent. Like the `library` capability, it is **pure presentation**: the registered MCPs are listed in your system prompt under `<registered_mcp>`, and the registry itself is a JSONL file you edit directly with `write` / `edit` / `bash`.
 
-**This manual is a how-to.** The canonical specification — schema, validator behaviour, env injection, LICC contract — lives in the `lingtai-anatomy` skill, in `reference/mcp-protocol.md`. Load that when you need the spec; load this when you want to *do* something.
+**This manual is a how-to.** The canonical specification — schema, validator behaviour, env injection, LICC contract — lives in the `lingtai-kernel-anatomy` skill, in `reference/mcp-protocol.md`. Load that when you need the spec; load this when you want to *do* something.
 
 ## Three states of an MCP
 
@@ -51,7 +51,7 @@ For any MCP server, relative to this agent:
 2. **Officially registered** — appears as a line in `mcp_registry.jsonl` (sibling to `init.json`). The system prompt's `<registered_mcp>` lists it.
 3. **Active** — the MCP server subprocess is running, its tools are mounted in your tool surface.
 
-Promotion path: catalog → registry → active. You move things along by editing files and calling `system(action="refresh")`. See `lingtai-anatomy reference/mcp-protocol.md` §1 for the full three-layer model.
+Promotion path: catalog → registry → active. You move things along by editing files and calling `system(action="refresh")`. See `lingtai-kernel-anatomy reference/mcp-protocol.md` §1 for the full three-layer model.
 
 ## Where to look first when exploring an MCP
 
@@ -74,7 +74,7 @@ The `mcp` capability decompresses the catalog record into `mcp_registry.jsonl` a
 ### Adding a third-party / custom MCP
 
 1. Fetch the MCP's homepage README (or other setup doc) to learn the install command, env vars, and config schema.
-2. Append a single JSON record to `mcp_registry.jsonl` (one line, atomic write). For the schema, see `lingtai-anatomy reference/file-formats.md` §6.5.
+2. Append a single JSON record to `mcp_registry.jsonl` (one line, atomic write). For the schema, see `lingtai-kernel-anatomy reference/file-formats.md` §6.5.
 3. Add an `init.json` `mcp.<name>` activation entry.
 4. Run `system(action="refresh")`.
 
@@ -92,6 +92,6 @@ All registry mutations happen via `write` / `edit` / `bash`. The `mcp` capabilit
 
 ## See also
 
-- **Canonical spec**: `lingtai-anatomy reference/mcp-protocol.md` — full three-layer model, env injection, validator schema, **LICC v1** inbox callback contract, reference implementations.
-- **File formats**: `lingtai-anatomy reference/file-formats.md` §2.7 (init.json `addons` + `mcp` fields), §6 (`mcp/servers.json` legacy direct mounts), §6.5 (`mcp_registry.jsonl`), §6.6 (`.mcp_inbox/<name>/<id>.json` LICC events).
+- **Canonical spec**: `lingtai-kernel-anatomy reference/mcp-protocol.md` — full three-layer model, env injection, validator schema, **LICC v1** inbox callback contract, reference implementations.
+- **File formats**: `lingtai-kernel-anatomy reference/file-formats.md` §2.7 (init.json `addons` + `mcp` fields), §6 (`mcp/servers.json` legacy direct mounts), §6.5 (`mcp_registry.jsonl`), §6.6 (`.mcp_inbox/<name>/<id>.json` LICC events).
 - **Per-MCP setup docs**: each MCP's homepage README. Fetch first when exploring or installing.

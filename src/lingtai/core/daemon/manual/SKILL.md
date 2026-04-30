@@ -27,7 +27,7 @@ description: >
   itself) or the cross-process recovery / orphan-detection mechanics
   (those need separate spec work).
 
-  Companion: `lingtai-anatomy reference/runtime-loop.md` covers the broader
+  Companion: `lingtai-kernel-anatomy reference/runtime-loop.md` covers the broader
   agent runtime that emanations are mini-versions of. Read that first if
   you don't yet understand the turn loop, then come here for daemon-specific
   inspection patterns.

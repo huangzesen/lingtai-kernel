@@ -188,7 +188,7 @@ class Agent(BaseAgent):
 
             Each ``<pkg>/<entry>/`` directory IS the skill — copied verbatim into
             ``intrinsic/<subdir>/<entry>/``. Used for documentation-only skills
-            like ``lingtai-anatomy`` that don't belong to any single tool.
+            like ``lingtai-kernel-anatomy`` that don't belong to any single tool.
             """
             pkg_file = getattr(pkg, "__file__", None)
             if not pkg_file:
