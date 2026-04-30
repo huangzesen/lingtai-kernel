@@ -31,6 +31,8 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import yaml
+
 from ...i18n import t
 
 if TYPE_CHECKING:
@@ -42,19 +44,25 @@ PROVIDERS = {"providers": [], "default": "builtin"}
 
 
 # ---------------------------------------------------------------------------
-# Frontmatter parser (minimal, no PyYAML dependency)
+# Frontmatter parser
 # ---------------------------------------------------------------------------
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?\n)---\s*\n", re.DOTALL)
-_KV_RE = re.compile(r"^(\w[\w-]*)\s*:\s*(.+)$", re.MULTILINE)
 
 
 def _parse_frontmatter(text: str) -> dict[str, str]:
     m = _FRONTMATTER_RE.match(text)
     if not m:
         return {}
-    block = m.group(1)
-    return {kv.group(1): kv.group(2).strip() for kv in _KV_RE.finditer(block)}
+    try:
+        loaded = yaml.safe_load(m.group(1)) or {}
+    except yaml.YAMLError:
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+    # Coerce to str|str — YAML may produce ints/lists/None for unrelated keys
+    # (e.g. version: 2.0). Multi-line scalars (>, |) collapse to clean strings.
+    return {str(k): (" ".join(str(v).split()) if v is not None else "") for k, v in loaded.items()}
 
 
 # ---------------------------------------------------------------------------

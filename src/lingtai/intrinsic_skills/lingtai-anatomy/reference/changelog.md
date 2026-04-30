@@ -11,23 +11,25 @@
 
 ---
 
-## 2026-04-30 — `minimax-token-plan` skill rewritten around official `mmx` CLI
+## 2026-04-30 — `minimax-token-plan` skill renamed to `minimax-cli`, rewritten around official `mmx` CLI
 
 ### What changed
 
-MiniMax shipped an official first-party CLI (`mmx-cli` on npm, source [`MiniMax-AI/cli`](https://github.com/MiniMax-AI/cli)) that wraps every modality — text, image, video, music, speech, vision — behind one binary. The `minimax-token-plan` skill is now CLI-primary: install via `npm install -g mmx-cli`, authenticate via `MINIMAX_API_KEY` (already populated in `~/.lingtai-tui/.env` by the TUI), discover everything else via `mmx --help` and `mmx <subcommand> --help`.
+MiniMax shipped an official first-party CLI (`mmx-cli` on npm, source [`MiniMax-AI/cli`](https://github.com/MiniMax-AI/cli)) that wraps every modality — text, image, video, music, speech, vision — behind one binary. The skill formerly known as `minimax-token-plan` was renamed to `minimax-cli` (matching the upstream package name and reflecting that the differentiator is now the CLI, not the subscription tier) and rewritten CLI-primary: install via `npm install -g mmx-cli`, source the API key from a MiniMax preset's declared `manifest.llm.api_key_env` slot in `~/.lingtai-tui/.env`, discover everything else via `mmx --help` and `mmx <subcommand> --help`.
 
-The skill went from v1.1.0 (122 lines, MCP-centric, with a 30-line region-detection bash block) to v2.0.0 (~70 lines, CLI-centric, region handled by a single `MINIMAX_BASE_URL` env override). No reference subdocs: the CLI's own `--help` is the source of truth for syntax, and the live docs URL is the source of truth for models/quotas.
+The skill went from v1.1.0 (122 lines, MCP-centric, with a 30-line region-detection bash block) to v2.0.0 (~90 lines, CLI-centric, region encoded in the chosen preset's `base_url`). No reference subdocs: the CLI's own `--help` is the source of truth for syntax, and the live docs URL is the source of truth for models/quotas.
+
+The kernel's `_parse_frontmatter` (`lingtai/core/library/__init__.py`) was upgraded from a single-line regex to `yaml.safe_load`. Multi-line `description: >` and `description: |` block scalars now parse correctly; previously they collapsed to literal `>` / `|` in the agent-facing `<available_skills>` XML, silently degrading seven skills (`lingtai-anatomy`, `listen`, `minimax-cli`, `vision`, `web-browsing`, `xiaomi-mimo`, `zhipu-coding-plan`). `pyyaml>=6.0` added as an explicit dependency in kernel `pyproject.toml`.
 
 ### Impact
 
 - **Agents:** New flow for media generation is `mmx music generate --prompt … --out …` (or `image`, `video`, `speech`) instead of `mcp__MiniMax-Media__music_generation` tool calls. The MCP route still works — see `lingtai-mcp` skill — but the CLI is preferred (first-party, simpler, no per-tool MCP registration).
 - **Vision:** The `vision` skill's Path 2 now mentions both routes. The CLI gives ad-hoc shell access (`mmx vision …`); the MCP `understand_image` tool remains the right shape when an agent needs vision as a tool call inside a longer reasoning loop.
-- **Other skills:** `xiaomi-mimo` still cross-references `minimax-token-plan` for media generation — pointer remains valid.
+- **Frontmatter parsing:** Skills authoring multi-line YAML descriptions now actually reach the agent. Existing skills using single-line descriptions continue to parse identically.
 
 ### Migration
 
-None required. Existing MCP-based media calls continue to work; CLI route is additive. Agents discovering the skill fresh will get the CLI path by default.
+None required for end users. Skill renamed in-place; agents discovering the skill fresh will get the CLI path by default. Cross-references in `vision`, `xiaomi-mimo`, `dj`, and migration `m027` were updated to point to `minimax-cli`.
 
 ---
 

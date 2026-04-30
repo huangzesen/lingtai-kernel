@@ -1,13 +1,83 @@
 ---
 name: lingtai-anatomy
 description: >
-  Canonical reference for how LingTai is built — kernel, capabilities, MCP / LICC,
-  filesystem, runtime, molt, network, and the breaking-changes log.
-  Modular multi-layer skill: this index file points to 10 topical references.
-  Load only the reference you need — not the whole skill.
-  Use when investigating LingTai mechanics, debugging an agent, building tools
-  that interact with .lingtai/ directories, writing a third-party MCP server,
-  or chasing down "what does this old name refer to" via the changelog.
+  Canonical specification of how LingTai is built — the under-the-hood
+  protocols, file formats, and runtime mechanics that tools and capabilities
+  rest on. Reach for this when the tool description and tool manual aren't
+  enough: when you need the exact JSON schema of a file you're about to
+  write, the precise contract a subsystem follows, or the reason something
+  behaves the way it does.
+
+  This skill is an index file pointing to 10 topical reference documents.
+  Load the index first to scan the topic table, then load only the
+  reference(s) you need — the bundle is large (~3000 lines total) and
+  unloading the whole thing burns context. References are spec-grade with
+  line numbers into kernel source (`lingtai_kernel/base_agent.py`,
+  `lingtai_kernel/intrinsics/eigen.py`, etc.) so you can verify any claim
+  against the actual code.
+
+  The 10 references:
+    file-formats.md       — JSON schemas for .agent.json, init.json,
+                            .status.json, mailbox messages, mcp_registry.jsonl,
+                            LICC inbox events, signals
+    filesystem-layout.md  — directory trees inside .lingtai/, per-agent
+                            layout, where logs/secrets/registry live
+    mail-protocol.md      — atomic mail delivery, self-send, wake-on-mail,
+                            peer/abs modes, pseudo-agent outboxes
+    mcp-protocol.md       — MCP capability + LICC v1 spec (LingTai Inbox
+                            Callback Contract — the filesystem protocol
+                            that lets out-of-process MCP subprocesses push
+                            events back into the agent's inbox), catalog →
+                            registry → activation chain, env injection,
+                            reference implementations
+    memory-system.md      — six-layer durability hierarchy (chat history →
+                            soul → codex → library → pad → kernel-managed),
+                            psyche dispatch, daemon system
+    molt-protocol.md      — context-reset ritual, 70%/95% warning ladder,
+                            four-store ritual, what survives molt
+    network-topology.md   — avatar spawn mechanics, three-edge model,
+                            contacts, rules propagation, network discovery
+    runtime-loop.md       — turn cycle, AED recovery, tool dispatch,
+                            five-state lifecycle, signal consumption,
+                            heartbeat
+    glossary.md           — full bilingual map of 文言 (literary Chinese)
+                            terms used in covenants and procedures →
+                            English technical names → kernel layer
+    changelog.md          — chronicle of breaking changes, renames, and
+                            migrations newest-first; check here FIRST when
+                            an old name doesn't match your current tools or
+                            an error message references behaviour you
+                            don't recognize
+
+  Use this skill when:
+    - You hit an error that mentions a file path, schema field, or behaviour
+      you don't recognize — chances are the changelog has the rename or
+      migration that explains it.
+    - You're writing code that produces or consumes a LingTai file
+      (any .json, .jsonl, signal, or mailbox artifact) — file-formats.md
+      and the relevant protocol doc carry the spec.
+    - You're debugging a runtime issue (mail not arriving, agent stuck,
+      molt mid-task, avatar not spawning) — the protocol docs tell you
+      what *should* have happened so you can compare to what did.
+    - You're building a third-party MCP — mcp-protocol.md is the canonical
+      contract; LICC v1 lets your MCP push events back into the host
+      agent's inbox.
+    - Someone asks "how does X work in LingTai" and you want to answer
+      from spec, not guess.
+
+  Relationship to per-tool manuals: tool manuals (e.g. `daemon-manual`,
+  `mcp-manual`, `library-manual`) are how-to guides — operational steps,
+  worked examples, common pitfalls. lingtai-anatomy references are the
+  canonical specs underneath. A manual says "to register an MCP, do this";
+  the anatomy spec says "the registry file format is exactly this; the
+  validator enforces these constraints; here is the line in agent.py that
+  reads it." Read the manual to *do*, the anatomy to *understand* or
+  *verify*.
+
+  Cross-references between anatomy files are common — mcp-protocol.md
+  cites file-formats.md §6.5 for the registry schema, runtime-loop.md
+  cites molt-protocol.md for warning thresholds. If your question crosses
+  a boundary, you may need two references at once.
 version: 2.1.0
 ---
 
