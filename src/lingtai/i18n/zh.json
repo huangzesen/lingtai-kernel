@@ -29,6 +29,7 @@
   "psyche.content": "文本内容。用于 lingtai update：写入你完整的身份档案——你的特性——你是谁、你知道什么、你如何做事、你在意什么、以及你对自己的认识。此操作替换之前的全部内容，所以务必包含一切。用于 pad edit：直接写入 pad.md。别太珍惜——想改就改，随时重写。",
   "psyche.files": "文件路径列表（仅限文本文件）。用于 pad edit：每个文件的内容在你的文本内容之后附加，以 [file-1]、[file-2] 等分隔。用于 pad append：设置钉在系统提示中作为只读参考的文件列表——每次 load（包括凝蜕后）都会重新读取并附加到手记中。想钉什么就钉什么：典集导出、正在编辑的源文件、技能文档、配置文件、研究笔记——只要有助于工作的都行。传 files=[] 清除。不传 files 参数则查看当前列表。附加内容总量不得超过 10 万 token。路径相对于工作目录。",
   "psyche.summary": "用于 context molt：汝对来世之己之嘱托——凝蜕后唯一可见之对话层内容。写明：当下之务、已竟之功、尚余之事、当联何人、需载何典 ID（via `codex(read, ...)`）、及来世所需之 library SKILL.md 路径。此非对话摘要，乃予来世之己之简报。约一万 token。四层长存之储（lingtai, pad, codex, library）须于凝蜕前整理；前尘往事不能替之。",
+  "psyche.keep_tool_calls": "可选：要在凝蜕中保留的 LingTai 工具调用 id 列表（如 \"tc_1730330127_a3f1\"，可在每条工具结果的 _tool_call_id 字段中看到）。所点之每对（tool_use + 对应之 tool_result）会在简报之后立即被回放进新会话——适于让来世之己原样看到少量高价值的文件读取、搜索结果或计算。如有 id 找不到，凝蜕会被拒绝且 molt 计数不变——请改正后重试。勿滥用：四层长存之储仍是主要的持久化界面，本列表当从短。",
   "codex.description": "典集——用于存储重要发现、数据、决策和成果的持久存储。跨凝蜕、重启和关闭持久化。条目数有上限——珍惜每个条目。定期合并相关条目，利用 supplementary 字段将扩展细节打包进更少的条目。submit 添加条目。filter 浏览（返回 id + 标题 + 摘要）。view 阅读完整内容。consolidate 合并条目。delete 删除。export 将条目冻结为不可变文本文件。如何将典集条目导入活跃手记，参见 procedures 部分中的知识导入流程。\n隐私须知：典集 ID 仅供你自己使用——切勿与他人分享。其他智能体无法访问你的典集。需要分享知识时，务必通过邮件发送完整内容，或写入文件后分享文件路径。",
   "codex.action": "submit：添加新条目（需要 title、summary、content）。filter：浏览条目（可选 pattern、limit）。view：按 ID 阅读完整条目（需要 ids）。consolidate：合并条目为一（需要 ids、title、summary、content）。delete：删除条目（需要 ids）。export：将条目冻结为不可变文本文件（需要 ids）——返回文件路径，用于 psyche(pad, edit, files=[...])。",
   "codex.title": "条目标题——一行。submit 和 consolidate 必填。",

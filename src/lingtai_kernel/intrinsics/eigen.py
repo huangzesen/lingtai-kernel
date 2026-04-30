@@ -15,6 +15,9 @@ Internal:
 """
 from __future__ import annotations
 
+from ..llm.interface import ToolCallBlock, ToolResultBlock
+
+
 def get_description(lang: str = "en") -> str:
     from ..i18n import t
     return t(lang, "eigen.description")
@@ -42,6 +45,11 @@ def get_schema(lang: str = "en") -> dict:
             "summary": {
                 "type": "string",
                 "description": t(lang, "eigen.summary_description"),
+            },
+            "keep_tool_calls": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": t(lang, "eigen.keep_tool_calls_description"),
             },
         },
         "required": ["object", "action"],
@@ -122,7 +130,16 @@ def _pad_load(agent, args: dict) -> dict:
 
 
 def _context_molt(agent, args: dict) -> dict:
-    """Agent molt: summary IS the briefing, wipe + re-inject."""
+    """Agent molt: summary IS the briefing, wipe + re-inject.
+
+    Optional ``keep_tool_calls`` is a list of LingTai-issued tool-call ids
+    (the ``_tool_call_id`` field stamped into every tool-result content by
+    LLMService.make_tool_result). Each named pair (tool_use + matching
+    tool_result) survives the wipe, replayed into the fresh session right
+    after the summary. Validation runs BEFORE any mutation: if any id is
+    not found in the current chat history, the molt is refused, the count
+    is not incremented, and the agent can retry with a corrected list.
+    """
     summary = args.get("summary")
     if summary is None:
         return {"error": "summary is required — write a briefing to your future self."}
@@ -131,6 +148,59 @@ def _context_molt(agent, args: dict) -> dict:
 
     if agent._chat is None:
         return {"error": "No active chat session to molt."}
+
+    keep_tool_calls = args.get("keep_tool_calls") or []
+    if keep_tool_calls and not isinstance(keep_tool_calls, list):
+        return {"error": "keep_tool_calls must be a list of LingTai tool-call ids (strings)."}
+
+    # Validate keep-list BEFORE any state mutation so a typo doesn't
+    # consume a molt. Walk the live interface, harvest LingTai-issued ids
+    # from tool_result content, and confirm every requested id is present.
+    iface_pre = agent._chat.interface
+    keep_pairs: list[tuple] = []  # list of (tool_call_block, tool_result_block)
+    if keep_tool_calls:
+        requested = set(keep_tool_calls)
+        # First pass: find tool_results whose content carries a matching
+        # _tool_call_id, capture the wire id (provider's tool_use_id).
+        provider_id_for_lingtai: dict[str, str] = {}
+        result_for_provider_id: dict[str, object] = {}
+        for entry in iface_pre.entries:
+            for block in entry.content:
+                if not isinstance(block, ToolResultBlock):
+                    continue
+                content = block.content
+                if not isinstance(content, dict):
+                    continue
+                lt_id = content.get("_tool_call_id")
+                if lt_id in requested:
+                    provider_id_for_lingtai[lt_id] = block.id
+                    result_for_provider_id[block.id] = block
+        unmatched = [tid for tid in keep_tool_calls if tid not in provider_id_for_lingtai]
+        if unmatched:
+            return {
+                "error": (
+                    "Some keep_tool_calls ids were not found in the current "
+                    "chat history. Molt refused; molt count unchanged. "
+                    "Retry with a corrected list."
+                ),
+                "unmatched_ids": unmatched,
+                "matched_count": len(provider_id_for_lingtai),
+            }
+        # Second pass: for each matched provider id, find the corresponding
+        # tool_call (assistant) block. tool_use and tool_result share the
+        # same id on the wire — that's the pairing key.
+        call_for_provider_id: dict[str, object] = {}
+        for entry in iface_pre.entries:
+            for block in entry.content:
+                if isinstance(block, ToolCallBlock) and block.id in result_for_provider_id:
+                    call_for_provider_id[block.id] = block
+        # Build the pair list in the order the agent requested.
+        for lt_id in keep_tool_calls:
+            pid = provider_id_for_lingtai[lt_id]
+            call_block = call_for_provider_id.get(pid)
+            result_block = result_for_provider_id.get(pid)
+            if call_block is not None and result_block is not None:
+                keep_pairs.append((call_block, result_block))
 
     before_tokens = agent._chat.interface.estimate_context_tokens()
 
@@ -180,6 +250,14 @@ def _context_molt(agent, args: dict) -> dict:
     iface = agent._session._chat.interface
     iface.add_user_message(f"{t(lang, 'eigen.molt_summary_prefix')}\n{summary}")
 
+    # Replay kept tool-call pairs into the fresh session as
+    # assistant[tool_call] + user[tool_result] entries. The wire ids carry
+    # over so any provider that pairs by id stays consistent with its own
+    # transcript invariants.
+    for call_block, result_block in keep_pairs:
+        iface.add_assistant_message(content=[call_block])
+        iface.add_tool_results([result_block])
+
     after_tokens = iface.estimate_context_tokens()
 
     agent._log(
@@ -187,12 +265,14 @@ def _context_molt(agent, args: dict) -> dict:
         before_tokens=before_tokens,
         after_tokens=after_tokens,
         molt_count=agent._molt_count,
+        kept_tool_calls=len(keep_pairs),
     )
 
     return {
         "status": "ok",
         "before_tokens": before_tokens,
         "after_tokens": after_tokens,
+        "kept_tool_calls": len(keep_pairs),
     }
 
 

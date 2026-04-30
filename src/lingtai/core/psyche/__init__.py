@@ -56,6 +56,11 @@ def get_schema(lang: str = "en") -> dict:
                 "type": "string",
                 "description": t(lang, "psyche.summary"),
             },
+            "keep_tool_calls": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": t(lang, "psyche.keep_tool_calls"),
+            },
         },
         "required": ["object", "action"],
         "allOf": [
@@ -340,7 +345,12 @@ class PsycheManager:
     # ------------------------------------------------------------------
 
     def _context_molt(self, args: dict) -> dict:
-        return self._eigen_handler({"object": "context", "action": "molt", "summary": args.get("summary")})
+        return self._eigen_handler({
+            "object": "context",
+            "action": "molt",
+            "summary": args.get("summary"),
+            "keep_tool_calls": args.get("keep_tool_calls"),
+        })
 
 
 def setup(agent: "BaseAgent") -> PsycheManager:
