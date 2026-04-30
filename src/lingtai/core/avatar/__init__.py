@@ -250,17 +250,44 @@ class AvatarManager:
         # kernel watcher consumes it on first poll and delivers it once.
         (avatar_working_dir / ".prompt").write_text(first_prompt)
 
-        # Launch as detached process
-        pid = self._launch(avatar_working_dir)
+        # Launch as detached process and wait briefly for the child to either
+        # write its handshake (.agent.heartbeat) or exit. If the child exits
+        # before handshaking, the spawn failed — capture stderr, ledger the
+        # failure, and return an error to the caller. Without this check the
+        # avatar capability returns "ok" the instant Popen forks, even if the
+        # child crashes 50ms later (e.g. invalid init.json), and the parent's
+        # LLM has no idea anything went wrong.
+        proc, stderr_path = self._launch(avatar_working_dir)
+        pid = proc.pid
 
-        # Record in ledger
+        boot_status, boot_error = self._wait_for_boot(
+            avatar_working_dir, proc, stderr_path,
+        )
+
+        # Record in ledger — include boot status so post-mortem can distinguish
+        # successful spawns from failed ones without re-checking the filesystem.
+        ledger_extra = {"boot_status": boot_status}
+        if boot_error:
+            ledger_extra["boot_error"] = boot_error
         self._append_ledger(
             "avatar", peer_name,
             working_dir=avatar_working_dir.name,
             mission=reasoning or "",
             type=avatar_type,
             pid=pid,
+            **ledger_extra,
         )
+
+        if boot_status == "failed":
+            return {
+                "error": (
+                    f"avatar {peer_name!r} failed to boot: {boot_error}. "
+                    f"See {stderr_path} for details."
+                ),
+                "address": avatar_working_dir.name,
+                "agent_name": peer_name,
+                "pid": pid,
+            }
 
         # Auto-distribute rules to all descendants (including newborn) — read from canonical system/rules.md
         parent_rules_md = parent._working_dir / "system" / "rules.md"
@@ -272,13 +299,57 @@ class AvatarManager:
             if rules_content.strip():
                 self._distribute_rules_to_descendants(rules_content, parent._working_dir)
 
-        return {
+        result = {
             "status": "ok",
             "address": avatar_working_dir.name,
             "agent_name": peer_name,
             "type": avatar_type,
             "pid": pid,
         }
+        if boot_status == "slow":
+            # Process is still alive but didn't finish handshaking in the
+            # window — surface a warning so the caller knows to monitor it.
+            result["warning"] = (
+                f"avatar still booting after {self._BOOT_WAIT_SECS}s — "
+                f"check .agent.heartbeat freshness before relying on it"
+            )
+        return result
+
+    @classmethod
+    def _wait_for_boot(
+        cls, working_dir: Path, proc: subprocess.Popen, stderr_path: Path,
+    ) -> tuple[str, str | None]:
+        """Wait for the avatar to write .agent.heartbeat or exit.
+
+        Returns (status, error_message):
+            - ("ok", None)     — heartbeat appeared before timeout
+            - ("failed", msg)  — process exited before handshaking
+            - ("slow", None)   — neither happened in BOOT_WAIT_SECS; process
+                                 is still alive, caller should monitor
+        """
+        heartbeat = working_dir / ".agent.heartbeat"
+        deadline = time.monotonic() + cls._BOOT_WAIT_SECS
+        while time.monotonic() < deadline:
+            if heartbeat.is_file():
+                return ("ok", None)
+            rc = proc.poll()
+            if rc is not None:
+                # Child exited before writing heartbeat. Tail stderr (capped)
+                # so the parent's LLM gets a useful, bounded error string.
+                stderr_tail = ""
+                try:
+                    raw = stderr_path.read_bytes()
+                    if len(raw) > 2000:
+                        raw = b"...[truncated]...\n" + raw[-2000:]
+                    stderr_tail = raw.decode("utf-8", errors="replace").strip()
+                except OSError:
+                    pass
+                msg = f"process exited with code {rc}"
+                if stderr_tail:
+                    msg = f"{msg}: {stderr_tail}"
+                return ("failed", msg)
+            time.sleep(cls._BOOT_POLL_INTERVAL)
+        return ("slow", None)
 
     # ------------------------------------------------------------------
     # Init.json construction
@@ -416,9 +487,20 @@ class AvatarManager:
     # Process launch
     # ------------------------------------------------------------------
 
+    # Boot verification — how long to wait for the child to write .agent.heartbeat
+    # before we conclude it crashed. Healthy boots finish well under 2s on local
+    # disk; 5s is generous enough for slow systems to still pass.
+    _BOOT_WAIT_SECS = 5.0
+    _BOOT_POLL_INTERVAL = 0.1
+
     @staticmethod
-    def _launch(working_dir: Path) -> int:
-        """Launch `lingtai run <dir>` as a fully detached process."""
+    def _launch(working_dir: Path) -> tuple[subprocess.Popen, Path]:
+        """Launch `lingtai run <dir>` as a fully detached process.
+
+        Captures stderr to ``logs/spawn.stderr`` so a child that exits before
+        writing its handshake leaves a usable diagnostic behind. Returns the
+        Popen handle (so callers can poll for early exit) plus the stderr path.
+        """
         from lingtai.venv_resolve import resolve_venv, venv_python
 
         # Resolve Python from avatar's init.json → global runtime
@@ -433,14 +515,25 @@ class AvatarManager:
         python = venv_python(venv_dir)
         cmd = [python, "-m", "lingtai", "run", str(working_dir)]
 
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        return proc.pid
+        # Ensure logs/ exists for stderr capture; the kernel also creates this
+        # on boot, but we need it before the child has run.
+        logs_dir = working_dir / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        stderr_path = logs_dir / "spawn.stderr"
+        stderr_fh = stderr_path.open("wb")
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=stderr_fh,
+                start_new_session=True,
+            )
+        finally:
+            # Popen dups the fd; we can close ours immediately. The child
+            # keeps writing through its inherited copy.
+            stderr_fh.close()
+        return proc, stderr_path
 
     # ------------------------------------------------------------------
     # Ledger reading
