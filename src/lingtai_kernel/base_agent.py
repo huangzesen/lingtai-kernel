@@ -1705,6 +1705,7 @@ class BaseAgent:
                     cached=usage.cached_tokens,
                     model=model,
                     endpoint=endpoint,
+                    extra={"source": "main"},
                 )
             except Exception as e:
                 logger.warning(f"[{self.agent_name}] Failed to append token ledger: {e}")

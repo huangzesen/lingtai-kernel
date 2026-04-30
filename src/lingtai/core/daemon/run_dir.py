@@ -331,7 +331,8 @@ class DaemonRunDir:
             self._atomic_write_json(self.daemon_json_path, self._state)
         self._safe("append_tokens.state", _update_state)
 
-        # Daemon's own ledger — no tag needed (location attributes it)
+        # Daemon's own ledger — tagged source=daemon for uniformity with
+        # parent's ledger and main/soul writes (every entry self-describes).
         self._safe(
             "append_tokens.daemon_ledger",
             lambda: append_token_entry(
@@ -339,10 +340,13 @@ class DaemonRunDir:
                 input=input, output=output,
                 thinking=thinking, cached=cached,
                 model=model, endpoint=endpoint,
+                extra={"source": "daemon", "em_id": self._handle,
+                       "run_id": self._run_id},
             ),
         )
 
-        # Parent's ledger — tagged for attribution
+        # Parent's ledger — same tags so daemon spend is identifiable in
+        # the parent's lifetime totals.
         self._safe(
             "append_tokens.parent_ledger",
             lambda: append_token_entry(

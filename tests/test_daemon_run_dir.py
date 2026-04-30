@@ -258,8 +258,11 @@ def test_append_tokens_writes_daemon_ledger(tmp_path):
     assert entry["thinking"] == 5
     assert entry["cached"] == 10
     assert "ts" in entry
-    # daemon's own ledger has no source tag (it's already daemon-scoped by location)
-    assert "source" not in entry
+    # Daemon's own ledger carries the same source/em_id/run_id tags as the
+    # parent's ledger — every entry self-describes regardless of file.
+    assert entry["source"] == "daemon"
+    assert entry["em_id"] == "em-3"
+    assert entry["run_id"] == rd.run_id
 
 
 def test_append_tokens_writes_parent_ledger_tagged(tmp_path):
