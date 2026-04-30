@@ -1,6 +1,36 @@
 ---
 name: daemon-manual
-description: Reference manual for the `daemon` tool — debugging, inspection patterns, and worked examples for the filesystem-backed emanation log surface.
+description: >
+  Operational guide for the `daemon` tool — how to inspect, debug, and reason
+  about emanations (the agent fragments you spawn for parallel sub-tasks).
+
+  Reach for this manual when:
+    - You called `daemon(action="emanate", ...)` and the emanation has been
+      running long enough that you want to know if it's stuck, slow, or
+      working — without killing it on a hunch.
+    - An emanation finished with `state=failed` or `state=timeout` and you
+      need to figure out why.
+    - You want to inspect on-disk artifacts of a past emanation (chat
+      transcript, token spend, event log) — the folders persist forever and
+      `daemon(action="list")` only shows currently-active runs.
+    - You're trying to understand why your token totals don't match the sum
+      of what your tools claim — daemon spend is tagged into your parent
+      ledger and may explain the gap.
+
+  This manual covers: the on-disk folder layout under `daemons/em-N-*/`,
+  exactly which fields in `daemon.json` answer "is it stuck?" vs "is it
+  thinking?", how to tail `chat_history.jsonl` to see latest progress,
+  where token attribution lives, how `reclaim` interacts with persistence,
+  and a worked example of inspecting a 5-minute-running emanation.
+
+  Does NOT cover: the daemon tool's argument schema (in the tool description
+  itself) or the cross-process recovery / orphan-detection mechanics
+  (those need separate spec work).
+
+  Companion: `lingtai-anatomy reference/runtime-loop.md` covers the broader
+  agent runtime that emanations are mini-versions of. Read that first if
+  you don't yet understand the turn loop, then come here for daemon-specific
+  inspection patterns.
 version: 0.2.0
 ---
 

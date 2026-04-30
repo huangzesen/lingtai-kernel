@@ -1,6 +1,36 @@
 ---
 name: library-manual
-description: How your library works — the on-disk layout, the catalog, loading, authoring, publishing. Read this first.
+description: >
+  Operational guide for the `library` capability — your skill catalog's
+  on-disk layout, how the `<available_skills>` XML in your system prompt
+  is built, and the full authoring/publishing workflow for new skills.
+
+  Reach for this manual when:
+    - You're authoring a new skill in `.library/custom/<name>/` and need
+      the frontmatter schema, the bundled template, the validator, or the
+      "do create a skill / do NOT create a skill" decision rules.
+    - You want to publish a custom skill to the network-shared library
+      (`.library_shared/`) and need the `cp -r` recipe plus the admin
+      stewardship norms.
+    - A skill you expect to see isn't showing up in the catalog — the
+      health-check workflow (`library({"action": "info"})`) and the
+      `intrinsic` vs `custom` directory split tell you what's wrong.
+    - You want to pin a skill's body into your pad (so it survives the
+      next molt and stays in the cached prefix) — the `psyche` pinning
+      recipe lives here.
+    - You're adding a new library path source (e.g. a project-specific
+      utilities directory) by editing `init.json`'s
+      `manifest.capabilities.library.paths`.
+
+  Covers: directory layout (`.library/{intrinsic,custom}/`), required vs
+  optional frontmatter fields, name-collision discipline, when to author
+  a skill and when not to, what makes a skill description trigger-friendly,
+  the validator's failure modes, and the relationship between the kernel's
+  intrinsic skill bundles and your editable `custom/` territory.
+
+  Does NOT cover: the bundled skills themselves — their READMEs and
+  SKILL.md files document them. This is meta — how the library *system*
+  works, not what's *inside* it.
 version: 1.0.0
 ---
 

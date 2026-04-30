@@ -1,6 +1,39 @@
 ---
 name: mcp-manual
-description: Per-agent MCP server registry — how to register, activate, update, and discover MCP servers. Read when the human asks to install or remove an MCP, or when you need to understand what MCPs you have available.
+description: >
+  Operational guide for the `mcp` capability — how to register, activate,
+  update, deregister, and troubleshoot MCP (Model Context Protocol) servers
+  in your agent. The how-to companion to the canonical spec in
+  `lingtai-anatomy reference/mcp-protocol.md`.
+
+  Reach for this manual when:
+    - The human asks to install or remove an MCP server. The decision tree
+      starts with "is it in the kernel catalog?" — if yes, the curated
+      one-liner workflow (add to `addons:`, add `mcp.<name>` activation,
+      refresh) is here; if no, the third-party path (fetch homepage README,
+      append registry record, activate, refresh) is here too.
+    - You want to know what MCPs you currently have. `mcp(action="show")`
+      returns the registry plus health; this manual explains what the
+      output means.
+    - An MCP isn't behaving — the troubleshooting flow (registry validation,
+      `problems` list, refresh-after-edit verification) lives here.
+    - You're exploring an unfamiliar MCP and want to know what it can do —
+      the manual tells you to fetch the `<homepage>` README first
+      (canonical install + config + tool surface) before guessing from
+      tool descriptions.
+
+  Covers: the three states (catalog → registry → active), the
+  curated-vs-third-party install paths, where the registry file
+  (`mcp_registry.jsonl`) lives and how to mutate it (write/edit/bash —
+  the `mcp` capability is read-only), the `<homepage>` field as primary
+  documentation, and the relationship between `init.json`'s `addons:`
+  list, `mcp:` activation entries, and the registry.
+
+  Does NOT cover the protocol spec itself: schema validation rules, env
+  injection mechanics (the `LINGTAI_AGENT_DIR` / `LINGTAI_MCP_NAME`
+  variables), the LICC v1 inbox callback contract, and the validator's
+  internal logic all live in `lingtai-anatomy reference/mcp-protocol.md`.
+  Read this for *what to do*; read anatomy for *how it works*.
 version: 2.0.0
 ---
 
