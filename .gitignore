@@ -26,3 +26,7 @@ dist/
 .env
 .venv/
 venv/
+
+# Internal design docs / session artifacts (private — not for public repo)
+docs/
+MagicMock/
