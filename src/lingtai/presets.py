@@ -287,6 +287,42 @@ def load_preset(
     return data
 
 
+def materialize_active_preset(data: dict, working_dir: Path) -> None:
+    """Substitute the active preset's llm + capabilities into init.json data.
+
+    If ``manifest.preset.active`` is set, load that preset and copy its
+    ``manifest.llm`` and ``manifest.capabilities`` into ``data["manifest"]``
+    so downstream validators and consumers see a fully-resolved manifest.
+
+    Mutates ``data`` in place. No-op when ``manifest.preset.active`` is unset
+    or when the manifest already has a literal ``llm`` and no preset block.
+
+    Raises:
+        KeyError, ValueError: propagated from ``load_preset`` so callers can
+            distinguish "preset gone" from "preset malformed".
+    """
+    manifest = data.get("manifest")
+    if not isinstance(manifest, dict):
+        return
+    preset_block = manifest.get("preset")
+    if not isinstance(preset_block, dict) or not preset_block.get("active"):
+        return
+
+    preset = load_preset(preset_block["active"], working_dir=working_dir)
+    preset_manifest = preset.get("manifest", {})
+
+    # context_limit lives inside manifest.llm in the preset, but at manifest
+    # root in init.json — strip it from the llm dict before substitution and
+    # write it to the root.
+    preset_llm = dict(preset_manifest.get("llm") or manifest.get("llm") or {})
+    preset_ctx = preset_llm.pop("context_limit", None)
+    manifest["llm"] = preset_llm
+    manifest["capabilities"] = preset_manifest.get(
+        "capabilities", manifest.get("capabilities", {}))
+    if preset_ctx is not None:
+        manifest["context_limit"] = preset_ctx
+
+
 # ---------------------------------------------------------------------------
 # Tier taxonomy
 # ---------------------------------------------------------------------------

@@ -18,8 +18,15 @@ from lingtai_kernel.services.mail import FilesystemMailService
 
 
 def load_init(working_dir: Path) -> dict:
-    """Read and validate init.json from working_dir. Exits on error."""
+    """Read and validate init.json from working_dir. Exits on error.
+
+    If ``manifest.preset.active`` is set, the active preset's ``llm`` and
+    ``capabilities`` are materialized into the manifest before validation,
+    so downstream code (and the schema check) sees a fully-resolved manifest.
+    This mirrors ``Agent._read_init`` so boot and live-refresh agree.
+    """
     from lingtai.config_resolve import resolve_paths
+    from lingtai.presets import materialize_active_preset
 
     init_path = working_dir / "init.json"
     if not init_path.is_file():
@@ -30,6 +37,12 @@ def load_init(working_dir: Path) -> dict:
         data = json.loads(init_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError, ValueError) as e:
         print(f"error: failed to read {init_path}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        materialize_active_preset(data, working_dir)
+    except (KeyError, ValueError) as e:
+        print(f"error: failed to materialize active preset: {e}", file=sys.stderr)
         sys.exit(1)
 
     try:

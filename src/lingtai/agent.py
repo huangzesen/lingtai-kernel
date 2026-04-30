@@ -582,7 +582,7 @@ class Agent(BaseAgent):
         import json
         from .init_schema import validate_init
         from .config_resolve import resolve_paths
-        from .presets import load_preset, expand_inherit
+        from .presets import expand_inherit, materialize_active_preset
 
         init_path = self._working_dir / "init.json"
         if not init_path.is_file():
@@ -596,31 +596,15 @@ class Agent(BaseAgent):
 
         # Materialize active preset, if any, BEFORE validation so the manifest
         # the schema validates is the fully-resolved one the agent will run on.
-        # The active value is the preset's path (~/foo.json, ./presets/foo.json,
-        # or absolute) — load_preset resolves it against working_dir.
-        manifest = data.get("manifest")
-        preset_block = manifest.get("preset") if isinstance(manifest, dict) else None
-        if isinstance(preset_block, dict) and preset_block.get("active"):
-            preset_name = preset_block["active"]
-            try:
-                preset = load_preset(preset_name, working_dir=self._working_dir)
-            except (KeyError, ValueError) as e:
-                self._log("refresh_init_error",
-                          error=f"preset {preset_name!r} unloadable: {e}")
-                return None
-            preset_manifest = preset.get("manifest", {})
-            preset_llm = dict(preset_manifest.get("llm") or manifest.get("llm") or {})
-            # context_limit lives inside manifest.llm in the preset, but stays
-            # at manifest root in init.json — strip it from the llm dict before
-            # substitution and write it to the root.
-            preset_ctx = preset_llm.pop("context_limit", None)
-            manifest["llm"] = preset_llm
-            manifest["capabilities"] = preset_manifest.get(
-                "capabilities", manifest.get("capabilities", {}))
-            if preset_ctx is not None:
-                manifest["context_limit"] = preset_ctx
+        try:
+            materialize_active_preset(data, self._working_dir)
+        except (KeyError, ValueError) as e:
+            self._log("refresh_init_error",
+                      error=f"preset materialization failed: {e}")
+            return None
 
         # Resolve "provider": "inherit" in capabilities against the main LLM.
+        manifest = data.get("manifest")
         if isinstance(manifest, dict):
             llm = manifest.get("llm") or {}
             caps = manifest.get("capabilities") or {}
