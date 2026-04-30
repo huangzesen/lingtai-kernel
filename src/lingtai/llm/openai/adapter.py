@@ -103,7 +103,7 @@ def _parse_response(raw) -> LLMResponse:
     usage = UsageMetadata()
     if raw.usage:
         cached = getattr(raw.usage, "prompt_tokens_details", None)
-        cached_tokens = getattr(cached, "cached_tokens", 0) if cached else 0
+        cached_tokens = (getattr(cached, "cached_tokens", 0) or 0) if cached else 0
         usage = UsageMetadata(
             input_tokens=raw.usage.prompt_tokens or 0,
             output_tokens=raw.usage.completion_tokens or 0,
@@ -148,7 +148,7 @@ def _parse_responses_api_response(raw) -> LLMResponse:
     usage = UsageMetadata()
     if raw.usage:
         cached = getattr(raw.usage, "input_tokens_details", None)
-        cached_tokens = getattr(cached, "cached_tokens", 0) if cached else 0
+        cached_tokens = (getattr(cached, "cached_tokens", 0) or 0) if cached else 0
         usage = UsageMetadata(
             input_tokens=getattr(raw.usage, "input_tokens", 0) or 0,
             output_tokens=getattr(raw.usage, "output_tokens", 0) or 0,
@@ -676,7 +676,7 @@ class OpenAIChatSession(ChatSession):
                 if not chunk.choices:
                     if chunk.usage:
                         cached = getattr(chunk.usage, "prompt_tokens_details", None)
-                        cached_tokens = getattr(cached, "cached_tokens", 0) if cached else 0
+                        cached_tokens = (getattr(cached, "cached_tokens", 0) or 0) if cached else 0
                         usage = UsageMetadata(
                             input_tokens=chunk.usage.prompt_tokens or 0,
                             output_tokens=chunk.usage.completion_tokens or 0,
@@ -884,7 +884,7 @@ class OpenAIResponsesSession(ChatSession):
                 response_id = event.response.id
                 if event.response.usage:
                     cached = getattr(event.response.usage, "input_tokens_details", None)
-                    cached_tokens = getattr(cached, "cached_tokens", 0) if cached else 0
+                    cached_tokens = (getattr(cached, "cached_tokens", 0) or 0) if cached else 0
                     usage = UsageMetadata(
                         input_tokens=getattr(event.response.usage, "input_tokens", 0)
                         or 0,
