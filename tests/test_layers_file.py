@@ -154,3 +154,118 @@ def test_file_capability_uses_file_io_service(tmp_path):
     assert result["status"] == "ok"
     assert (tmp_path / "test.txt").read_text() == "via service"
     agent.stop(timeout=1.0)
+
+
+# ---------------------------------------------------------------------------
+# C2 — error format consistency across file tools.
+# Before fix: read returned {"status": "error", "message": ...} but
+# write/edit/glob/grep returned {"error": ...}. tool_executor checks
+# result.get("status") == "error" to populate collected_errors, so the
+# four bare-error tools were silently dropped from kernel error tracking.
+# ---------------------------------------------------------------------------
+
+
+def _file_agent(tmp_path):
+    return Agent(
+        service=make_mock_service(), agent_name="test",
+        working_dir=tmp_path / "test", capabilities=["file"],
+    )
+
+
+def _assert_error_shape(result, *, expect_substring=None):
+    assert result.get("status") == "error", \
+        f"expected status='error', got {result!r}"
+    assert "message" in result, f"missing 'message' key in {result!r}"
+    assert "error" not in result, \
+        f"legacy 'error' key still present: {result!r}"
+    if expect_substring:
+        assert expect_substring in result["message"], \
+            f"{expect_substring!r} not in message {result['message']!r}"
+
+
+def test_read_error_shape(tmp_path):
+    """read returns {status: error, message: ...} on failure."""
+    agent = _file_agent(tmp_path)
+    try:
+        _assert_error_shape(agent._tool_handlers["read"]({}),
+                            expect_substring="file_path")
+        _assert_error_shape(
+            agent._tool_handlers["read"]({"file_path": "/nonexistent/x"}),
+            expect_substring="not found",
+        )
+    finally:
+        agent.stop(timeout=1.0)
+
+
+def test_write_error_shape(tmp_path):
+    """write returns {status: error, message: ...} on failure (was {error: ...})."""
+    agent = _file_agent(tmp_path)
+    try:
+        _assert_error_shape(agent._tool_handlers["write"]({"content": "x"}),
+                            expect_substring="file_path")
+    finally:
+        agent.stop(timeout=1.0)
+
+
+def test_edit_error_shape(tmp_path):
+    """edit returns {status: error, message: ...} on each of its failure paths."""
+    agent = _file_agent(tmp_path)
+    try:
+        _assert_error_shape(agent._tool_handlers["edit"]({}),
+                            expect_substring="file_path")
+        _assert_error_shape(
+            agent._tool_handlers["edit"](
+                {"file_path": "/nonexistent/x", "old_string": "a", "new_string": "b"}
+            ),
+            expect_substring="not found",
+        )
+        target = tmp_path / "edit_target.txt"
+        target.write_text("hello")
+        _assert_error_shape(
+            agent._tool_handlers["edit"](
+                {"file_path": str(target), "old_string": "missing", "new_string": "x"}
+            ),
+            expect_substring="not found",
+        )
+        target.write_text("aaa")
+        _assert_error_shape(
+            agent._tool_handlers["edit"](
+                {"file_path": str(target), "old_string": "a", "new_string": "b"}
+            ),
+            expect_substring="replace_all",
+        )
+    finally:
+        agent.stop(timeout=1.0)
+
+
+def test_glob_error_shape(tmp_path):
+    """glob returns {status: error, message: ...} on missing pattern."""
+    agent = _file_agent(tmp_path)
+    try:
+        _assert_error_shape(agent._tool_handlers["glob"]({}),
+                            expect_substring="pattern")
+    finally:
+        agent.stop(timeout=1.0)
+
+
+def test_grep_error_shape(tmp_path):
+    """grep returns {status: error, message: ...} on missing pattern."""
+    agent = _file_agent(tmp_path)
+    try:
+        _assert_error_shape(agent._tool_handlers["grep"]({}),
+                            expect_substring="pattern")
+    finally:
+        agent.stop(timeout=1.0)
+
+
+def test_file_tool_errors_match_executor_predicate(tmp_path):
+    """C2 hidden P1: tool_executor predicate (status=='error') now catches them."""
+    agent = _file_agent(tmp_path)
+    try:
+        for tool in ("write", "edit", "glob", "grep"):
+            args = {"content": "x"} if tool == "write" else {}
+            result = agent._tool_handlers[tool](args)
+            assert isinstance(result, dict) and result.get("status") == "error", \
+                f"{tool}: tool_executor would silently drop {result!r}"
+    finally:
+        agent.stop(timeout=1.0)

@@ -81,6 +81,31 @@ def test_system_show_returns_runtime(tmp_path):
         agent.stop()
 
 
+def test_system_show_returns_state(tmp_path):
+    """C1 fix: status() exposes runtime.state so agents know their lifecycle phase."""
+    agent = BaseAgent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test")
+    agent.start()
+    try:
+        result = agent._intrinsics["system"]({"action": "show"})
+        runtime = result["runtime"]
+        assert "state" in runtime, "runtime.state missing — C1 regression"
+        assert runtime["state"] in ("active", "idle", "asleep", "stuck", "suspended"), \
+            f"unexpected state value: {runtime['state']!r}"
+    finally:
+        agent.stop()
+
+
+def test_status_dict_state_matches_agent_state(tmp_path):
+    """C1: agent.status() and agent._state agree."""
+    agent = BaseAgent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test")
+    agent.start()
+    try:
+        result = agent.status()
+        assert result["runtime"]["state"] == agent._state.value
+    finally:
+        agent.stop()
+
+
 def test_system_show_returns_tokens(tmp_path):
     agent = BaseAgent(service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test")
     agent.start()
