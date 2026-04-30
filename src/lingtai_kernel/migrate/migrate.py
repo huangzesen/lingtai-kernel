@@ -39,9 +39,9 @@ from .m002_description_object import migrate_description_object
 log = logging.getLogger(__name__)
 
 # Filename used to track migration state. Lives inside the presets directory
-# itself so custom preset libraries (manifest.preset.path) carry their own
-# migration state. The leading underscore signals "internal" to humans
-# browsing the directory; discover_presets explicitly skips this filename.
+# itself so each preset library carries its own migration state. The leading
+# underscore signals "internal" to humans browsing the directory;
+# discover_presets_in_dirs explicitly skips this filename.
 _META_FILENAME = "_kernel_meta.json"
 
 # Per-process guard so we run at most once per (presets_path) per process.

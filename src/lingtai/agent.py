@@ -678,10 +678,19 @@ class Agent(BaseAgent):
 
         # Set active in the umbrella. Preserve default if already set; otherwise
         # initialize default to the same value as active (first activation).
+        # Also ensure `name` appears in `allowed` — _activate_preset is the
+        # final gate and the manifest must remain self-consistent. The caller
+        # (system._refresh) also validates against `allowed` before invoking
+        # us; this is belt-and-braces for direct callers and AED auto-fallback.
         preset_block = manifest.setdefault("preset", {})
         preset_block["active"] = name
         if not preset_block.get("default"):
             preset_block["default"] = name
+        allowed = preset_block.get("allowed")
+        if not isinstance(allowed, list):
+            preset_block["allowed"] = [name]
+        elif name not in allowed:
+            preset_block["allowed"] = [*allowed, name]
 
         # Atomic write
         tmp = init_path.with_suffix(".json.tmp")

@@ -219,6 +219,28 @@ def _refresh(agent, args: dict) -> dict:
         preset_name = default_name
 
     if preset_name is not None:
+        # Guard: refuse swap if the requested preset is not in the agent's
+        # `allowed` list. Authorization is declared up front in init.json;
+        # runtime is not allowed to silently broaden it.
+        try:
+            import json as _json
+            init_path = agent._working_dir / "init.json"
+            data = _json.loads(init_path.read_text(encoding="utf-8"))
+            preset_block = data.get("manifest", {}).get("preset") or {}
+            allowed = preset_block.get("allowed") if isinstance(preset_block, dict) else None
+        except Exception:
+            allowed = None
+        if isinstance(allowed, list) and preset_name not in allowed:
+            agent._log("preset_swap_refused_unauthorized",
+                       requested=preset_name)
+            return {
+                "status": "error",
+                "message": (
+                    f"preset {preset_name!r} is not in this agent's allowed "
+                    f"list — call system(action='presets') to see what's available"
+                ),
+            }
+
         # Guard: refuse swap if the target preset's context_limit is smaller
         # than the agent's current context usage. The agent must molt first
         # to clear history before the new (narrower) preset can hold it.
@@ -269,7 +291,7 @@ def _presets(agent, args: dict) -> dict:
     No caching — every call is a fresh check.
     """
     import json
-    from lingtai.presets import discover_presets, load_preset, resolve_presets_path
+    from lingtai.presets import load_preset, resolve_allowed_presets, home_shortened
     from lingtai.preset_connectivity import check_many
 
     init_path = agent._working_dir / "init.json"
@@ -281,16 +303,34 @@ def _presets(agent, args: dict) -> dict:
     manifest = raw.get("manifest", {})
     preset_block = manifest.get("preset") or {}
     active = preset_block.get("active") if isinstance(preset_block, dict) else None
-    presets_path = resolve_presets_path(manifest, agent._working_dir)
+    # The allowed list IS the agent's preset surface — no directory scan,
+    # no implicit fallback. If the umbrella is absent or allowed is empty,
+    # the agent has no presets to swap to.
+    allowed_paths = resolve_allowed_presets(manifest, agent._working_dir)
 
     available = []
     connectivity_specs = []
-    # Sorted by display path for stable ordering.
-    for name in sorted(discover_presets(presets_path).keys()):
+    # Sorted by display path for stable ordering. Skip duplicates that may
+    # arise if the same path appears more than once in `allowed`.
+    seen: set[str] = set()
+    entries: list[tuple[str, "Path"]] = []
+    for path in allowed_paths:
+        key = home_shortened(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        entries.append((key, path))
+    entries.sort(key=lambda kv: kv[0])
+
+    for name, _path in entries:
         try:
             preset = load_preset(name, working_dir=agent._working_dir)
         except (KeyError, ValueError):
-            continue  # malformed presets are silently skipped from listing
+            # Allowed entries that no longer exist on disk are reported as
+            # malformed in their connectivity check rather than silently
+            # dropped — but presets that fail load_preset's deeper validation
+            # are skipped from the listing to keep the agent's view tidy.
+            continue
         pm = preset.get("manifest", {})
         llm = pm.get("llm", {})
         available.append({

@@ -348,17 +348,24 @@ def test_manifest_rejects_non_list_pseudo_agent_subscriptions():
 
 
 def test_preset_block_minimum():
-    """manifest.preset with active + default is valid."""
+    """manifest.preset with active + default + allowed is valid."""
     data = _valid_init()
-    data["manifest"]["preset"] = {"active": "minimax", "default": "minimax"}
+    data["manifest"]["preset"] = {
+        "active": "minimax",
+        "default": "minimax",
+        "allowed": ["minimax"],
+    }
     validate_init(data)  # should not raise
 
 
-def test_preset_block_with_path():
-    """manifest.preset with active, default, and path is valid."""
+def test_preset_block_allowed_with_multiple_entries():
+    """manifest.preset.allowed with multiple paths is valid as long as
+    default and active both appear in the list."""
     data = _valid_init()
     data["manifest"]["preset"] = {
-        "active": "minimax", "default": "minimax", "path": "/some/presets"
+        "active": "minimax",
+        "default": "minimax",
+        "allowed": ["minimax", "zhipu", "deepseek"],
     }
     validate_init(data)  # should not raise
 
@@ -366,7 +373,10 @@ def test_preset_block_with_path():
 def test_preset_block_missing_active_raises():
     """`manifest.preset` without `active` raises."""
     data = _valid_init()
-    data["manifest"]["preset"] = {"default": "minimax"}
+    data["manifest"]["preset"] = {
+        "default": "minimax",
+        "allowed": ["minimax"],
+    }
     with pytest.raises(ValueError, match="manifest.preset.active"):
         validate_init(data)
 
@@ -374,7 +384,10 @@ def test_preset_block_missing_active_raises():
 def test_preset_block_missing_default_raises():
     """`manifest.preset` without `default` raises."""
     data = _valid_init()
-    data["manifest"]["preset"] = {"active": "minimax"}
+    data["manifest"]["preset"] = {
+        "active": "minimax",
+        "allowed": ["minimax"],
+    }
     with pytest.raises(ValueError, match="manifest.preset.default"):
         validate_init(data)
 
@@ -382,7 +395,11 @@ def test_preset_block_missing_default_raises():
 def test_preset_block_active_wrong_type_raises():
     """`manifest.preset.active` must be a string."""
     data = _valid_init()
-    data["manifest"]["preset"] = {"active": 42, "default": "minimax"}
+    data["manifest"]["preset"] = {
+        "active": 42,
+        "default": "minimax",
+        "allowed": ["minimax"],
+    }
     with pytest.raises(ValueError, match="manifest.preset.active"):
         validate_init(data)
 
@@ -390,50 +407,81 @@ def test_preset_block_active_wrong_type_raises():
 def test_preset_block_default_wrong_type_raises():
     """`manifest.preset.default` must be a string."""
     data = _valid_init()
-    data["manifest"]["preset"] = {"active": "minimax", "default": 42}
+    data["manifest"]["preset"] = {
+        "active": "minimax",
+        "default": 42,
+        "allowed": ["minimax"],
+    }
     with pytest.raises(ValueError, match="manifest.preset.default"):
         validate_init(data)
 
 
-def test_preset_block_path_accepts_string():
-    """`manifest.preset.path` accepts a single string (back-compat)."""
+def test_preset_block_missing_allowed_raises():
+    """`manifest.preset` without `allowed` raises — there is no implicit
+    library scan."""
     data = _valid_init()
-    data["manifest"]["preset"] = {
-        "active": "minimax", "default": "minimax", "path": "/some/lib"
-    }
-    validate_init(data)  # must not raise
-
-
-def test_preset_block_path_accepts_list_of_strings():
-    """`manifest.preset.path` accepts a list of strings (multi-library)."""
-    data = _valid_init()
-    data["manifest"]["preset"] = {
-        "active": "minimax",
-        "default": "minimax",
-        "path": ["/lib/a", "./lib_b"],
-    }
-    validate_init(data)  # must not raise
-
-
-def test_preset_block_path_rejects_int():
-    """`manifest.preset.path` must be a string or a list of strings."""
-    data = _valid_init()
-    data["manifest"]["preset"] = {
-        "active": "minimax", "default": "minimax", "path": 42
-    }
-    with pytest.raises(ValueError, match="manifest.preset.path"):
+    data["manifest"]["preset"] = {"active": "minimax", "default": "minimax"}
+    with pytest.raises(ValueError, match="manifest.preset.allowed"):
         validate_init(data)
 
 
-def test_preset_block_path_rejects_list_with_non_string_element():
-    """Inside a list, every entry must be a string."""
+def test_preset_block_allowed_must_be_list():
+    """`manifest.preset.allowed` must be a list."""
     data = _valid_init()
     data["manifest"]["preset"] = {
         "active": "minimax",
         "default": "minimax",
-        "path": ["/lib/a", 42],
+        "allowed": "minimax",  # string, not list
     }
-    with pytest.raises(ValueError, match="manifest.preset.path"):
+    with pytest.raises(ValueError, match="manifest.preset.allowed"):
+        validate_init(data)
+
+
+def test_preset_block_allowed_empty_raises():
+    """`manifest.preset.allowed` must contain at least one entry."""
+    data = _valid_init()
+    data["manifest"]["preset"] = {
+        "active": "minimax",
+        "default": "minimax",
+        "allowed": [],
+    }
+    with pytest.raises(ValueError, match="manifest.preset.allowed"):
+        validate_init(data)
+
+
+def test_preset_block_allowed_rejects_non_string_element():
+    """Inside `allowed`, every entry must be a non-empty string."""
+    data = _valid_init()
+    data["manifest"]["preset"] = {
+        "active": "minimax",
+        "default": "minimax",
+        "allowed": ["minimax", 42],
+    }
+    with pytest.raises(ValueError, match=r"manifest.preset.allowed\[1\]"):
+        validate_init(data)
+
+
+def test_preset_block_default_must_be_in_allowed():
+    """`default` must appear in `allowed`."""
+    data = _valid_init()
+    data["manifest"]["preset"] = {
+        "active": "zhipu",
+        "default": "minimax",
+        "allowed": ["zhipu"],
+    }
+    with pytest.raises(ValueError, match="manifest.preset.default"):
+        validate_init(data)
+
+
+def test_preset_block_active_must_be_in_allowed():
+    """`active` must appear in `allowed`."""
+    data = _valid_init()
+    data["manifest"]["preset"] = {
+        "active": "minimax",
+        "default": "zhipu",
+        "allowed": ["zhipu"],
+    }
+    with pytest.raises(ValueError, match="manifest.preset.active"):
         validate_init(data)
 
 
@@ -441,7 +489,24 @@ def test_preset_block_unknown_field_warns():
     """Unknown fields inside manifest.preset produce a warning, not an error."""
     data = _valid_init()
     data["manifest"]["preset"] = {
-        "active": "minimax", "default": "minimax", "extra_key": "foo"
+        "active": "minimax",
+        "default": "minimax",
+        "allowed": ["minimax"],
+        "extra_key": "foo",
     }
     warnings = validate_init(data)
     assert any("unknown field in manifest.preset" in w for w in warnings)
+
+
+def test_preset_block_old_path_field_warns_as_unknown():
+    """The retired `path` field is now an unknown key, so it warns rather
+    than being silently accepted."""
+    data = _valid_init()
+    data["manifest"]["preset"] = {
+        "active": "minimax",
+        "default": "minimax",
+        "allowed": ["minimax"],
+        "path": "/some/legacy/lib",
+    }
+    warnings = validate_init(data)
+    assert any("unknown field in manifest.preset: path" in w for w in warnings)

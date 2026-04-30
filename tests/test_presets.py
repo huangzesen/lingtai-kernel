@@ -7,6 +7,7 @@ import pytest
 
 from lingtai.presets import (
     discover_presets,
+    discover_presets_in_dirs,
     load_preset,
     default_presets_path,
     expand_inherit,
@@ -14,7 +15,7 @@ from lingtai.presets import (
     preset_context_limit,
     preset_tier,
     resolve_preset_name,
-    resolve_presets_path,
+    resolve_allowed_presets,
     TIER_VALUES,
 )
 
@@ -411,64 +412,63 @@ def test_home_shortened_relative_returns_unchanged():
 
 
 # ---------------------------------------------------------------------------
-# resolve_presets_path
+# resolve_allowed_presets — manifest.preset.allowed → list[Path]
 # ---------------------------------------------------------------------------
 
-def test_resolve_presets_path_absolute(tmp_path):
-    abs_path = tmp_path / "presets"
-    manifest = {"preset": {"path": str(abs_path), "active": "x", "default": "x"}}
-    result = resolve_presets_path(manifest, tmp_path / "wd")
-    assert result == [abs_path]
+def test_resolve_allowed_presets_absolute(tmp_path):
+    p = tmp_path / "presets" / "minimax.json"
+    manifest = {"preset": {
+        "active": str(p),
+        "default": str(p),
+        "allowed": [str(p)],
+    }}
+    result = resolve_allowed_presets(manifest, tmp_path / "wd")
+    assert result == [p]
 
 
-def test_resolve_presets_path_relative(tmp_path):
+def test_resolve_allowed_presets_relative(tmp_path):
     wd = tmp_path / "wd"
     wd.mkdir()
-    manifest = {"preset": {"path": "./my_presets", "active": "x", "default": "x"}}
-    result = resolve_presets_path(manifest, wd)
-    assert result == [(wd / "my_presets").resolve()]
+    manifest = {"preset": {
+        "active": "./my.json",
+        "default": "./my.json",
+        "allowed": ["./my.json"],
+    }}
+    result = resolve_allowed_presets(manifest, wd)
+    assert result == [(wd / "my.json").resolve()]
 
 
-def test_resolve_presets_path_default_when_missing(tmp_path):
-    manifest = {}
-    result = resolve_presets_path(manifest, tmp_path)
-    assert result == [default_presets_path()]
+def test_resolve_allowed_presets_missing_block_returns_empty(tmp_path):
+    assert resolve_allowed_presets({}, tmp_path) == []
 
 
-def test_resolve_presets_path_default_when_empty(tmp_path):
-    manifest = {"preset": {"active": "x", "default": "x"}}
-    result = resolve_presets_path(manifest, tmp_path)
-    assert result == [default_presets_path()]
+def test_resolve_allowed_presets_missing_allowed_returns_empty(tmp_path):
+    manifest = {"preset": {"active": "x.json", "default": "x.json"}}
+    assert resolve_allowed_presets(manifest, tmp_path) == []
 
 
-def test_resolve_presets_path_accepts_list_of_strings(tmp_path):
+def test_resolve_allowed_presets_multiple_entries(tmp_path):
     wd = tmp_path / "wd"
     wd.mkdir()
-    abs_lib = tmp_path / "abs_lib"
-    manifest = {
-        "preset": {
-            "path": [str(abs_lib), "./relative_lib"],
-            "active": "x",
-            "default": "x",
-        }
-    }
-    result = resolve_presets_path(manifest, wd)
-    assert result == [abs_lib, (wd / "relative_lib").resolve()]
+    abs_a = tmp_path / "a.json"
+    manifest = {"preset": {
+        "active": str(abs_a),
+        "default": str(abs_a),
+        "allowed": [str(abs_a), "./b.json"],
+    }}
+    result = resolve_allowed_presets(manifest, wd)
+    assert result == [abs_a, (wd / "b.json").resolve()]
 
 
-def test_resolve_presets_path_empty_list_falls_back_to_default(tmp_path):
-    manifest = {"preset": {"path": [], "active": "x", "default": "x"}}
-    result = resolve_presets_path(manifest, tmp_path)
-    assert result == [default_presets_path()]
-
-
-def test_resolve_presets_path_single_string_still_returns_list(tmp_path):
-    abs_path = tmp_path / "presets"
-    manifest = {"preset": {"path": str(abs_path), "active": "x", "default": "x"}}
-    result = resolve_presets_path(manifest, tmp_path / "wd")
-    assert isinstance(result, list)
-    assert len(result) == 1
-    assert result[0] == abs_path
+def test_resolve_allowed_presets_skips_non_string_entries(tmp_path):
+    abs_a = tmp_path / "a.json"
+    manifest = {"preset": {
+        "active": str(abs_a),
+        "default": str(abs_a),
+        "allowed": [str(abs_a), 42, "", None],
+    }}
+    result = resolve_allowed_presets(manifest, tmp_path)
+    assert result == [abs_a]
 
 
 # ---------------------------------------------------------------------------

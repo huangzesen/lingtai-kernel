@@ -333,10 +333,23 @@ def _make_test_agent_for_presets(tmp_path, presets_path=None, active_preset=None
     if active_preset:
         active_value = _to_path(active_preset)
         default_value = _to_path(default_preset if default_preset is not None else active_preset)
-        preset_block: dict = {"active": active_value, "default": default_value}
-        if presets_path:
-            preset_block["path"] = str(presets_path)
-        manifest["preset"] = preset_block
+        # Build `allowed` from every *.json[c] in `presets_path` (the test
+        # helper's old `path` field meant "scan this directory for the listing"
+        # so the new schema's `allowed` is the explicit version of the same).
+        allowed_paths: list[str] = []
+        if presets_path is not None:
+            for entry in sorted(_P(presets_path).iterdir()):
+                if entry.is_file() and entry.suffix in (".json", ".jsonc") and entry.name != "_kernel_meta.json":
+                    allowed_paths.append(str(entry))
+        if active_value not in allowed_paths:
+            allowed_paths.append(active_value)
+        if default_value not in allowed_paths:
+            allowed_paths.append(default_value)
+        manifest["preset"] = {
+            "active": active_value,
+            "default": default_value,
+            "allowed": allowed_paths,
+        }
     init = {
         "manifest": manifest,
         "principle": "p", "covenant": "c", "pad": "", "prompt": "",
@@ -348,8 +361,10 @@ def _make_test_agent_for_presets(tmp_path, presets_path=None, active_preset=None
     return agent
 
 
-def test_refresh_with_unknown_preset_returns_error(tmp_path, monkeypatch):
-    """system(action='refresh', preset='ghost') returns error and logs preset_swap_failed."""
+def test_refresh_with_unauthorized_preset_returns_error(tmp_path, monkeypatch):
+    """system(action='refresh', preset='ghost') with `ghost` not in `allowed`
+    returns error and logs preset_swap_refused_unauthorized — the activate
+    path never runs because authorization is checked first."""
     import json
     plib = tmp_path / "presets"
     plib.mkdir()
@@ -369,15 +384,15 @@ def test_refresh_with_unknown_preset_returns_error(tmp_path, monkeypatch):
         return real_log(event, **kw)
     monkeypatch.setattr(agent, "_log", log_capture)
 
-    # Track _perform_refresh calls — should NOT be called when preset swap fails
+    # Track _perform_refresh calls — should NOT be called when swap is refused
     perform_calls = []
     monkeypatch.setattr(agent, "_perform_refresh",
                         lambda: perform_calls.append(True))
 
-    # Stub _activate_preset to raise KeyError for unknown preset
-    def fake_activate(name):
-        raise KeyError(f"preset not found: {name!r}")
-    monkeypatch.setattr(agent, "_activate_preset", fake_activate)
+    # _activate_preset must NOT be called — the allowed-gate runs first
+    activate_calls = []
+    monkeypatch.setattr(agent, "_activate_preset",
+                        lambda name: activate_calls.append(name))
 
     result = agent._intrinsics["system"]({"action": "refresh", "preset": "ghost"})
 
@@ -385,7 +400,8 @@ def test_refresh_with_unknown_preset_returns_error(tmp_path, monkeypatch):
     assert "ghost" in result["message"]
     assert "presets" in result["message"]  # guidance: call system(action='presets')
     events = [e for e, _ in log_events]
-    assert "preset_swap_failed" in events
+    assert "preset_swap_refused_unauthorized" in events
+    assert activate_calls == []  # never reached
     assert perform_calls == []  # refresh NOT triggered
 
 

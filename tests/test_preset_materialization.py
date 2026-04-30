@@ -27,9 +27,16 @@ def _make_workdir(tmp_path: Path, active_preset: str | None = None,
         "streaming": False,
     }
     if active_preset is not None:
-        preset_block: dict = {"active": active_preset, "default": active_preset}
+        preset_block: dict = {
+            "active": active_preset,
+            "default": active_preset,
+            "allowed": [active_preset],
+        }
         if presets_path is not None:
-            preset_block["path"] = presets_path
+            # `presets_path` is unused under the new schema (allowed paths
+            # carry their own location). Kept as an argument for backward
+            # compatibility with existing call sites.
+            pass
         manifest["preset"] = preset_block
     if manifest_extra:
         manifest.update(manifest_extra)
@@ -167,9 +174,9 @@ def test_materialize_relative_presets_path_resolves_against_workdir(tmp_path, mo
             "agent_name": "alice",
             "language": "en",
             "preset": {
-                "path": "./my_presets",  # used only for listing; load uses active path
                 "active": "./my_presets/local.json",  # RELATIVE to agent workdir
                 "default": "./my_presets/local.json",
+                "allowed": ["./my_presets/local.json"],
             },
             "llm": {"provider": "PLACEHOLDER", "model": "PLACEHOLDER",
                     "api_key": None, "api_key_env": "P1KEY"},
@@ -227,6 +234,7 @@ def test_materialize_omitted_path_falls_back_to_default(tmp_path, monkeypatch):
             "preset": {
                 "active": "~/.lingtai-tui/presets/fallback.json",
                 "default": "~/.lingtai-tui/presets/fallback.json",
+                "allowed": ["~/.lingtai-tui/presets/fallback.json"],
             },
             "llm": {"provider": "PLACEHOLDER", "model": "PLACEHOLDER",
                     "api_key": None, "api_key_env": "P2KEY"},

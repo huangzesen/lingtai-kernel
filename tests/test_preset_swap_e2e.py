@@ -32,24 +32,34 @@ def _build_lib(plib: Path):
     }))
 
 
-def _build_workdir(wd: Path, plib: Path, active: str):
+def _build_workdir(wd: Path, plib: Path, active: str, *,
+                   allowed: list[str] | None = None,
+                   default: str | None = None):
     """Build a workdir with init.json pointing at the named preset.
 
     Includes a stub .env file because validate_init requires env_file when
     api_key_env is set without api_key (which is true for our test presets).
+
+    `allowed` defaults to a single-entry list containing `active` (and
+    `default`, if it differs).
     """
     wd.mkdir(parents=True, exist_ok=True)
     env = wd / ".env"
     env.write_text("P1KEY=sk-test\nP2KEY=sk-test\n")
+
+    if default is None:
+        default = active
+    if allowed is None:
+        allowed = [default] if default == active else [default, active]
 
     init = {
         "manifest": {
             "agent_name": "test",
             "language": "en",
             "preset": {
-                "path": str(plib),
                 "active": active,
-                "default": active,
+                "default": default,
+                "allowed": allowed,
             },
             "llm": {"provider": "PLACEHOLDER", "model": "PLACEHOLDER",
                     "api_key": None, "api_key_env": "PLACEHOLDER"},
@@ -164,9 +174,9 @@ def test_e2e_inherit_resolves_after_swap(tmp_path, monkeypatch):
             "agent_name": "test",
             "language": "en",
             "preset": {
-                "path": str(plib),
                 "active": str(plib / "smart.json"),
                 "default": str(plib / "smart.json"),
+                "allowed": [str(plib / "smart.json")],
             },
             "llm": {"provider": "PLACEHOLDER", "model": "PLACEHOLDER",
                     "api_key": None, "api_key_env": "PLACEHOLDER"},

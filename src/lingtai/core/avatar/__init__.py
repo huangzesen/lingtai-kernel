@@ -297,10 +297,10 @@ class AvatarManager:
         caller — see ``_spawn``. Here we only blank the inherited prompt so the
         schema sees a present-but-empty field (no stale prompt carried over).
 
-        If ``parent_working_dir`` is given and the parent's ``manifest.preset.path``
-        is relative, it is resolved to an absolute path before the copy is written
-        so the avatar (which has a different working dir) can still locate the
-        preset library.
+        Avatars inherit the parent's `manifest.preset.allowed` list verbatim.
+        Entries are stored as path strings; if any are relative, they are
+        re-rooted against ``parent_working_dir`` (if given) so the avatar's
+        own working dir doesn't change their meaning.
         """
         init = json.loads(json.dumps(parent_init))  # deep copy
         init["manifest"]["agent_name"] = name
@@ -319,18 +319,26 @@ class AvatarManager:
         # Addons (IMAP, Telegram) are not inherited — each agent must be
         # explicitly configured to avoid multiple agents polling the same account
         init.pop("addons", None)
-        # Resolve relative manifest.preset.path against parent's working dir so
-        # it remains valid from the avatar's different working directory.
+        # Re-root any relative paths in preset.{default,active,allowed}
+        # against the parent's working dir so they remain valid from the
+        # avatar's different working directory. Absolute and ~-prefixed
+        # entries pass through unchanged.
         if parent_working_dir is not None:
             preset_block = init["manifest"].get("preset")
             if isinstance(preset_block, dict):
-                pp = preset_block.get("path")
-                if pp:
-                    p = Path(pp).expanduser()
-                    if not p.is_absolute():
-                        preset_block["path"] = str(
-                            (Path(parent_working_dir) / p).resolve()
-                        )
+                def _reroot(s: object) -> object:
+                    if not isinstance(s, str) or not s:
+                        return s
+                    p = Path(s).expanduser()
+                    if p.is_absolute():
+                        return s
+                    return str((Path(parent_working_dir) / p).resolve())
+                for key in ("default", "active"):
+                    if isinstance(preset_block.get(key), str):
+                        preset_block[key] = _reroot(preset_block[key])
+                allowed = preset_block.get("allowed")
+                if isinstance(allowed, list):
+                    preset_block["allowed"] = [_reroot(x) for x in allowed]
 
         # Avatars always spawn on the parent's DEFAULT preset, not its
         # currently-active one. This keeps the avatar's notion of 'default'

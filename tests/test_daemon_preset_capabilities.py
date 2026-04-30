@@ -28,10 +28,23 @@ def _make_agent(tmp_path, capabilities=None, presets_dir=None):
         config=AgentConfig(),
     )
     if presets_dir is not None:
+        # Build `allowed` from the directory contents so the daemon can
+        # resolve specs by path. The daemon test previously relied on
+        # path-based directory scanning; under the allowed-paths schema
+        # we list each preset file explicitly.
+        from pathlib import Path
+        allowed_paths = [
+            str(p) for p in sorted(Path(presets_dir).glob("*.json"))
+            if p.name != "_kernel_meta.json"
+        ]
+        active = allowed_paths[0] if allowed_paths else "mock"
         agent._read_init = lambda: {
             "manifest": {
-                "preset": {"active": "mock", "default": "mock",
-                           "path": str(presets_dir)},
+                "preset": {
+                    "active": active,
+                    "default": active,
+                    "allowed": allowed_paths or [active],
+                },
                 "llm": {"provider": "mock", "model": "mock-model"},
             }
         }

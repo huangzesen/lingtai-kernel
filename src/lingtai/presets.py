@@ -12,18 +12,19 @@ The kernel `expanduser`s and resolves at read time only — what you wrote is
 what's stored. There is **no canonicalization on write** and no implicit
 search path: if `active` says `~/foo.json`, that exact file is loaded.
 
-`manifest.preset.path` is a list of library *directories* used purely for
-**listing** (the `system(action='presets')` enumeration and the TUI library
-screen). It is not a resolver — two libraries can each contain a `cheap.json`
-and they appear as two distinct entries in the listing, identified by their
-full paths. No shadowing, no collisions, no ambiguity.
+The agent's **allowed preset set** is declared explicitly in
+`manifest.preset.allowed` as a list of path strings. There is no implicit
+"everything in some directory" fallback — registration in `allowed` IS
+authorization. `default` and `active` MUST both appear in `allowed`.
 
 This module owns:
-- `discover_presets`: enumerate preset *paths* across one or more directories
+- `discover_presets_in_dirs`: enumerate preset *paths* in one or more
+  directories (helper for the TUI library screen — the kernel itself
+  does not scan directories at runtime)
+- `resolve_allowed_presets`: resolve manifest.preset.allowed → list[Path]
 - `load_preset`: read + validate one preset by path
 - `expand_inherit`: resolve `"provider": "inherit"` sentinels against main LLM
 - `default_presets_path`: the per-machine library at ~/.lingtai-tui/presets/
-- `resolve_presets_path`: resolve manifest.preset.path entries to list[Path]
 - `home_shortened`: render an absolute path with `~/...` when under $HOME
 
 The on-disk shape is `{name, description, manifest: {...}}`. The
@@ -93,59 +94,46 @@ def resolve_preset_name(name: str, working_dir: Path) -> Path:
     return (working_dir / p).resolve()
 
 
-def resolve_presets_path(manifest: dict, working_dir: Path) -> list[Path]:
-    """Resolve manifest.preset.path entries to absolute Paths.
+def resolve_allowed_presets(manifest: dict, working_dir: Path) -> list[Path]:
+    """Resolve manifest.preset.allowed entries to absolute Paths.
 
-    Returns a list[Path] in declared order. The schema accepts either a
-    single string or a list of strings; both are normalized to a list here.
-    When the umbrella is absent or path is missing/empty (None, "", []),
-    falls back to ``[default_presets_path()]``.
+    Returns a list[Path] in declared order. Returns [] when the umbrella
+    is absent, allowed is missing/empty, or the agent has no preset block.
 
     Relative paths are resolved against working_dir (not the process CWD)
-    so an agent's library reference remains valid regardless of where the
-    process was launched.
+    so an agent's preset reference remains valid regardless of where the
+    process was launched. Tilde-prefixed paths are expanded.
     """
     preset_block = manifest.get("preset") or {}
-    raw = preset_block.get("path") if isinstance(preset_block, dict) else None
-
-    if isinstance(raw, str):
-        entries: list[str] = [raw] if raw else []
-    elif isinstance(raw, list):
-        entries = [e for e in raw if isinstance(e, str) and e]
-    else:
-        entries = []
-
-    if not entries:
-        return [default_presets_path()]
+    raw = preset_block.get("allowed") if isinstance(preset_block, dict) else None
+    if not isinstance(raw, list):
+        return []
 
     resolved: list[Path] = []
-    for entry in entries:
+    for entry in raw:
+        if not isinstance(entry, str) or not entry:
+            continue
         p = Path(entry).expanduser()
         resolved.append(p if p.is_absolute() else (working_dir / p).resolve())
     return resolved
 
 
-def _normalize_paths(presets_path: Path | str | list[Path | str]) -> list[Path]:
-    """Coerce the discover argument to a list[Path]. Empty list returns []."""
-    if isinstance(presets_path, (str, Path)):
-        return [Path(presets_path)]
-    return [Path(p) for p in presets_path]
-
-
-def discover_presets(
-    presets_path: Path | str | list[Path | str],
+def discover_presets_in_dirs(
+    dirs: Path | str | list[Path | str],
 ) -> dict[str, Path]:
     """Enumerate preset files across one or more library directories.
 
-    Returns a mapping of **path-string → Path** for top-level *.json[c] files.
-    The key is the absolute path string (with `~/...` shortening when under
-    $HOME) — agents and UIs can pass it straight back to `load_preset`.
+    Helper for the TUI library screen and other UI surfaces. The kernel
+    runtime itself does NOT scan directories — runtime authorization is
+    declared explicitly in `manifest.preset.allowed`. This function is
+    here to power the "build a new agent" flow where the wizard needs to
+    list every preset on disk so the user can pick which to allow.
 
-    Multiple libraries are scanned in declared order. Because the key is a
-    full path, two libraries each containing `cheap.json` appear as two
-    distinct entries — no collisions, no shadowing. Duplicate path entries
-    (e.g. the same directory listed twice) collapse naturally because their
-    files resolve to the same absolute path.
+    Returns a mapping of **path-string → Path** for top-level *.json[c]
+    files. The key is the absolute path string (with `~/...` shortening
+    when under $HOME) — agents and UIs can pass it straight back to
+    `load_preset`. Two libraries each containing `cheap.json` appear as
+    two distinct entries — no collisions, no shadowing.
 
     Nonexistent directories are silently skipped — they're not an error.
 
@@ -156,11 +144,14 @@ def discover_presets(
     from lingtai_kernel.migrate import run_migrations
     from lingtai_kernel.migrate.migrate import meta_filename
 
-    paths = _normalize_paths(presets_path)
+    if isinstance(dirs, (str, Path)):
+        normalized: list[Path] = [Path(dirs)]
+    else:
+        normalized = [Path(p) for p in dirs]
     skip = meta_filename()
     out: dict[str, Path] = {}
 
-    for p in paths:
+    for p in normalized:
         if not p.is_dir():
             continue
         run_migrations(p)
@@ -172,9 +163,13 @@ def discover_presets(
             if entry.name == skip:
                 continue
             key = home_shortened(entry)
-            # Same physical file from a duplicated path entry: harmless overwrite.
             out[key] = entry
     return out
+
+
+# Back-compat alias — old name kept until callers migrate. Prefer
+# `discover_presets_in_dirs` in new code.
+discover_presets = discover_presets_in_dirs
 
 
 def load_preset(

@@ -101,6 +101,16 @@ def validate_init(data: dict) -> list[str]:
     _optional_keys(manifest, MANIFEST_OPTIONAL, prefix="manifest")
 
     # Validate manifest.preset umbrella if present.
+    #
+    # Schema (post path→allowed redesign): {default, active, allowed}.
+    # - default: path string (the agent's home preset; AED auto-fallback target)
+    # - active: path string (currently materialized preset)
+    # - allowed: list[str] of preset paths the agent may swap to at runtime
+    #
+    # Both `default` and `active` MUST be members of `allowed`. Listing them
+    # there is the only place the agent's authorized preset surface is
+    # declared — there is no implicit "everything in the library directory"
+    # fallback.
     preset = manifest.get("preset")
     if preset is not None:
         if not isinstance(preset, dict):
@@ -113,21 +123,40 @@ def validate_init(data: dict) -> list[str]:
             raise ValueError(f"manifest.preset.active: expected str, got {type(preset['active']).__name__}")
         if not isinstance(preset["default"], str):
             raise ValueError(f"manifest.preset.default: expected str, got {type(preset['default']).__name__}")
-        if "path" in preset:
-            path_val = preset["path"]
-            if isinstance(path_val, list):
-                for i, entry in enumerate(path_val):
-                    if not isinstance(entry, str):
-                        raise ValueError(
-                            f"manifest.preset.path[{i}]: expected str, got {type(entry).__name__}"
-                        )
-            elif not isinstance(path_val, str):
+        allowed = preset.get("allowed")
+        if allowed is None:
+            raise ValueError(
+                "manifest.preset.allowed is required when manifest.preset is set "
+                "(list of preset paths this agent may use at runtime)"
+            )
+        if not isinstance(allowed, list):
+            raise ValueError(
+                f"manifest.preset.allowed: expected list[str], got {type(allowed).__name__}"
+            )
+        if not allowed:
+            raise ValueError(
+                "manifest.preset.allowed must be non-empty — at minimum it "
+                "must contain the default preset"
+            )
+        for i, entry in enumerate(allowed):
+            if not isinstance(entry, str) or not entry:
                 raise ValueError(
-                    f"manifest.preset.path: expected str | list[str], got {type(path_val).__name__}"
+                    f"manifest.preset.allowed[{i}]: expected non-empty str, "
+                    f"got {type(entry).__name__}"
                 )
+        if preset["default"] not in allowed:
+            raise ValueError(
+                f"manifest.preset.default ({preset['default']!r}) must appear "
+                f"in manifest.preset.allowed"
+            )
+        if preset["active"] not in allowed:
+            raise ValueError(
+                f"manifest.preset.active ({preset['active']!r}) must appear "
+                f"in manifest.preset.allowed"
+            )
         # Warn on unknown keys
         for key in preset:
-            if key not in {"active", "default", "path"}:
+            if key not in {"active", "default", "allowed"}:
                 warnings.append(f"unknown field in manifest.preset: {key}")
 
     for key in manifest:
