@@ -77,7 +77,7 @@ def get_schema(lang: str = "en") -> dict:
                 "description": t(lang, "avatar.rules_content"),
             },
         },
-        "required": [],
+        "required": ["name"],
     }
 
 
@@ -125,8 +125,11 @@ class AvatarManager:
     def _spawn(self, args: dict) -> dict:
         parent = self._agent
         reasoning = args.get("_reasoning")
-        peer_name = args.get("name", "avatar")
+        peer_name = args.get("name")
         avatar_type = args.get("type", "shallow")
+
+        if peer_name is None:
+            return {"error": "name is required — pick a true name (真名) for the 他我 (e.g. 'researcher', '学者')"}
 
         if avatar_type not in ("shallow", "deep"):
             return {"error": "type must be 'shallow' or 'deep'"}
