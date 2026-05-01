@@ -150,9 +150,12 @@ def build_meta(agent, *, drain_inbox: bool = False) -> dict:
 def _drain_inbox(agent) -> list[str]:
     """Consume ``agent.inbox`` and return each message's content as a string.
 
-    Returns an empty list when the agent has no inbox, the inbox is empty,
-    or every message had falsy content. Full content — no truncation, no
-    newline flattening. The JSON channel can carry it.
+    Returns an empty list when the agent has no inbox or the inbox is empty.
+    Empty-content messages are preserved as empty strings — the count and
+    ordering of inbox messages is information the agent may want.
+
+    Full content per message — no truncation, no newline flattening. The
+    JSON channel can carry it.
 
     Robust against agents without ``.inbox`` (legacy/test stand-ins): returns
     [] in that case.
