@@ -223,9 +223,10 @@ def test_pad_load_delegates_to_eigen(tmp_path):
 
 
 def test_molt_delegates_to_eigen(tmp_path):
-    """psyche(context, molt, summary) delegates to eigen and injects the
-    summary as the opening message of the fresh session."""
-    from lingtai_kernel.llm.interface import ChatInterface, TextBlock
+    """psyche(context, molt, summary) delegates to eigen, replays the molt's
+    own ToolCallBlock as the opening assistant entry of the fresh session
+    (the summary lives in args.summary), and returns a faint-memory result."""
+    from lingtai_kernel.llm.interface import ChatInterface, TextBlock, ToolCallBlock
 
     svc = make_mock_service()
 
@@ -250,18 +251,38 @@ def test_molt_delegates_to_eigen(tmp_path):
         agent._session._chat.interface.add_assistant_message(
             [TextBlock(text="Hi there.")],
         )
+        # Simulate the assistant turn that emitted the molt — it must already
+        # be in the live interface by the time eigen runs (base_agent's
+        # adapter records the assistant message before dispatching tool calls).
+        molt_wire_id = "toolu_test_molt_001"
+        molt_summary = "Key findings: X=42. Current task: analyze dataset Z."
+        agent._session._chat.interface.add_assistant_message([
+            ToolCallBlock(
+                id=molt_wire_id,
+                name="psyche",
+                args={"object": "context", "action": "molt", "summary": molt_summary},
+            ),
+        ])
 
         mgr = agent.get_capability("psyche")
         result = mgr.handle({
             "object": "context",
             "action": "molt",
-            "summary": "Key findings: X=42. Current task: analyze dataset Z.",
+            "summary": molt_summary,
+            "_tc_id": molt_wire_id,
         })
 
         assert result["status"] == "ok"
+        # The agent's summary now lives in the replayed ToolCallBlock's
+        # args.summary on the FRESH interface, not in a user message.
         iface = agent._session._chat.interface
-        entries = [e for e in iface.entries if e.role == "user"]
-        assert any("X=42" in str(e.content) for e in entries)
+        assistant_entries = [e for e in iface.entries if e.role == "assistant"]
+        assert assistant_entries, "fresh session should contain the replayed molt tool_call"
+        last = assistant_entries[-1]
+        molt_calls = [b for b in last.content if isinstance(b, ToolCallBlock)]
+        assert molt_calls, "last assistant entry should carry the molt ToolCallBlock"
+        assert molt_calls[0].id == molt_wire_id
+        assert molt_calls[0].args.get("summary") == molt_summary
     finally:
         agent.stop()
 

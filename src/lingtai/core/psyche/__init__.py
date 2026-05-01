@@ -350,6 +350,7 @@ class PsycheManager:
             "action": "molt",
             "summary": args.get("summary"),
             "keep_tool_calls": args.get("keep_tool_calls"),
+            "_tc_id": args.get("_tc_id"),
         })
 
 

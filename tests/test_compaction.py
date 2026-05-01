@@ -275,15 +275,31 @@ def test_compaction_resets_warning_counter(tmp_path):
     )
     agent.start()
     try:
+        from lingtai_kernel.llm.interface import ToolCallBlock
+
         # Ensure a session exists
         agent._session.ensure_session()
         agent._session._compaction_warnings = 2  # simulate 2 warnings
+
+        # The molt's own tool_call must already be in the live interface
+        # so _context_molt can locate it by tc.id and replay it into the
+        # fresh session (matches how base_agent dispatches in production).
+        molt_wire_id = "toolu_test_compaction_reset"
+        molt_summary = "My important context summary."
+        agent._session._chat.interface.add_assistant_message([
+            ToolCallBlock(
+                id=molt_wire_id,
+                name="psyche",
+                args={"object": "context", "action": "molt", "summary": molt_summary},
+            ),
+        ])
 
         mgr = agent.get_capability("psyche")
         result = mgr.handle({
             "object": "context",
             "action": "molt",
-            "summary": "My important context summary.",
+            "summary": molt_summary,
+            "_tc_id": molt_wire_id,
         })
 
         assert result["status"] == "ok"

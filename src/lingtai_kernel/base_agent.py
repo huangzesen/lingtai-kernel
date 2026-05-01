@@ -1374,7 +1374,13 @@ class BaseAgent:
         Raises UnknownToolError if the tool name is not found.
         """
         if tc.name in self._intrinsics:
-            return self._intrinsics[tc.name](tc.args or {})
+            # Inject the wire tool_use_id so intrinsics that need to locate
+            # their own ToolCallBlock in the live interface (notably
+            # eigen._context_molt) can find it. Intrinsics that don't care
+            # simply ignore the field.
+            args = dict(tc.args or {})
+            args["_tc_id"] = tc.id
+            return self._intrinsics[tc.name](args)
         elif tc.name in self._tool_handlers:
             return self._tool_handlers[tc.name](tc.args or {})
         else:

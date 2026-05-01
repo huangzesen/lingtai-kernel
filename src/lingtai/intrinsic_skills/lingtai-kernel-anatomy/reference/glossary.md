@@ -33,7 +33,7 @@ Column legend:
 | 藏经阁 (cángjīnggé) | library (skills) | — | standalone | **`library`** |
 | 公阁 / 众阁 | shared library | — | filesystem (`cp`) | `system(refresh)` |
 | 凝蜕 (níngtuì) | molt (shed and carry forward) | `eigen(context, molt)` | `psyche(context, molt)` | **`psyche`** |
-| 凝蜕之要 (níngtuì zhī yào) | molt summary (briefing to next-self) | `eigen.molt_summary_prefix` | same | — |
+| 凝蜕之要 (níngtuì zhī yào) | molt summary (briefing to next-self) | lives in molt `ToolCallBlock.args.summary` | same | — |
 
 ## Agent Lifecycle
 

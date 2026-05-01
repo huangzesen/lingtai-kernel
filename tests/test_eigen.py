@@ -114,22 +114,43 @@ def test_eigen_molt_uses_summary(tmp_path):
     )
     agent.start()
     try:
+        from lingtai_kernel.llm.interface import ToolCallBlock
+
         agent._session.ensure_session()
         agent._session._chat.interface.add_user_message("Hello")
         agent._session._chat.interface.add_assistant_message(
             [TextBlock(text="Hi there.")],
         )
+        # Simulate the assistant turn that emitted the molt — it must be
+        # in the live interface before eigen runs (the wire layer records
+        # assistant tool_calls before dispatching). _context_molt locates
+        # this block by tc.id and replays it into the fresh session.
+        molt_wire_id = "toolu_test_molt_uses_summary"
+        molt_summary = "Key finding: X=42. Task: analyze Y."
+        agent._session._chat.interface.add_assistant_message([
+            ToolCallBlock(
+                id=molt_wire_id,
+                name="eigen",
+                args={"object": "context", "action": "molt", "summary": molt_summary},
+            ),
+        ])
 
         result = agent._intrinsics["eigen"]({
             "object": "context",
             "action": "molt",
-            "summary": "Key finding: X=42. Task: analyze Y.",
+            "summary": molt_summary,
+            "_tc_id": molt_wire_id,
         })
         assert result["status"] == "ok"
-        # Summary should be in new conversation
+        # The summary now lives in the replayed ToolCallBlock's args, not
+        # in a user message — the agent will read it from the assistant
+        # turn the same way it reads any past tool_use it emitted.
         iface = agent._session._chat.interface
-        entries = [e for e in iface.entries if e.role == "user"]
-        assert any("X=42" in str(e.content) for e in entries)
+        assistant_entries = [e for e in iface.entries if e.role == "assistant"]
+        assert assistant_entries
+        last_calls = [b for b in assistant_entries[-1].content if isinstance(b, ToolCallBlock)]
+        assert last_calls and last_calls[0].id == molt_wire_id
+        assert "X=42" in last_calls[0].args.get("summary", "")
     finally:
         agent.stop()
 
@@ -202,7 +223,7 @@ def test_eigen_forget_wipes_context(tmp_path):
 
         result = context_forget(agent)
         assert result["status"] == "ok"
-        assert result["before_tokens"] > 0
+        assert result["tokens_before"] > 0
     finally:
         agent.stop()
 
