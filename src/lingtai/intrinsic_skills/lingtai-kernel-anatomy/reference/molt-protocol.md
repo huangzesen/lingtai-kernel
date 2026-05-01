@@ -203,17 +203,19 @@ All ultimately call `_context_molt()` with the system-authored summary.
 
 ## Summary Writing Guide
 
-The summary is the **only conversation-layer thing** the post-molt agent sees. It should aim for ~10,000 tokens and include:
+The summary is a **retrospective of the session** — written as a record of what happened, not as instructions to a future you. It is persisted durably to `system/summaries/molt_<count>_<unix_ts>.md` AND surfaced verbatim to the immediate next self via tool-call replay. Aim for ~10,000 tokens. Cover:
 
-- **What you are working on** — current task, state, next concrete step
-- **What you have accomplished** — completed pieces, key decisions
-- **What remains** — pending items, blockers, open questions
-- **Who to contact** — collaborators, who is waiting on what
-- **Which codex entries matter** — IDs the next self should load
-- **Which skills to load** — library SKILL.md paths the next task needs
-- **Anything else worth carrying forward** — insights, gotchas, things you'd hate to rediscover
+- **What the session was about** — the task, the user's intent, constraints, why it mattered
+- **What got done** — concrete steps, files touched, decisions made and the reasoning behind them
+- **What was learned** — facts, code patterns, gotchas, dead ends ruled out
+- **What remains** — concrete next steps in order, with enough context to pick the thread back up
+- **Who you worked with** — collaborators, what they expected, how communication went
+- **Which codex IDs and library SKILL.md paths** were load-bearing this session
+- **Anything implicit the file substrate (pad/codex/library) won't capture** — half-formed hypotheses, working theories, cultural context
 
-The four durable stores (lingtai, pad, codex, library) must be tended **before** the molt call — the summary is a briefing on top of them, not a replacement.
+Write in full sentences and paragraphs, not bullet shorthand. Err on the side of more detail. Imagine a thoughtful colleague will read it cold next week to understand what happened.
+
+The four durable stores (lingtai, pad, codex, library) must be tended **before** the molt call — the retrospective complements them, it does not replace them.
 
 ---
 
