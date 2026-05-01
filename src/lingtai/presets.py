@@ -297,9 +297,20 @@ def materialize_active_preset(data: dict, working_dir: Path) -> None:
     Mutates ``data`` in place. No-op when ``manifest.preset.active`` is unset
     or when the manifest already has a literal ``llm`` and no preset block.
 
+    When the active preset file is missing (the file referenced by
+    ``manifest.preset.active`` does not exist on disk — e.g. a hard-copied
+    project where the previous machine's preset library wasn't carried over),
+    fall back to ``manifest.preset.default`` if it points to a different,
+    loadable preset. The fallback rewrites ``manifest.preset.active`` in place
+    so the corrected value is persisted on the next init.json regen and the
+    schema's "active must appear in allowed" invariant still holds (default
+    is always in allowed by construction).
+
     Raises:
-        KeyError, ValueError: propagated from ``load_preset`` so callers can
-            distinguish "preset gone" from "preset malformed".
+        KeyError: the active preset is missing AND no usable default exists.
+        ValueError: the active preset file exists but is malformed. Malformed
+            presets are an authoring error and surface unchanged — they are
+            not silently swapped for the default.
     """
     manifest = data.get("manifest")
     if not isinstance(manifest, dict):
@@ -308,7 +319,25 @@ def materialize_active_preset(data: dict, working_dir: Path) -> None:
     if not isinstance(preset_block, dict) or not preset_block.get("active"):
         return
 
-    preset = load_preset(preset_block["active"], working_dir=working_dir)
+    active_ref = preset_block["active"]
+    try:
+        preset = load_preset(active_ref, working_dir=working_dir)
+    except KeyError:
+        default_ref = preset_block.get("default")
+        if (
+            isinstance(default_ref, str)
+            and default_ref
+            and default_ref != active_ref
+        ):
+            preset = load_preset(default_ref, working_dir=working_dir)
+            log.warning(
+                "active preset %r is missing on this machine; "
+                "falling back to default %r and updating manifest.preset.active",
+                active_ref, default_ref,
+            )
+            preset_block["active"] = default_ref
+        else:
+            raise
     preset_manifest = preset.get("manifest", {})
 
     # context_limit lives inside manifest.llm in the preset, but at manifest

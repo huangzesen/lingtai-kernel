@@ -351,3 +351,172 @@ def test_materialize_inherit_expansion_runs(tmp_path, monkeypatch):
     caps = data["manifest"]["capabilities"]
     assert caps["web_search"]["provider"] == "gemini"
     assert caps["web_search"]["api_key_env"] == "GEMINI_API_KEY"
+
+
+# ---------------------------------------------------------------------------
+# Missing-active fallback to default — cross-machine portability
+# ---------------------------------------------------------------------------
+
+def _build_init_with_active_and_default(
+    active_path: str, default_path: str, env_file: Path
+) -> dict:
+    """Build a raw init.json dict with separate active/default preset paths."""
+    return {
+        "manifest": {
+            "agent_name": "alice",
+            "language": "en",
+            "llm": {"provider": "deepseek", "model": "deepseek-v4-flash",
+                    "api_key": None, "api_key_env": "DEEPSEEK_API_KEY"},
+            "capabilities": {"file": {}},
+            "soul": {"delay": 120},
+            "stamina": 3600,
+            "molt_pressure": 0.8,
+            "molt_prompt": "",
+            "max_turns": 50,
+            "admin": {"karma": True},
+            "streaming": False,
+            "preset": {
+                "active": active_path,
+                "default": default_path,
+                "allowed": [active_path, default_path],
+            },
+        },
+        "principle": "p", "covenant": "c", "pad": "", "prompt": "",
+        "soul": "",
+        "env_file": str(env_file),
+    }
+
+
+def test_materialize_missing_active_falls_back_to_default(tmp_path, monkeypatch):
+    """Active preset file gone (e.g. project hard-copied across machines): fall
+    back to default, mutate manifest.preset.active in place, log a warning."""
+    plib = _make_preset_lib(tmp_path, {
+        "minimax_cn": {
+            "name": "minimax_cn",
+            "description": {"summary": "MiniMax fallback"},
+            "manifest": {
+                "llm": {"provider": "minimax", "model": "MiniMax-M2.7-highspeed",
+                        "api_key": None, "api_key_env": "MINIMAX_API_KEY"},
+                "capabilities": {"file": {}},
+            },
+        },
+    })
+    monkeypatch.setenv("MINIMAX_API_KEY", "sk-test")
+
+    active_missing = str(plib / "mimo-pro.json")  # never created
+    default_present = str(plib / "minimax_cn.json")
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+    data = _build_init_with_active_and_default(active_missing, default_present, env_file)
+
+    from lingtai.presets import materialize_active_preset
+    materialize_active_preset(data, tmp_path)
+
+    assert data["manifest"]["preset"]["active"] == default_present
+    assert data["manifest"]["llm"]["provider"] == "minimax"
+    assert data["manifest"]["llm"]["model"] == "MiniMax-M2.7-highspeed"
+
+
+def test_materialize_missing_active_and_missing_default_raises(tmp_path):
+    """When BOTH active and default are missing there is nothing to fall back
+    to — propagate the original KeyError so the operator sees the real issue."""
+    plib = tmp_path / "presets"
+    plib.mkdir()
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+
+    data = _build_init_with_active_and_default(
+        active_path=str(plib / "ghost-active.json"),
+        default_path=str(plib / "ghost-default.json"),
+        env_file=env_file,
+    )
+
+    from lingtai.presets import materialize_active_preset
+    with pytest.raises(KeyError):
+        materialize_active_preset(data, tmp_path)
+
+
+def test_materialize_missing_active_with_same_default_raises(tmp_path):
+    """Active and default point at the same missing file — no fallback target,
+    propagate KeyError instead of looping."""
+    plib = tmp_path / "presets"
+    plib.mkdir()
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+
+    same_missing = str(plib / "gone.json")
+    data = _build_init_with_active_and_default(
+        active_path=same_missing, default_path=same_missing, env_file=env_file,
+    )
+
+    from lingtai.presets import materialize_active_preset
+    with pytest.raises(KeyError):
+        materialize_active_preset(data, tmp_path)
+
+
+def test_materialize_malformed_active_does_not_fall_back(tmp_path):
+    """A malformed (but present) active preset is an authoring error — surface
+    ValueError unchanged. Silently swapping in default would mask the bug and
+    let the agent boot on a different model than its config claims."""
+    plib = tmp_path / "presets"
+    plib.mkdir()
+    bad_active = plib / "bad.json"
+    bad_active.write_text(json.dumps({
+        "name": "bad",
+        "description": {"summary": "missing manifest"},
+        # no manifest key at all → ValueError in load_preset
+    }))
+    good_default = plib / "good.json"
+    good_default.write_text(json.dumps({
+        "name": "good",
+        "description": {"summary": "fine"},
+        "manifest": {
+            "llm": {"provider": "p", "model": "m",
+                    "api_key": None, "api_key_env": "K"},
+            "capabilities": {"file": {}},
+        },
+    }))
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+    data = _build_init_with_active_and_default(
+        active_path=str(bad_active), default_path=str(good_default), env_file=env_file,
+    )
+
+    from lingtai.presets import materialize_active_preset
+    with pytest.raises(ValueError):
+        materialize_active_preset(data, tmp_path)
+    # active was NOT silently rewritten
+    assert data["manifest"]["preset"]["active"] == str(bad_active)
+
+
+def test_read_init_recovers_when_active_preset_missing(tmp_path, monkeypatch):
+    """End-to-end via Agent._read_init: a project hard-copied to a machine
+    that lacks the active preset still boots cleanly using default."""
+    plib = _make_preset_lib(tmp_path, {
+        "minimax_cn": {
+            "name": "minimax_cn",
+            "description": {"summary": "fallback target"},
+            "manifest": {
+                "llm": {"provider": "minimax", "model": "MiniMax-M2.7-highspeed",
+                        "api_key": None, "api_key_env": "MINIMAX_API_KEY"},
+                "capabilities": {"file": {}},
+            },
+        },
+    })
+    monkeypatch.setenv("MINIMAX_API_KEY", "sk-test")
+
+    wd = tmp_path / "agent"
+    wd.mkdir()
+    env_file = wd / ".env"
+    env_file.write_text("")
+    init = _build_init_with_active_and_default(
+        active_path=str(plib / "mimo-pro.json"),       # missing on this machine
+        default_path=str(plib / "minimax_cn.json"),    # present
+        env_file=env_file,
+    )
+    (wd / "init.json").write_text(json.dumps(init))
+
+    a = _make_probe_agent(wd)
+    data = a._read_init()
+    assert data is not None
+    assert data["manifest"]["llm"]["provider"] == "minimax"
