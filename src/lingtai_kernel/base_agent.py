@@ -669,25 +669,28 @@ class BaseAgent:
         self._nap_wake.set()
 
     def _soul_whisper(self) -> None:
-        """Cadence timer callback. Runs the soul LLM call in this background
-        thread, enqueues the resulting (call, result) pair on the involuntary
-        tool-call inbox, and reschedules itself.
+        """Cadence timer callback. Fires past-self consultation on the
+        soul_delay wall clock, then reschedules itself.
 
-        The LLM call runs here so the main thread isn't blocked. The pair is
-        spliced into the wire chat by ``_drain_tc_inbox`` at the next safe
-        boundary — possibly after multiple cadence fires, in which case the
-        coalesce flag means only the latest voice survives.
+        The consultation runs inline on this timer thread (already a
+        daemon) — _run_consultation_fire spawns its own M parallel
+        worker threads internally and joins them with a barrier, so this
+        method blocks until they finish. Reschedule happens in the
+        finally clause so the cadence keeps running even on errors.
+
+        The work itself is delegated to _run_consultation_fire which
+        builds the synthetic (call, result) pair and enqueues it on
+        tc_inbox with replace_in_history=True. Splicing into the wire
+        chat happens at the next safe boundary in _drain_tc_inbox.
+
+        This replaces the legacy diary+mirror-session whisper. The old
+        soul_flow / _ensure_soul_session / _trim_soul_session machinery
+        in intrinsics/soul.py is no longer reached from the hot path
+        but is left in the module for now (dead but inert).
         """
         self._soul_timer = None
         try:
-            from .intrinsics.soul import soul_flow, _save_soul_session, enqueue_flow_voice
-            result = soul_flow(self)
-            if result and result.get("voice"):
-                voice = result["voice"]
-                self._log("soul_whisper", length=len(voice))
-                self._persist_soul_entry(result)
-                _save_soul_session(self)
-                enqueue_flow_voice(self, voice, result.get("thinking", []))
+            self._run_consultation_fire()
         except Exception as e:
             self._log("soul_whisper_error", error=str(e))
         finally:
@@ -1217,10 +1220,6 @@ class BaseAgent:
                             _ti(self._config.language, "insight.auto_question"),
                             source="auto",
                         )
-
-                # Past-self consultation: fire after N turns. Daemon-thread,
-                # non-blocking; result lands in tc_inbox with replace_in_history.
-                self._maybe_fire_consultation()
 
             break
 

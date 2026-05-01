@@ -670,6 +670,35 @@ class TestRehydrateAppendixTracking:
         agent._rehydrate_appendix_tracking()
         assert "soul.flow" not in agent._appendix_ids_by_source
 
+    def test_soul_whisper_delegates_to_consultation_fire(self, tmp_path):
+        """The wall-clock soul timer (driven by config.soul_delay) now fires
+        past-self consultation instead of the legacy diary+mirror-session
+        flow. Verifies _soul_whisper -> _run_consultation_fire wiring."""
+        from lingtai_kernel import BaseAgent
+        svc = MagicMock(); svc.model = "test-model"
+        agent = BaseAgent(
+            service=svc, agent_name="t", working_dir=tmp_path / "agent",
+        )
+        with patch.object(agent, "_run_consultation_fire") as mock_fire, \
+             patch.object(agent, "_start_soul_timer") as mock_resched:
+            agent._soul_whisper()
+        assert mock_fire.call_count == 1
+        assert mock_resched.call_count == 1
+
+    def test_soul_whisper_swallows_consultation_fire_error(self, tmp_path):
+        """Errors in the consultation fire must not break the cadence —
+        the timer reschedules itself in finally regardless."""
+        from lingtai_kernel import BaseAgent
+        svc = MagicMock(); svc.model = "test-model"
+        agent = BaseAgent(
+            service=svc, agent_name="t", working_dir=tmp_path / "agent",
+        )
+        with patch.object(agent, "_run_consultation_fire",
+                          side_effect=RuntimeError("boom")), \
+             patch.object(agent, "_start_soul_timer") as mock_resched:
+            agent._soul_whisper()  # must not raise
+        assert mock_resched.call_count == 1
+
     def test_tracks_first_match_only(self, tmp_path):
         """Defensive: if somehow the history contains two soul.flow pairs
         (shouldn't happen post-design but tolerate it), only the first
