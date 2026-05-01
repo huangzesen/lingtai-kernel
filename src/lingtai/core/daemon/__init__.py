@@ -7,7 +7,7 @@ agent.  Results return as [daemon:em-N] notifications in the parent's inbox.
 
 Usage:
     Agent(capabilities=["daemon"])
-    Agent(capabilities={"daemon": {"max_emanations": 4}})
+    Agent(capabilities={"daemon": {"max_emanations": 10}})
 """
 from __future__ import annotations
 
@@ -131,7 +131,7 @@ class DaemonManager:
     # Short results (e.g. "[cancelled]") are suppressed to avoid notification storms.
     _NOTIFY_MIN_LEN = 20
 
-    def __init__(self, agent: "Agent", max_emanations: int = 4,
+    def __init__(self, agent: "Agent", max_emanations: int = 10,
                  max_turns: int = 200, timeout: float = 3600.0,
                  notify_threshold: int = 20, max_result_chars: int = 2000):
         self._agent = agent
@@ -877,7 +877,7 @@ class DaemonManager:
             self._agent._log(event_type, **fields)
 
 
-def setup(agent: "Agent", max_emanations: int = 4,
+def setup(agent: "Agent", max_emanations: int = 10,
           max_turns: int = 200, timeout: float = 3600.0,
           notify_threshold: int = 20, max_result_chars: int = 2000) -> DaemonManager:
     """Set up the daemon capability on an agent."""
