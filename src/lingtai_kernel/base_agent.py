@@ -293,6 +293,12 @@ class BaseAgent:
         self._soul_oneshot = False    # True during pending inquiry
         self._soul_timer: threading.Timer | None = None
         self._insight_turn_counter: int = 0
+        # Past-self consultation cadence — separate counter from
+        # insights_interval (operator-facing) so the two cadences stay
+        # independent. Fires every consultation_interval turns; result is
+        # a single soul.flow synthetic pair spliced via tc_inbox with
+        # replace_in_history=True.
+        self._consultation_turn_counter: int = 0
 
         # Heartbeat — always-on health monitor
         self._heartbeat: float = 0.0
@@ -477,6 +483,10 @@ class BaseAgent:
                 ]
                 self.restore_chat({"messages": messages})
                 self._log("session_restored")
+                # If a soul.flow appendix pair survived from the previous
+                # process, re-track its id so the next consultation fire
+                # removes it before appending its replacement.
+                self._rehydrate_appendix_tracking()
             except Exception as e:
                 logger.warning(f"[{self.agent_name}] Failed to restore chat history: {e}")
         # Restore token state from ledger (lifetime accumulator)
@@ -756,6 +766,103 @@ class BaseAgent:
                 self._log("insight", text="(silence)", question=question, source=source)
         except Exception as e:
             self._log("insight_error", error=str(e)[:200], question=question)
+
+    # ------------------------------------------------------------------
+    # Past-self consultation — soul flow as appendix tool-call pair
+    # ------------------------------------------------------------------
+
+    def _maybe_fire_consultation(self) -> None:
+        """Increment the consultation counter; if it hits cadence, kick off
+        the consultation batch in a daemon thread. Non-blocking."""
+        interval = int(getattr(self._config, "consultation_interval", 0))
+        if interval <= 0:
+            return
+        self._consultation_turn_counter += 1
+        if self._consultation_turn_counter < interval:
+            return
+        self._consultation_turn_counter = 0
+        thread = threading.Thread(
+            target=self._run_consultation_fire,
+            daemon=True,
+            name=f"consult-{self.agent_name or self._working_dir.name}",
+        )
+        thread.start()
+
+    def _run_consultation_fire(self) -> None:
+        """Run one consultation batch. On success, enqueue a single
+        synthetic pair on tc_inbox with replace_in_history=True so the
+        drain side enforces the single-slot invariant in chat history.
+
+        Best-effort: errors are logged and swallowed; consultation does
+        not block the agent loop."""
+        try:
+            from .intrinsics.soul import (
+                _run_consultation_batch,
+                build_consultation_pair,
+            )
+            from .tc_inbox import InvoluntaryToolCall
+            voices = _run_consultation_batch(self)
+            if not voices:
+                self._log("consultation_fire_empty")
+                return
+            call, result = build_consultation_pair(self, voices)
+            self._tc_inbox.enqueue(InvoluntaryToolCall(
+                call=call,
+                result=result,
+                source="soul.flow",
+                enqueued_at=time.time(),
+                coalesce=True,
+                replace_in_history=True,
+            ))
+            self._log(
+                "consultation_fire",
+                count=len(voices),
+                sources=[v["source"] for v in voices],
+            )
+        except Exception as e:
+            self._log("consultation_fire_error", error=str(e)[:200])
+
+    def _rehydrate_appendix_tracking(self) -> None:
+        """Scan rehydrated chat history for an existing soul.flow synthetic
+        pair and re-track its call_id, so the next consultation fire
+        knows what to remove. Idempotent.
+
+        Searches for the strict shape produced by build_consultation_pair:
+        an assistant entry with exactly one ToolCallBlock(name="soul",
+        args={"action": "flow"}) followed by a user entry with the matching
+        ToolResultBlock. Tracks only the first match found; any duplicates
+        beyond it are left alone (inert in history)."""
+        if self._chat is None:
+            return
+        try:
+            iface = self._chat.interface
+        except Exception:
+            return
+        from .llm.interface import ToolCallBlock, ToolResultBlock
+        entries = iface.entries
+        for i in range(len(entries) - 1):
+            a = entries[i]
+            u = entries[i + 1]
+            if a.role != "assistant" or u.role != "user":
+                continue
+            if len(a.content) != 1 or len(u.content) != 1:
+                continue
+            cblock = a.content[0]
+            rblock = u.content[0]
+            if not isinstance(cblock, ToolCallBlock):
+                continue
+            if not isinstance(rblock, ToolResultBlock):
+                continue
+            if cblock.name != "soul":
+                continue
+            if not isinstance(cblock.args, dict):
+                continue
+            if cblock.args.get("action") != "flow":
+                continue
+            if cblock.id != rblock.id:
+                continue
+            self._appendix_ids_by_source["soul.flow"] = cblock.id
+            return
 
     # ------------------------------------------------------------------
     # Heartbeat — always-on health monitor (involuntary)
@@ -1110,6 +1217,10 @@ class BaseAgent:
                             _ti(self._config.language, "insight.auto_question"),
                             source="auto",
                         )
+
+                # Past-self consultation: fire after N turns. Daemon-thread,
+                # non-blocking; result lands in tc_inbox with replace_in_history.
+                self._maybe_fire_consultation()
 
             break
 

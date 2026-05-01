@@ -432,3 +432,363 @@ def soul_inquiry(agent, question: str) -> dict | None:
         "voice": response.text,
         "thinking": response.thoughts or [],
     }
+
+
+# ---------------------------------------------------------------------------
+# Past-self consultation — the new soul flow
+#
+# Replaces timer-driven flow with per-turn-cadence past-self consultation.
+# Snapshots written by psyche._write_molt_snapshot are the substrate; this
+# layer reads them, runs M = 1+K consultations in parallel (1 insights
+# against the current self, K random past-snapshot consultations), bundles
+# the voices into a single synthetic (assistant{tool_call}, user{tool_result})
+# pair, and hands it off to base_agent's tc_inbox with replace_in_history=True.
+#
+# The single-slot invariant in chat history is enforced at drain time: any
+# prior soul.flow pair already in ChatInterface.entries is removed before
+# the new pair is appended. This keeps voices "drifting" naturally from
+# tail toward prefix as subsequent turns extend history past them, which
+# preserves provider prompt cache through the voice's lifetime.
+# ---------------------------------------------------------------------------
+
+
+def _load_snapshot_interface(path):
+    """Load a snapshot file written by psyche._write_molt_snapshot and
+    return its frozen ChatInterface, or None on any failure.
+
+    Schema check: payload must carry an integer ``schema_version`` and
+    a list ``interface`` of entry dicts compatible with
+    ``ChatInterface.from_dict``. Any failure (missing file, bad JSON,
+    schema mismatch, malformed entries) returns None — the caller skips
+    that snapshot and proceeds with whatever else loaded.
+    """
+    import json
+    from pathlib import Path
+    from ..llm.interface import ChatInterface
+
+    try:
+        p = Path(path)
+        if not p.is_file():
+            return None
+        raw = p.read_text(encoding="utf-8")
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            return None
+        if not isinstance(payload.get("schema_version"), int):
+            return None
+        entries = payload.get("interface")
+        if not isinstance(entries, list):
+            return None
+        return ChatInterface.from_dict(entries)
+    except Exception:
+        return None
+
+
+def _fit_interface_to_window(iface, target_tokens: int):
+    """Tail-trim a ChatInterface to fit within ``target_tokens`` while
+    preserving tool-call/tool-result pairing invariants.
+
+    Strategy: walk entries from the end backward, accumulating until the
+    next addition would exceed ``target_tokens``. The resulting "kept
+    suffix" must start on a clean boundary — never with a user{tool_result}
+    whose matching assistant{tool_call} has been dropped. If the natural
+    cutoff falls mid-pair, walk one more step backward (or forward, if
+    that would yield zero entries) until a clean start is reached.
+
+    System entries (typically index 0) are *always* preserved at the head
+    of the kept set when present, since they carry the frozen system
+    prompt that the snapshot represents. They count toward the budget.
+
+    Returns a fresh ChatInterface containing only the kept entries.
+    """
+    from ..llm.interface import ChatInterface, ToolCallBlock, ToolResultBlock
+
+    if target_tokens <= 0:
+        return ChatInterface.from_dict([])
+
+    entries = list(iface.entries)
+    if not entries:
+        return ChatInterface.from_dict([])
+
+    # Already fits — return as-is (clone via to_dict round-trip so the
+    # caller can mutate the trimmed copy without affecting the source).
+    current = iface.estimate_context_tokens()
+    if current <= target_tokens:
+        return ChatInterface.from_dict(iface.to_dict())
+
+    # Identify a leading system entry (preserve it).
+    head_system = []
+    body_start = 0
+    if entries[0].role == "system":
+        head_system = [entries[0]]
+        body_start = 1
+
+    # Walk body from tail backward to find the largest suffix that fits.
+    # Build a dict-list of (head_system + suffix) and ask the live
+    # ChatInterface for an accurate token count each time.
+    head_dicts = [e.to_dict() for e in head_system]
+    body = entries[body_start:]
+    body_dicts = [e.to_dict() for e in body]
+
+    kept_suffix_start = len(body)  # start with empty suffix
+    for i in range(len(body) - 1, -1, -1):
+        candidate_dicts = head_dicts + body_dicts[i:]
+        probe = ChatInterface.from_dict(candidate_dicts)
+        if probe.estimate_context_tokens() > target_tokens:
+            break
+        kept_suffix_start = i
+
+    # Adjust kept_suffix_start to land on a clean boundary: if the entry
+    # at kept_suffix_start is a user-role with only ToolResultBlocks,
+    # find the matching tool_call earlier in the body and either include
+    # the call (drop kept_suffix_start by 1) or drop the result entry
+    # (raise kept_suffix_start by 1). The simpler safe move is the
+    # latter — drop the orphaned tool_result entry from the head of the
+    # suffix.
+    while kept_suffix_start < len(body):
+        entry = body[kept_suffix_start]
+        if entry.role != "user":
+            break
+        # If every block in this user entry is a ToolResultBlock, it's a
+        # candidate orphan. Check whether its tool_call ids appear in the
+        # already-kept suffix (they can only appear earlier than us — by
+        # construction the matching call would be just before, so it's
+        # been excluded by the cutoff).
+        if all(isinstance(b, ToolResultBlock) for b in entry.content):
+            # Orphan tool_result with no preceding tool_call in the kept
+            # suffix. Drop it and keep walking forward in case the next
+            # entry is also orphan.
+            kept_suffix_start += 1
+            continue
+        break
+
+    final_body = body[kept_suffix_start:]
+    if not final_body and not head_system:
+        # Nothing fits at all — return an empty interface rather than
+        # something malformed. Caller treats empty interface as "skip
+        # this consultation."
+        return ChatInterface.from_dict([])
+
+    final_dicts = head_dicts + [e.to_dict() for e in final_body]
+    return ChatInterface.from_dict(final_dicts)
+
+
+def _run_consultation(agent, iface, source: str) -> dict | None:
+    """Run one consultation against a seeded ChatInterface.
+
+    Creates a one-shot tools-less session over the given interface,
+    sends a minimal placeholder cue, and returns
+    ``{"voice": str, "thinking": list, "source": source}`` or None on
+    any failure (load issue, timeout, empty response).
+
+    The cue prompt is intentionally minimal at this stage — the real cue
+    that surfaces the agent's recent context to past selves is a
+    separate prompt-engineering ticket. For the mechanical scaffold,
+    "What do you notice? Speak freely." is enough to get a substantive
+    response.
+
+    Window-fit happens here: tail-trim to 0.8 × the consulting model's
+    context window. The consulting model is the same model that runs the
+    main agent chat (``agent.service``), so the budget is read from the
+    main chat's ``context_window()`` (or ``config.context_limit`` if the
+    user pinned a smaller cap). Same pattern as meta_block.py and
+    session.py use everywhere else in the kernel.
+    """
+    if iface is None or not iface.entries:
+        return None
+
+    # Read the consulting model's context window the same way the rest of
+    # the kernel does. If the agent hasn't built its main chat yet (early
+    # boot), conservatively assume 200k — every modern provider supports
+    # at least that and it leaves room for the system prompt + cue.
+    window = None
+    if getattr(agent, "_chat", None) is not None:
+        try:
+            window = agent._chat.context_window()
+        except Exception:
+            window = None
+    if window is None:
+        window = int(getattr(agent._config, "context_limit", None) or 200_000)
+    target = max(1, int(window * 0.8))
+    fitted = _fit_interface_to_window(iface, target)
+    if not fitted.entries:
+        return None
+
+    system_prompt = _build_soul_system_prompt(agent)
+    system_prompt += "\n\nYou have no tools. Respond with plain text only. Never output tool calls or XML tags."
+
+    try:
+        session = agent.service.create_session(
+            system_prompt=system_prompt,
+            tools=None,
+            model=agent._config.model or agent.service.model,
+            thinking="high",
+            tracked=False,
+            interface=fitted,
+        )
+    except Exception as e:
+        try:
+            agent._log("consultation_session_failed", source=source, error=str(e)[:200])
+        except Exception:
+            pass
+        return None
+
+    cue = "What do you notice? Speak freely."
+    response = _send_with_timeout(agent, session, cue)
+    if not response or not response.text:
+        return None
+
+    try:
+        _write_soul_tokens(agent, response)
+    except Exception:
+        pass
+
+    return {
+        "source": source,
+        "voice": response.text,
+        "thinking": response.thoughts or [],
+    }
+
+
+def _list_snapshot_paths(agent):
+    """Return a list of pathlib.Path entries for all snapshot files in
+    <workdir>/history/snapshots/, or [] if the directory does not exist."""
+    from pathlib import Path
+    snapshots_dir = agent._working_dir / "history" / "snapshots"
+    if not snapshots_dir.is_dir():
+        return []
+    try:
+        return sorted(snapshots_dir.glob("snapshot_*.json"))
+    except Exception:
+        return []
+
+
+def _clone_current_chat_for_insights(agent):
+    """Build a tools-stripped ChatInterface clone of the agent's current
+    chat. Same pattern as soul_inquiry: keep TextBlock + ThinkingBlock
+    only, skip ToolCallBlock + ToolResultBlock entirely (the consultation
+    session is tools-less).
+    """
+    from ..llm.interface import ChatInterface, TextBlock, ThinkingBlock
+
+    cloned = ChatInterface()
+    if agent._chat is None:
+        return cloned
+
+    for entry in agent._chat.interface.entries:
+        if entry.role == "system":
+            continue
+        stripped = []
+        for block in entry.content:
+            if isinstance(block, (TextBlock, ThinkingBlock)):
+                stripped.append(block)
+        if not stripped:
+            continue
+        if entry.role == "assistant":
+            cloned.add_assistant_message(stripped)
+        else:
+            try:
+                cloned.add_user_blocks(stripped)
+            except Exception:
+                # Pending-tool-call guard tripped on the clone — skip
+                # this entry rather than crash. Should be very rare since
+                # we already stripped tool blocks.
+                continue
+
+    return cloned
+
+
+def _run_consultation_batch(agent) -> list[dict]:
+    """Run one full consultation fire: 1 insights + K past-snapshot
+    consultations in parallel. Returns the list of surviving voices
+    (failed/timed-out consultations are filtered out).
+    """
+    import random
+    import threading
+
+    K = max(0, int(getattr(agent._config, "consultation_past_count", 2)))
+
+    # Build work items.
+    work: list[tuple[str, "ChatInterface"]] = []
+    insights_iface = _clone_current_chat_for_insights(agent)
+    if insights_iface.entries:
+        work.append(("insights", insights_iface))
+
+    # Sample K snapshot paths; load each.
+    paths = _list_snapshot_paths(agent)
+    if paths and K > 0:
+        sampled = random.sample(paths, min(K, len(paths)))
+        for path in sampled:
+            iface = _load_snapshot_interface(path)
+            if iface is None or not iface.entries:
+                try:
+                    agent._log("consultation_load_failed", path=str(path))
+                except Exception:
+                    pass
+                continue
+            # source label encodes molt_count + ts when parseable from filename
+            source = f"snapshot:{path.stem}"
+            work.append((source, iface))
+
+    if not work:
+        return []
+
+    # Run all consultations in parallel daemon threads with a barrier.
+    results: list[dict | None] = [None] * len(work)
+
+    def worker(idx: int, source: str, iface) -> None:
+        try:
+            results[idx] = _run_consultation(agent, iface, source)
+        except Exception as e:
+            try:
+                agent._log("consultation_thread_error",
+                           source=source, error=str(e)[:200])
+            except Exception:
+                pass
+            results[idx] = None
+
+    threads: list[threading.Thread] = []
+    for idx, (source, iface) in enumerate(work):
+        t = threading.Thread(
+            target=worker, args=(idx, source, iface),
+            daemon=True,
+            name=f"consult-w-{idx}-{source[:20]}",
+        )
+        threads.append(t)
+        t.start()
+
+    timeout = float(getattr(agent._config, "retry_timeout", 300.0)) * 2.0
+    for t in threads:
+        t.join(timeout=timeout)
+
+    voices = [r for r in results if r is not None and r.get("voice")]
+    return voices
+
+
+def build_consultation_pair(agent, voices: list[dict]):
+    """Build a synthetic (ToolCallBlock, ToolResultBlock) pair carrying
+    the bundled consultation voices. The result content includes an
+    appendix_note framing the voices as advisory and ephemeral.
+    """
+    import secrets
+    import time
+    from ..llm.interface import ToolCallBlock, ToolResultBlock
+    from ..i18n import t as _t
+
+    tc_id = f"tc_{int(time.time())}_{secrets.token_hex(2)}"
+    call = ToolCallBlock(id=tc_id, name="soul", args={"action": "flow"})
+
+    # Strip the thinking block from the wire payload — it inflates tokens
+    # without adding readable signal at the consumption site (the agent
+    # main turn). Keep the source label and the voice text only.
+    rendered_voices = [
+        {"source": v["source"], "voice": v["voice"]}
+        for v in voices
+        if v.get("voice")
+    ]
+    payload = {
+        "appendix_note": _t(agent._config.language, "soul.appendix_note"),
+        "voices": rendered_voices,
+    }
+    result = ToolResultBlock(id=tc_id, name="soul", content=payload)
+    return call, result
