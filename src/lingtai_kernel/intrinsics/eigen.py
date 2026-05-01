@@ -253,13 +253,27 @@ def _context_molt(agent, args: dict) -> dict:
             for block in entry.content:
                 if isinstance(block, ToolCallBlock) and block.id in result_for_provider_id:
                     call_for_provider_id[block.id] = block
+        # Refuse if any matched result lacks its companion call block (could
+        # happen if enforce_tool_pairing earlier stripped a call from a
+        # non-tail assistant entry while the result survived). Better to
+        # fail loudly than silently drop a pair the agent asked to keep.
+        missing_calls = [
+            lt_id for lt_id in keep_tool_calls
+            if call_for_provider_id.get(provider_id_for_lingtai[lt_id]) is None
+        ]
+        if missing_calls:
+            return {
+                "error": (
+                    "Some keep_tool_calls ids have a tool_result in history "
+                    "but no matching tool_call (the call block was likely "
+                    "stripped). Molt refused; molt count unchanged."
+                ),
+                "missing_call_ids": missing_calls,
+            }
         # Build the pair list in the order the agent requested.
         for lt_id in keep_tool_calls:
             pid = provider_id_for_lingtai[lt_id]
-            call_block = call_for_provider_id.get(pid)
-            result_block = result_for_provider_id.get(pid)
-            if call_block is not None and result_block is not None:
-                keep_pairs.append((call_block, result_block))
+            keep_pairs.append((call_for_provider_id[pid], result_for_provider_id[pid]))
 
     before_tokens = iface_pre.estimate_context_tokens()
 
