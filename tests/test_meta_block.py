@@ -32,17 +32,19 @@ def test_build_meta_time_aware_utc_uses_z_suffix():
     assert meta["current_time"].endswith("Z")
 
 
-def test_build_meta_time_blind_returns_empty_dict():
+def test_build_meta_time_blind_emits_context_sentinel():
     agent = _fake_agent(time_awareness=False)
     meta = build_meta(agent)
-    assert "current_time" not in meta and meta["system_tokens"] == -1
+    assert "current_time" not in meta
+    assert meta["context"]["system_tokens"] == -1
 
 
 def test_build_meta_time_blind_regardless_of_timezone_awareness():
     # time_awareness=False short-circuits even when timezone_awareness=True.
     agent = _fake_agent(time_awareness=False, timezone_awareness=True)
     meta = build_meta(agent)
-    assert "current_time" not in meta and meta["system_tokens"] == -1
+    assert "current_time" not in meta
+    assert meta["context"]["system_tokens"] == -1
 
 
 def _fake_agent_with_lang(lang: str, *, time_awareness: bool = True):
@@ -64,9 +66,11 @@ def test_render_meta_en_uses_existing_current_time_template():
     agent = _fake_agent_with_lang("en")
     meta = {
         "current_time": "2026-04-20T10:15:23-07:00",
-        "system_tokens": 4720,
-        "context_tokens": 9450,
-        "context_usage": 0.071,
+        "context": {
+            "system_tokens": 4720,
+            "history_tokens": 9450,
+            "usage": 0.071,
+        },
     }
     assert render_meta(agent, meta) == "[Current time: 2026-04-20T10:15:23-07:00 | context: 7.1% (sys 4720 + ctx 9450)]"
 
@@ -75,9 +79,11 @@ def test_render_meta_zh_uses_existing_current_time_template():
     agent = _fake_agent_with_lang("zh")
     meta = {
         "current_time": "2026-04-20T10:15:23-07:00",
-        "system_tokens": 4720,
-        "context_tokens": 9450,
-        "context_usage": 0.071,
+        "context": {
+            "system_tokens": 4720,
+            "history_tokens": 9450,
+            "usage": 0.071,
+        },
     }
     assert render_meta(agent, meta) == "[此时：2026-04-20T10:15:23-07:00 | 上下文：7.1% (系统 4720 + 对话 9450)]"
 
@@ -86,9 +92,11 @@ def test_render_meta_wen_uses_existing_current_time_template():
     agent = _fake_agent_with_lang("wen")
     meta = {
         "current_time": "2026-04-20T10:15:23-07:00",
-        "system_tokens": 4720,
-        "context_tokens": 9450,
-        "context_usage": 0.071,
+        "context": {
+            "system_tokens": 4720,
+            "history_tokens": 9450,
+            "usage": 0.071,
+        },
     }
     assert render_meta(agent, meta) == "[此时：2026-04-20T10:15:23-07:00 | 上下文：7.1% (系统 4720 + 对话 9450)]"
 
@@ -105,9 +113,11 @@ def test_render_meta_context_unknown_sentinel_en():
     agent = _fake_agent_with_lang("en")
     meta = {
         "current_time": "2026-04-20T10:15:23-07:00",
-        "system_tokens": -1,
-        "context_tokens": -1,
-        "context_usage": -1.0,
+        "context": {
+            "system_tokens": -1,
+            "history_tokens": -1,
+            "usage": -1.0,
+        },
     }
     assert render_meta(agent, meta) == "[Current time: 2026-04-20T10:15:23-07:00 | context: unavailable]"
 
@@ -116,9 +126,11 @@ def test_render_meta_context_unknown_sentinel_zh():
     agent = _fake_agent_with_lang("zh")
     meta = {
         "current_time": "2026-04-20T10:15:23-07:00",
-        "system_tokens": -1,
-        "context_tokens": -1,
-        "context_usage": -1.0,
+        "context": {
+            "system_tokens": -1,
+            "history_tokens": -1,
+            "usage": -1.0,
+        },
     }
     assert render_meta(agent, meta) == "[此时：2026-04-20T10:15:23-07:00 | 上下文：未知]"
 
@@ -128,9 +140,11 @@ def test_render_meta_rounds_usage_to_one_decimal():
     agent = _fake_agent_with_lang("en")
     meta = {
         "current_time": "T",
-        "system_tokens": 1000,
-        "context_tokens": 500,
-        "context_usage": 0.0723456,
+        "context": {
+            "system_tokens": 1000,
+            "history_tokens": 500,
+            "usage": 0.0723456,
+        },
     }
     result = render_meta(agent, meta)
     assert "7.2%" in result
@@ -231,11 +245,11 @@ def test_build_meta_emits_context_fields_when_decomp_ran():
     )
     meta = build_meta(agent)
     # system = system_prompt + tools = 5000 + 500 = 5500
-    assert meta["system_tokens"] == 5500
-    # context = history = 200
-    assert meta["context_tokens"] == 200
+    assert meta["context"]["system_tokens"] == 5500
+    # history = 200
+    assert meta["context"]["history_tokens"] == 200
     # usage = (5500 + 200) / 100000 = 0.057
-    assert abs(meta["context_usage"] - 0.057) < 1e-6
+    assert abs(meta["context"]["usage"] - 0.057) < 1e-6
 
 
 def test_build_meta_emits_sentinels_before_decomp_runs():
@@ -243,9 +257,9 @@ def test_build_meta_emits_sentinels_before_decomp_runs():
     # we cannot compute any of the three fields honestly.
     agent = _fake_agent_with_session(decomp_ran=False)
     meta = build_meta(agent)
-    assert meta["system_tokens"] == -1
-    assert meta["context_tokens"] == -1
-    assert meta["context_usage"] == -1.0
+    assert meta["context"]["system_tokens"] == -1
+    assert meta["context"]["history_tokens"] == -1
+    assert meta["context"]["usage"] == -1.0
 
 
 def test_build_meta_history_falls_back_to_interface_estimate_after_restore():
@@ -263,8 +277,8 @@ def test_build_meta_history_falls_back_to_interface_estimate_after_restore():
     agent._session._latest_input_tokens = 0
     meta = build_meta(agent)
     # history should come from interface.estimate_context_tokens(), not 0
-    assert meta["context_tokens"] == 50000
-    assert meta["system_tokens"] == 5500
+    assert meta["context"]["history_tokens"] == 50000
+    assert meta["context"]["system_tokens"] == 5500
 
 
 def test_build_meta_time_blind_still_emits_context_fields():
@@ -276,8 +290,8 @@ def test_build_meta_time_blind_still_emits_context_fields():
     )
     meta = build_meta(agent)
     assert "current_time" not in meta
-    assert meta["system_tokens"] == 5500
-    assert meta["context_tokens"] == 200
+    assert meta["context"]["system_tokens"] == 5500
+    assert meta["context"]["history_tokens"] == 200
 
 
 def test_render_meta_time_blind_with_context_present_emits_empty_time_slot():
@@ -288,15 +302,17 @@ def test_render_meta_time_blind_with_context_present_emits_empty_time_slot():
     behavior, this test must be updated together with the spec."""
     agent = _fake_agent_with_lang("en")
     meta = {
-        "system_tokens": 4720,
-        "context_tokens": 9450,
-        "context_usage": 0.071,
+        "context": {
+            "system_tokens": 4720,
+            "history_tokens": 9450,
+            "usage": 0.071,
+        },
     }
     assert render_meta(agent, meta) == "[Current time:  | context: 7.1% (sys 4720 + ctx 9450)]"
 
 
-def test_build_meta_context_tokens_does_not_double_count_system_and_tools():
-    """Regression: context_tokens must NOT include the system prompt or tool
+def test_build_meta_history_tokens_does_not_double_count_system_and_tools():
+    """Regression: history_tokens must NOT include the system prompt or tool
     schema tokens (they belong to system_tokens). Computed from the server's
     authoritative input count minus system + tools, mirroring
     SessionManager.get_token_usage's ctx_history_tokens."""
@@ -307,11 +323,11 @@ def test_build_meta_context_tokens_does_not_double_count_system_and_tools():
     )
     meta = build_meta(agent)
     # system_tokens = 5000 + 500 = 5500
-    assert meta["system_tokens"] == 5500
-    # context_tokens = history only = 200
-    assert meta["context_tokens"] == 200
+    assert meta["context"]["system_tokens"] == 5500
+    # history_tokens = history only = 200
+    assert meta["context"]["history_tokens"] == 200
     # usage = (5500 + 200) / 100000 = 0.057
-    assert abs(meta["context_usage"] - 0.057) < 1e-6
+    assert abs(meta["context"]["usage"] - 0.057) < 1e-6
 
 
 def test_build_meta_usage_matches_get_context_pressure_after_restore():
@@ -323,7 +339,7 @@ def test_build_meta_usage_matches_get_context_pressure_after_restore():
 
     Pre-fix bug: build_meta treated estimate_context_tokens() as
     history-only, but the real method returns system + tools + conversation.
-    That made context_tokens = full estimate, which then double-counted
+    That made history_tokens = full estimate, which then double-counted
     system + tools when added to system_tokens in the usage calculation.
     """
     sys_prompt = 5000
@@ -341,18 +357,18 @@ def test_build_meta_usage_matches_get_context_pressure_after_restore():
     agent._session._latest_input_tokens = 0
     meta = build_meta(agent)
 
-    # context_tokens must be history-only, not the full estimate
-    assert meta["context_tokens"] == history
-    assert meta["system_tokens"] == sys_prompt + tools
+    # history_tokens must be history-only, not the full estimate
+    assert meta["context"]["history_tokens"] == history
+    assert meta["context"]["system_tokens"] == sys_prompt + tools
 
     # meta usage% must equal what get_context_pressure() would return:
     # pressure = estimate_context_tokens() / limit = (sys+tools+history) / limit
     expected_pressure = (sys_prompt + tools + history) / limit
-    assert abs(meta["context_usage"] - expected_pressure) < 1e-9
+    assert abs(meta["context"]["usage"] - expected_pressure) < 1e-9
 
 
 # ---------------------------------------------------------------------------
-# pending_notifications — non-destructive snapshot of agent.inbox
+# notifications — drain agent.inbox into meta when drain_inbox=True
 # ---------------------------------------------------------------------------
 
 def _fake_agent_with_inbox(messages: list, *, language: str = "en"):
@@ -372,89 +388,110 @@ def _fake_agent_with_inbox(messages: list, *, language: str = "en"):
 
 
 def _msg(content: str):
-    """Minimal Message-like object — only .content is read by the summary helper."""
+    """Minimal Message-like object — only .content is read by the drain helper."""
     from lingtai_kernel.message import _make_message, MSG_REQUEST
     return _make_message(MSG_REQUEST, "system", content)
 
 
-def test_pending_notifications_absent_when_inbox_empty():
+def test_notifications_absent_when_inbox_empty_with_drain():
+    agent = _fake_agent_with_inbox([])
+    meta = build_meta(agent, drain_inbox=True)
+    assert "notifications" not in meta
+
+
+def test_notifications_absent_when_inbox_empty_without_drain():
     agent = _fake_agent_with_inbox([])
     meta = build_meta(agent)
-    assert "pending_notifications" not in meta
+    assert "notifications" not in meta
 
 
-def test_pending_notifications_absent_when_agent_has_no_inbox():
+def test_notifications_absent_when_agent_has_no_inbox():
     """build_meta must tolerate agents without an inbox attribute (legacy callers)."""
     agent = _fake_agent(time_awareness=False)  # no inbox attribute
-    meta = build_meta(agent)
-    assert "pending_notifications" not in meta
+    meta = build_meta(agent, drain_inbox=True)
+    assert "notifications" not in meta
 
 
-def test_pending_notifications_count_and_previews():
+def test_notifications_full_content_when_drained():
     msgs = [_msg("[system] mail from alice"), _msg("[soul flow] short whisper"), _msg("[system] mail from bob")]
     agent = _fake_agent_with_inbox(msgs)
-    meta = build_meta(agent)
-    pn = meta["pending_notifications"]
-    assert pn["count"] == 3
-    assert len(pn["previews"]) == 3
-    assert pn["previews"][0] == "[system] mail from alice"
-    assert pn["previews"][1] == "[soul flow] short whisper"
+    meta = build_meta(agent, drain_inbox=True)
+    notifs = meta["notifications"]
+    assert isinstance(notifs, list)
+    assert len(notifs) == 3
+    assert notifs[0] == "[system] mail from alice"
+    assert notifs[1] == "[soul flow] short whisper"
+    assert notifs[2] == "[system] mail from bob"
 
 
-def test_pending_notifications_does_not_consume_inbox():
+def test_drain_consumes_inbox():
     msgs = [_msg("a"), _msg("b")]
     agent = _fake_agent_with_inbox(msgs)
-    build_meta(agent)
-    # Inbox must remain intact — drain happens elsewhere (_concat_queued_messages).
+    build_meta(agent, drain_inbox=True)
+    # Drain MUST consume — messages are now in meta["notifications"], not inbox.
+    assert agent.inbox.qsize() == 0
+
+
+def test_no_drain_preserves_inbox():
+    msgs = [_msg("a"), _msg("b")]
+    agent = _fake_agent_with_inbox(msgs)
+    meta = build_meta(agent)  # default drain_inbox=False
+    # Inbox untouched — text-input prefix path doesn't drain.
     assert agent.inbox.qsize() == 2
+    assert "notifications" not in meta
 
 
-def test_pending_notifications_preview_truncated_to_50_chars():
-    long_content = "x" * 200
+def test_notifications_preserve_full_content_no_truncation():
+    """JSON channel can carry the whole message — no 200-char ceiling."""
+    long_content = "x" * 500
     agent = _fake_agent_with_inbox([_msg(long_content)])
-    meta = build_meta(agent)
-    preview = meta["pending_notifications"]["previews"][0]
-    assert len(preview) == 53  # 50 + "..."
-    assert preview.endswith("...")
+    meta = build_meta(agent, drain_inbox=True)
+    assert meta["notifications"][0] == long_content
+    assert len(meta["notifications"][0]) == 500
 
 
-def test_pending_notifications_preview_flattens_newlines():
+def test_notifications_preserve_newlines():
+    """JSON channel preserves message structure — no newline flattening."""
     agent = _fake_agent_with_inbox([_msg("line1\nline2\nline3")])
-    meta = build_meta(agent)
-    preview = meta["pending_notifications"]["previews"][0]
-    assert "\n" not in preview
-    assert preview == "line1 line2 line3"
+    meta = build_meta(agent, drain_inbox=True)
+    assert meta["notifications"][0] == "line1\nline2\nline3"
 
 
-def test_pending_notifications_lists_all_queued_messages():
+def test_notifications_list_all_queued_messages_in_fifo_order():
     msgs = [_msg(f"msg-{i}") for i in range(15)]
     agent = _fake_agent_with_inbox(msgs)
-    meta = build_meta(agent)
-    pn = meta["pending_notifications"]
-    assert pn["count"] == 15
-    assert len(pn["previews"]) == 15
-    assert pn["previews"][0] == "msg-0"
-    assert pn["previews"][14] == "msg-14"
+    meta = build_meta(agent, drain_inbox=True)
+    notifs = meta["notifications"]
+    assert len(notifs) == 15
+    assert notifs[0] == "msg-0"
+    assert notifs[14] == "msg-14"
 
 
-def test_render_meta_includes_notifications_line_when_present_en():
-    msgs = [_msg("[system] mail from alice"), _msg("[soul flow] short whisper")]
-    agent = _fake_agent_with_inbox(msgs, language="en")
-    meta = build_meta(agent)
+def test_render_meta_does_not_render_notifications():
+    """Notifications never appear in the text-input prefix — they live in
+    the user-turn body (drained by _concat_queued_messages) or in tool-result
+    JSON (drained by tool-result meta_fn). Renderer ignores them entirely."""
+    agent = _fake_agent_with_lang("en")
+    meta = {
+        "current_time": "2026-04-20T10:15:23-07:00",
+        "context": {"system_tokens": 100, "history_tokens": 200, "usage": 0.003},
+        "notifications": ["[system] mail from alice", "[soul flow] short whisper"],
+    }
     rendered = render_meta(agent, meta)
-    assert "Pending notifications (2)" in rendered
-    assert "[system] mail from alice" in rendered
-    assert "[soul flow] short whisper" in rendered
+    # Only time + context appear; notifications are not rendered.
+    assert "alice" not in rendered
+    assert "soul flow" not in rendered
+    assert "Pending" not in rendered
+    assert "2026-04-20T10:15:23-07:00" in rendered
+    assert "0.3%" in rendered
 
 
-def test_stamp_meta_propagates_pending_notifications_to_tool_result():
+def test_stamp_meta_propagates_notifications_to_tool_result():
     msgs = [_msg("[system] new mail")]
     agent = _fake_agent_with_inbox(msgs)
-    meta = build_meta(agent)
+    meta = build_meta(agent, drain_inbox=True)
     result = {"status": "ok"}
     stamp_meta(result, meta, 50)
-    # Tool result now carries the structured pending_notifications dict so
-    # the LLM sees it on every tool result during a cascade.
-    assert "pending_notifications" in result
-    assert result["pending_notifications"]["count"] == 1
-    assert result["pending_notifications"]["previews"] == ["[system] new mail"]
+    # Tool result carries notifications as a top-level list of strings.
+    assert "notifications" in result
+    assert result["notifications"] == ["[system] new mail"]

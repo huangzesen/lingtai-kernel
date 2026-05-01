@@ -1205,7 +1205,7 @@ class BaseAgent:
             known_tools=set(self._intrinsics) | set(self._tool_handlers),
             parallel_safe_tools=self._PARALLEL_SAFE_TOOLS,
             logger_fn=self._log,
-            meta_fn=lambda: build_meta(self),
+            meta_fn=lambda: build_meta(self, drain_inbox=True),
         )
         content = self._pre_request(msg)
         meta = build_meta(self)

@@ -1,7 +1,6 @@
 {
   "system.current_time": "[Current time: {time} | context: {ctx}]",
   "system.context_breakdown": "{pct} (sys {sys} + ctx {ctx})",
-  "system.pending_notifications": "[Pending notifications ({count}) — full text arrives after the current tool cascade:\n{previews}]",
   "system.context_unknown": "unavailable",
   "system.new_mail": "[system] New message in {box}.\n  Address: {address}\n  Name: {name}\n  Subject: {subject}\n  Sent at: {sent_at}\n  {preview}\nThe preview above is the COMPLETE message unless it ends with \"... (N more chars)\". Only call {tool}(action=\"check\") when the preview is truncated — calling it otherwise is a wasteful duplicate fetch.",
   "system.mail_bounce": "[system] Mail delivery failed: {error}\n  To: {address}\n  Subject: {subject}",

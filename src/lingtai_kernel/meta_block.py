@@ -6,28 +6,57 @@ tool-result stamp (in ToolExecutor) — read from here.
 
 Curate carefully: every field added to `build_meta` ships on every text input
 and every tool result.
+
+Channel encoding:
+- Tool-result channel: `stamp_meta` flattens the dict into the result dict
+  as-is. The LLM sees structured JSON (e.g. ``result["context"]["usage"]``,
+  ``result["notifications"]``).
+- Text-input channel: `render_meta` formats the same dict into a prose
+  prefix line. Inbox content is NOT rendered here — it lives in the
+  user-turn body, drained by ``_concat_queued_messages`` upstream.
+
+Inbox drain policy:
+- ``build_meta(agent, drain_inbox=True)`` consumes ``agent.inbox`` and
+  stores the full message contents in ``meta["notifications"]`` (a list of
+  strings, in FIFO order). Used by the tool-result ``meta_fn``.
+- ``build_meta(agent)`` (drain_inbox=False, default) leaves inbox alone.
+  Used by the text-input prefix path; inbox is drained by the outer loop's
+  ``_concat_queued_messages`` into the user-turn message body.
 """
 from __future__ import annotations
+
+import queue
 
 from .i18n import t as _t
 from .time_veil import now_iso
 
 
-def build_meta(agent) -> dict:
+def build_meta(agent, *, drain_inbox: bool = False) -> dict:
     """Return the current meta-data snapshot for the agent.
 
     Respects ``agent._config.time_awareness`` / ``timezone_awareness``
     internally; callers never need to special-case those flags.
 
-    When the agent is time-blind and no other meta fields are curated in,
-    returns ``{}``.
+    Shape::
 
-    Context-window fields (``system_tokens``, ``context_tokens``,
-    ``context_usage``) are always emitted — the time veil does not cover
-    token accounting. When the session's token decomposition has not yet
-    run (dirty cache and no active chat), the three fields are emitted as
-    ``-1`` / ``-1.0`` sentinels so callers can render "unknown" without
-    ambiguity.
+        {
+            "current_time": "<iso>",     # absent when time-blind
+            "context": {
+                "system_tokens": int,    # sys prompt + tools schema
+                "history_tokens": int,   # conversation history
+                "usage": float,          # fraction of context window used
+            },
+            "notifications": [...],      # absent when inbox empty / not drained
+        }
+
+    Sentinel handling: when token decomposition has not yet run, the
+    ``context`` sub-object is still emitted but with ``-1`` / ``-1.0``
+    values so callers can render "unknown" without ambiguity.
+
+    When ``drain_inbox=True`` and ``agent.inbox`` is non-empty, every
+    queued message is consumed and its content joins ``meta["notifications"]``
+    (full content, no truncation, no newline flattening — JSON channel can
+    carry it). When ``drain_inbox=False`` (default), inbox is left alone.
     """
     meta: dict = {}
     ts = now_iso(agent)
@@ -71,7 +100,7 @@ def build_meta(agent) -> dict:
         elif chat_obj is not None:
             # interface.estimate_context_tokens() returns system + tools +
             # conversation. Subtract system + tools to isolate the history
-            # portion — otherwise context_tokens would double-count them
+            # portion — otherwise history_tokens would double-count them
             # when system_tokens is added back in the usage calculation,
             # diverging from session.get_context_pressure().
             try:
@@ -85,7 +114,7 @@ def build_meta(agent) -> dict:
             history = 0
 
         system_tokens = sys_prompt + tools
-        context_tokens = history
+        history_tokens = history
 
         # context_window comes from the live chat if available; otherwise
         # fall back to the agent's configured limit. On the very first
@@ -96,60 +125,52 @@ def build_meta(agent) -> dict:
             limit = agent._config.context_limit or chat_obj.context_window()
         else:
             limit = agent._config.context_limit or 0
-        usage = (system_tokens + context_tokens) / limit if limit > 0 else -1.0
+        usage = (system_tokens + history_tokens) / limit if limit > 0 else -1.0
 
-        meta["system_tokens"] = system_tokens
-        meta["context_tokens"] = context_tokens
-        meta["context_usage"] = usage
+        meta["context"] = {
+            "system_tokens": system_tokens,
+            "history_tokens": history_tokens,
+            "usage": usage,
+        }
     else:
-        meta["system_tokens"] = -1
-        meta["context_tokens"] = -1
-        meta["context_usage"] = -1.0
+        meta["context"] = {
+            "system_tokens": -1,
+            "history_tokens": -1,
+            "usage": -1.0,
+        }
 
-    notif = _pending_notifications_summary(agent)
-    if notif is not None:
-        meta["pending_notifications"] = notif
+    if drain_inbox:
+        drained = _drain_inbox(agent)
+        if drained:
+            meta["notifications"] = drained
 
     return meta
 
 
-def _pending_notifications_summary(agent) -> dict | None:
-    """Non-destructive snapshot of queued runtime notifications.
+def _drain_inbox(agent) -> list[str]:
+    """Consume ``agent.inbox`` and return each message's content as a string.
 
-    Peeks at ``agent.inbox`` (a queue.Queue holding system notifications,
-    soul whispers, addon notifies, etc.) without consuming. Returns None
-    when the queue is empty.
+    Returns an empty list when the agent has no inbox, the inbox is empty,
+    or every message had falsy content. Full content — no truncation, no
+    newline flattening. The JSON channel can carry it.
 
-    Surface shape:
-        {"count": int, "previews": list[str]}
-    where ``previews`` lists every queued entry, each truncated to 50 chars
-    with newlines flattened. ``count`` mirrors len(previews).
-
-    The agent will see this in the text-input prefix at turn start AND on
-    every tool result via stamp_meta — giving them an early heads-up that
-    notifications are waiting before the actual messages get drained at
-    the next outer-loop boundary by ``_concat_queued_messages``.
+    Robust against agents without ``.inbox`` (legacy/test stand-ins): returns
+    [] in that case.
     """
     inbox = getattr(agent, "inbox", None)
     if inbox is None:
-        return None
-    try:
-        snapshot = list(inbox.queue)
-    except (AttributeError, RuntimeError):
-        return None
-    if not snapshot:
-        return None
+        return []
 
-    previews: list[str] = []
-    for m in snapshot:
+    drained: list[str] = []
+    while True:
+        try:
+            m = inbox.get_nowait()
+        except queue.Empty:
+            break
         content = getattr(m, "content", "")
         text = content if isinstance(content, str) else str(content)
-        flat = text.replace("\n", " ")
-        if len(flat) > 50:
-            flat = flat[:50] + "..."
-        previews.append(flat)
-
-    return {"count": len(snapshot), "previews": previews}
+        drained.append(text)
+    return drained
 
 
 def render_meta(agent, meta: dict) -> str:
@@ -158,52 +179,28 @@ def render_meta(agent, meta: dict) -> str:
     Returns '' when the meta dict is empty — callers should treat '' as
     "no prefix" and skip concatenation.
 
-    Composes the existing ``system.current_time`` template (now
-    extended with a context slot) plus a context fragment via
-    ``system.context_breakdown`` (or ``system.context_unknown`` when the
-    session has not yet computed its token decomposition). When pending
-    runtime notifications are present, a second line is appended.
+    Composes the existing ``system.current_time`` template plus a context
+    fragment via ``system.context_breakdown`` (or ``system.context_unknown``
+    when the session has not yet computed its token decomposition).
+
+    Inbox notifications are intentionally not rendered here — they live in
+    the user-turn body (drained by ``_concat_queued_messages`` upstream)
+    or in the tool-result JSON (drained by the tool-result ``meta_fn``).
     """
     if not meta:
         return ""
 
     time_val = meta.get("current_time", "")
     ctx_val = _render_context_fragment(agent, meta)
-    notif_line = _render_notifications_fragment(agent, meta)
 
-    if time_val == "" and ctx_val == "" and notif_line == "":
+    if time_val == "" and ctx_val == "":
         return ""
 
-    head = _t(
+    return _t(
         agent._config.language,
         "system.current_time",
         time=time_val,
         ctx=ctx_val,
-    )
-    if notif_line:
-        return f"{head}\n{notif_line}"
-    return head
-
-
-def _render_notifications_fragment(agent, meta: dict) -> str:
-    """Render the pending-notifications line for the text-input prefix.
-
-    Returns '' when no pending notifications are present in ``meta``.
-    Otherwise returns a localized i18n line summarizing count + previews.
-    """
-    notif = meta.get("pending_notifications")
-    if not notif:
-        return ""
-    count = notif.get("count", 0)
-    previews = notif.get("previews", [])
-    if count <= 0 or not previews:
-        return ""
-    bullets = "\n".join(f"  - {p}" for p in previews)
-    return _t(
-        agent._config.language,
-        "system.pending_notifications",
-        count=count,
-        previews=bullets,
     )
 
 
@@ -211,21 +208,22 @@ def _render_context_fragment(agent, meta: dict) -> str:
     """Render the context sub-fragment for the text-input prefix.
 
     Returns:
-        - '' if `context_usage` is not present in ``meta``
+        - '' if `context` is not present in ``meta``
         - the locale-specific "unknown" word when the sentinel (-1) is seen
         - the composed "{pct} (sys {sys} + ctx {ctx})" fragment otherwise
     """
-    if "context_usage" not in meta:
+    ctx = meta.get("context")
+    if not ctx:
         return ""
-    usage = meta["context_usage"]
+    usage = ctx.get("usage", -1.0)
     if usage < 0:
         return _t(agent._config.language, "system.context_unknown")
     return _t(
         agent._config.language,
         "system.context_breakdown",
         pct=f"{usage * 100:.1f}%",
-        sys=meta.get("system_tokens", 0),
-        ctx=meta.get("context_tokens", 0),
+        sys=ctx.get("system_tokens", 0),
+        ctx=ctx.get("history_tokens", 0),
     )
 
 
