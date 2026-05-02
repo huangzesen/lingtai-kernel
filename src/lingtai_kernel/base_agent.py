@@ -1915,50 +1915,66 @@ class BaseAgent:
                 meta_fn=lambda: build_meta(self),
             )
             for idx, item in enumerate(items):
-                if getattr(item, "replace_in_history", False):
-                    prior_id = self._appendix_ids_by_source.get(item.source)
-                    if prior_id is not None:
-                        iface.remove_pair_by_call_id(prior_id)
-                    self._appendix_ids_by_source.pop(item.source, None)
-                iface.add_assistant_message(content=[item.call])
-                if getattr(item, "replace_in_history", False):
-                    self._appendix_ids_by_source[item.source] = item.call.id
-                self._save_chat_history()
-
-                self._log("tc_wake_dispatch", source=item.source, call_id=item.call.id)
+                # Per-item splice (assistant tool_call → save → send →
+                # process response) is wrapped in a single try so that ANY
+                # failure between adding the synthetic tool_call to the
+                # interface and finishing _process_response triggers orphan
+                # healing. Without this, a timeout in _process_response (which
+                # itself drives more LLM calls and tool dispatches) escaped
+                # to the outer except and left the wire with an unanswered
+                # tool_call, bricking the agent until AED could rebuild —
+                # observed in lingtai-dev/mimo-v2.5 on 2026-05-02 when a
+                # 300s LLM timeout happened mid-_process_response.
                 try:
+                    if getattr(item, "replace_in_history", False):
+                        prior_id = self._appendix_ids_by_source.get(item.source)
+                        if prior_id is not None:
+                            iface.remove_pair_by_call_id(prior_id)
+                        self._appendix_ids_by_source.pop(item.source, None)
+                    iface.add_assistant_message(content=[item.call])
+                    if getattr(item, "replace_in_history", False):
+                        self._appendix_ids_by_source[item.source] = item.call.id
+                    self._save_chat_history()
+
+                    self._log("tc_wake_dispatch", source=item.source, call_id=item.call.id)
                     response = self._session.send([item.result])
-                except Exception as send_err:
-                    # Splice already wrote the assistant tool_call to disk
-                    # (line above). If _session.send raises before producing a
-                    # tool_result, the wire is left with an orphan tool_call —
-                    # a chat-completions invariant violation that bricks the
-                    # agent until heal. Synthesize a placeholder result via
-                    # close_pending_tool_calls (same pattern AED uses), persist,
-                    # re-enqueue any unprocessed remaining items so a future
-                    # safe boundary can retry them, and re-raise so AED sees
-                    # this as a real error rather than the outer except
-                    # swallowing it.
+                    self._last_usage = response.usage
+                    self._post_llm_call()
+                    self._save_chat_history()
+                    self._process_response(response)
+                except Exception as splice_err:
+                    # Synthesize placeholder tool_results for any orphaned
+                    # tool_calls left on the wire by the partial splice
+                    # (same pattern AED uses). Persist, re-enqueue unprocessed
+                    # remaining items so a future safe boundary can retry,
+                    # and re-raise so AED sees this as a real error rather
+                    # than the outer except swallowing it.
                     if iface.has_pending_tool_calls():
                         iface.close_pending_tool_calls(
-                            reason=f"tc_wake send failed: {str(send_err)[:200]}",
+                            reason=f"tc_wake splice failed: {str(splice_err)[:200]}",
                         )
                         self._save_chat_history()
                     self._log(
                         "tc_wake_send_error",
                         source=item.source,
                         call_id=item.call.id,
-                        error=str(send_err)[:300],
+                        error=str(splice_err)[:300],
                     )
                     for remaining in items[idx + 1:]:
                         self._tc_inbox.enqueue(remaining)
                     raise
-                self._last_usage = response.usage
-                self._post_llm_call()
-                self._save_chat_history()
-                self._process_response(response)
         except Exception as e:
+            # Heal any pending orphan one more time before surfacing to AED.
+            # The inner except above already heals the failing item, but a
+            # later iteration or a non-splice failure (executor build, etc.)
+            # may leave history dirty.
+            if self._chat is not None and self._chat.interface.has_pending_tool_calls():
+                self._chat.interface.close_pending_tool_calls(
+                    reason=f"tc_wake outer-error heal: {str(e)[:200]}",
+                )
+                self._save_chat_history()
             self._log("tc_wake_error", error=str(e)[:300])
+            raise
 
     def _get_guard_limits(self) -> tuple[int, int, int]:
         """Return (max_total_calls, dup_free_passes, dup_hard_block).

@@ -127,46 +127,56 @@ def _make_notification_item(
     )
 
 
-def _drive_splice(agent: _StubAgent, items: list[InvoluntaryToolCall]) -> None:
+def _drive_splice(
+    agent: _StubAgent,
+    items: list[InvoluntaryToolCall],
+    process_response_fn=None,
+) -> None:
     """Mirror of the inner splice loop in BaseAgent._handle_tc_wake.
 
     Kept minimal but structurally identical to the production code path,
     so a regression in the production handler can be reproduced here.
-    Re-raises send failures so callers can assert exception propagation.
+    Re-raises splice failures so callers can assert exception propagation.
+
+    The try/except wraps the ENTIRE per-item splice (remove → add → save →
+    send → process_response), matching production: any failure during the
+    splice triggers orphan healing. ``process_response_fn`` simulates
+    ``_process_response`` so tests can inject failures there too — that
+    code path is what bricked lingtai-dev/mimo-v2.5 on 2026-05-02.
     """
     iface = agent._chat.interface
     for idx, item in enumerate(items):
-        if getattr(item, "replace_in_history", False):
-            prior_id = agent._appendix_ids_by_source.get(item.source)
-            if prior_id is not None:
-                iface.remove_pair_by_call_id(prior_id)
-            agent._appendix_ids_by_source.pop(item.source, None)
-        iface.add_assistant_message(content=[item.call])
-        if getattr(item, "replace_in_history", False):
-            agent._appendix_ids_by_source[item.source] = item.call.id
-        agent._save_chat_history()
-
-        agent._log("tc_wake_dispatch", source=item.source, call_id=item.call.id)
         try:
+            if getattr(item, "replace_in_history", False):
+                prior_id = agent._appendix_ids_by_source.get(item.source)
+                if prior_id is not None:
+                    iface.remove_pair_by_call_id(prior_id)
+                agent._appendix_ids_by_source.pop(item.source, None)
+            iface.add_assistant_message(content=[item.call])
+            if getattr(item, "replace_in_history", False):
+                agent._appendix_ids_by_source[item.source] = item.call.id
+            agent._save_chat_history()
+
+            agent._log("tc_wake_dispatch", source=item.source, call_id=item.call.id)
             response = agent._session.send([item.result])
-        except Exception as send_err:
+            agent._save_chat_history()
+            if process_response_fn is not None:
+                process_response_fn(response)
+        except Exception as splice_err:
             if iface.has_pending_tool_calls():
                 iface.close_pending_tool_calls(
-                    reason=f"tc_wake send failed: {str(send_err)[:200]}",
+                    reason=f"tc_wake splice failed: {str(splice_err)[:200]}",
                 )
                 agent._save_chat_history()
             agent._log(
                 "tc_wake_send_error",
                 source=item.source,
                 call_id=item.call.id,
-                error=str(send_err)[:300],
+                error=str(splice_err)[:300],
             )
             for remaining in items[idx + 1 :]:
                 agent._tc_inbox.enqueue(remaining)
             raise
-        # Success path — production code goes on to _post_llm_call / _process_response.
-        # Tests asserting on the success path don't need those side effects.
-        _ = response
 
 
 # ---------------------------------------------------------------------------
@@ -312,3 +322,62 @@ def test_orphan_recovery_preserves_call_id_correlation():
     assert entries[0].content[0].id == "sn_correlation_check"
     assert entries[1].content[0].id == "sn_correlation_check"
     assert entries[1].content[0].synthesized is True
+
+
+def test_process_response_failure_heals_orphan():
+    """Regression for lingtai-dev/mimo-v2.5 incident on 2026-05-02.
+
+    The orphan-heal path was previously narrow — only `_session.send`
+    failures were caught. But in production, the splice's send succeeded
+    (so the synthetic call+result both landed) and a follow-up LLM call
+    inside `_process_response` timed out at 300s — leaving the wire chat
+    with an unanswered tool_call from a tool the model emitted in its
+    response. AED then bricked trying to inject a recovery user message
+    into a chat with pending tool_calls.
+
+    The fix widens the try/except to cover the whole splice including
+    `_process_response`."""
+    iface = ChatInterface()
+
+    # Stub session that adds the synthetic pair's tool_result on send,
+    # mirroring production where the LLM adapter appends the result before
+    # returning the response object.
+    class _PairingStubSession(_StubSession):
+        def send(self, results):
+            for r in results:
+                iface.add_tool_results([r])
+            return super().send(results)
+
+    session = _PairingStubSession(chat=iface, raise_on_send=None)
+    agent = _StubAgent(_chat=_StubChatHolder(iface), _session=session)
+    item = _make_notification_item(call_id="sn_first")
+
+    def fake_process_response(response):
+        # Production _process_response can append more assistant turns
+        # (with tool_calls) and dispatch tools — both of which can fail.
+        # Mimic the failure mode: a follow-up turn lands a tool_call onto
+        # the wire, then the next dispatch raises.
+        followup_call = ToolCallBlock(id="sn_followup", name="read", args={"file_path": "/tmp/x"})
+        iface.add_assistant_message(content=[followup_call])
+        raise RuntimeError("LLM API call timed out after 300s")
+
+    with pytest.raises(RuntimeError, match="timed out after 300s"):
+        _drive_splice(agent, [item], process_response_fn=fake_process_response)
+
+    # The wire must be clean: no pending tool_calls. This is the invariant
+    # that AED relies on to inject its recovery user message — without it,
+    # the agent bricks on the next dispatch.
+    assert iface.has_pending_tool_calls() is False
+    # And the heal must have synthesized a placeholder for the follow-up
+    # orphan (the original splice's call+result was already complete).
+    entries = iface.conversation_entries()
+    # entries: assistant{sn_first} user{sn_first} assistant{sn_followup} user{synth-sn_followup}
+    assert len(entries) == 4
+    assert entries[2].content[0].id == "sn_followup"
+    assert entries[3].content[0].id == "sn_followup"
+    assert entries[3].content[0].synthesized is True
+    # And the heal logged with the FIRST call's call_id (the splice item being processed).
+    error_logs = [(et, f) for (et, f) in agent._logs if et == "tc_wake_send_error"]
+    assert len(error_logs) == 1
+    assert error_logs[0][1]["call_id"] == "sn_first"
+    assert "timed out after 300s" in error_logs[0][1]["error"]
