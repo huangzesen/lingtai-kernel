@@ -13,9 +13,6 @@ MSG_USER_INPUT = "user_input"
 # up a queued involuntary tool-call pair from tc_inbox. Used for soul flow
 # and system notifications (mail arrival, bounce, future MCP listeners).
 MSG_TC_WAKE = "tc_wake"
-# Backwards-compatibility alias — retire after the system-notification
-# rollout settles. New code should use MSG_TC_WAKE directly.
-MSG_SOUL_WAKE = MSG_TC_WAKE
 
 
 @dataclass
