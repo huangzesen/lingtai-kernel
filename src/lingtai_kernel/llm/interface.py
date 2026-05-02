@@ -545,6 +545,45 @@ class ChatInterface:
             return True
         return False
 
+    def remove_pair_by_notif_id(self, notif_id: str) -> bool:
+        """Remove a synthetic notification pair matched by ``args.notif_id``.
+
+        Scans for an assistant entry whose content is exactly one
+        ``ToolCallBlock`` with ``args.get("action") == "notification"`` and
+        ``args.get("notif_id") == notif_id``, immediately followed by a user
+        entry whose content is exactly one ``ToolResultBlock`` whose ``id``
+        matches the call's ``id``. Removes both entries and returns True.
+        Returns False if no such strict pair exists (idempotent).
+
+        The strict-shape requirement matches ``remove_pair_by_call_id``'s
+        rationale: this helper exists to dismiss kernel-synthesized
+        notification pairs only. Refusing to operate on mixed-content
+        entries or non-notification calls protects regular tool-call
+        history from being corrupted.
+        """
+        for i in range(len(self._entries) - 1):
+            a = self._entries[i]
+            u = self._entries[i + 1]
+            if a.role != "assistant" or u.role != "user":
+                continue
+            if len(a.content) != 1 or len(u.content) != 1:
+                continue
+            cblock = a.content[0]
+            rblock = u.content[0]
+            if not isinstance(cblock, ToolCallBlock):
+                continue
+            if not isinstance(rblock, ToolResultBlock):
+                continue
+            if cblock.args.get("action") != "notification":
+                continue
+            if cblock.args.get("notif_id") != notif_id:
+                continue
+            if cblock.id != rblock.id:
+                continue
+            del self._entries[i:i + 2]
+            return True
+        return False
+
     # -- Query methods --------------------------------------------------------
 
     def conversation_entries(self) -> list[InterfaceEntry]:
