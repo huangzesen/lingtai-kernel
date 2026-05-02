@@ -213,7 +213,7 @@ Every text input and every tool result now carries a `pending_notifications` fie
 ```
 "pending_notifications": {
   "count": <int>,
-  "previews": [<str>, ...]   // one entry per queued message, each ≤50 chars
+  "previews": [<str>, ...]   // one entry per queued message, each ≤200 chars
 }
 ```
 
