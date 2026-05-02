@@ -23,7 +23,7 @@
 
 | Type | Chinese | Description |
 |------|---------|-------------|
-| **Shallow** | 投胎 (reincarnation) | White-slate agent. Only `init.json` is written — the avatar starts with default system prompts and no inherited knowledge. |
+| **Shallow** | 初生 (genesis) | White-slate agent. Only `init.json` is written — the avatar starts with default system prompts and no inherited knowledge. A new life, but its own, not yours. |
 | **Deep** | 二重身 (doppelgänger) | Full clone. Copies `system/`, `codex/`, and `exports/` from the parent. Inherits knowledge, rules, and exported state. |
 
 ```

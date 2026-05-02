@@ -1,8 +1,8 @@
 """Avatar capability — spawn independent peer agents (分身).
 
-Shallow (投胎): Copy init.json to a new working dir, strip name, launch.
+Shallow (初生): Copy init.json to a new working dir, strip name, launch.
     The avatar gets the same LLM config + capabilities but no identity,
-    no pad, no history.  A fresh life.
+    no pad, no history.  A fresh life — but its own, not yours.
 
 Deep (二重身): Copy the entire working dir (system/, codex/, exports/)
     plus init.json to a new dir, strip name + history, launch.
@@ -10,14 +10,14 @@ Deep (二重身): Copy the entire working dir (system/, codex/, exports/)
     but starts a fresh conversation.
 
 Both modes launch `lingtai run <dir>` as a fully detached process.
-The avatar is an independent life — it survives the parent's death.
+The avatar is an independent life — its existence does not depend on yours.
 
 Maintains an append-only ledger (delegates/ledger.jsonl) that records
 every spawn event.
 
 Usage:
     Agent(capabilities=["avatar"])
-    # avatar(name="researcher")                    — shallow (投胎)
+    # avatar(name="researcher")                    — shallow (初生)
     # avatar(name="clone", type="deep")            — deep (二重身)
 """
 from __future__ import annotations
