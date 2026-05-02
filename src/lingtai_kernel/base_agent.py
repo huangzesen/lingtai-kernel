@@ -889,7 +889,10 @@ class BaseAgent:
         """
         self._soul_timer = None
         try:
-            self._run_consultation_fire()
+            if self._state in (AgentState.ASLEEP, AgentState.SUSPENDED):
+                self._log("soul_whisper_skipped", reason=self._state.value)
+            else:
+                self._run_consultation_fire()
         except Exception as e:
             self._log("soul_whisper_error", error=str(e))
         finally:

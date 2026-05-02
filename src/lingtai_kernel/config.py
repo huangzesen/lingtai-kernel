@@ -22,7 +22,7 @@ class AgentConfig:
     max_rpm: int = 60  # API requests-per-minute cap for this agent's provider; 0 = no gating. Shared across all agents in the same process that use the same (provider, base_url) pair (adapter cache key).
     thinking_budget: int | None = None
     data_dir: str | None = None  # for cache files (e.g., model context windows)
-    soul_delay: float = 120.0  # seconds idle before soul whispers; large value (> stamina) = effectively off
+    soul_delay: float = 300.0  # seconds idle before soul whispers; large value (> stamina) = effectively off
     language: str = "en"  # agent language ("en", "zh"); controls all kernel-injected strings
     stamina: float = 3600.0  # agent stamina in seconds; set at birth, not changeable by the agent
     time_awareness: bool = True  # experimental: False strips LLM-visible timestamps (perception nerf)

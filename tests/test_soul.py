@@ -129,14 +129,14 @@ class TestSoulSchema:
 class TestSoulTimer:
 
     def test_soul_attributes_initialized_default(self, tmp_path):
-        """BaseAgent with default config has soul_delay=120."""
+        """BaseAgent with default config has soul_delay=300."""
         from lingtai_kernel import BaseAgent
         agent = BaseAgent(
             service=_make_mock_service(),
             agent_name="test",
             working_dir=tmp_path / "test_agent",
         )
-        assert agent._soul_delay == 120.0
+        assert agent._soul_delay == 300.0
         assert agent._soul_timer is None
 
     def test_soul_timer_runs_perpetual_regardless_of_state(self, tmp_path):
