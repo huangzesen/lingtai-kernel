@@ -280,15 +280,21 @@ def _mailman(agent, msg_id: str, payload: dict, deliver_at: datetime,
     agent._log("mail_sent", address=address, subject=payload.get("subject", ""),
                status=status, message=payload.get("message", ""))
 
-    # Bounce notification
+    # Bounce notification — synthesized as a system(action="notification") pair
+    # via tc_inbox. Source "email.bounce" has no auto-dismiss hook (bounces are
+    # not directly actionable like reads); the agent can voluntarily dismiss
+    # via system(action="dismiss", ids=[...]) or wait for molt to clear them.
     if status == "refused" and err:
         notification = t(
             agent._config.language, "system.mail_bounce",
             error=err, address=address,
             subject=payload.get("subject", "(no subject)"),
         )
-        msg = _make_message(MSG_REQUEST, "system", notification)
-        agent.inbox.put(msg)
+        agent._enqueue_system_notification(
+            source="email.bounce",
+            ref_id=msg_id,
+            body=notification,
+        )
 
 
 # ---------------------------------------------------------------------------
