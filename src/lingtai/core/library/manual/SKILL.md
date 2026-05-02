@@ -31,7 +31,7 @@ description: >
   Does NOT cover: the bundled skills themselves — their READMEs and
   SKILL.md files document them. This is meta — how the library *system*
   works, not what's *inside* it.
-version: 1.0.0
+version: 1.1.0
 ---
 
 # The Library Capability
@@ -93,6 +93,14 @@ Full instructions in Markdown below...
 
 Required frontmatter: `name`, `description`. Optional: `version`, `author`, `tags`.
 
+`tags` is a list of lowercase, hyphenated strings that aid discoverability and (eventually) tier filtering. Three useful axes:
+
+- **Language / runtime**: `python`, `fortran`, `bash`, `node`
+- **Domain**: `physics`, `mhd`, `plasma`, `ml`, `web`
+- **Type**: `solver`, `workflow`, `reference`, `cheatsheet`
+
+Example: `tags: [python, physics, mhd, solver]`. Tags are best-effort metadata, not load-bearing — the catalog still finds skills without them.
+
 After writing, call `system({"action": "refresh"})` so the library capability rescans and re-injects the catalog.
 
 ### Starting from the template
@@ -116,6 +124,55 @@ python3 .library/intrinsic/capabilities/library/scripts/validate.py \
 ```
 
 It checks: required frontmatter (`name`, `description`), unfilled `[PLACEHOLDER]` slots from the template, broken internal references (paths under `scripts/`, `assets/`, `references/` mentioned in `SKILL.md` that don't exist on disk), and `chmod +x` on Python scripts under `scripts/`. Exits 1 on any FAIL, 0 on PASS (warnings allowed). Run it after authoring and before `cp -r`'ing into `.library_shared/`.
+
+### Self-test before publishing
+
+The validator catches structural issues but not content errors. After writing, walk through your skill as a fresh agent:
+
+1. **Decision-tree test** — start at SKILL.md's first decision. Follow each branch. Does every reference file actually exist? Is the content reachable from the routing hub?
+2. **Assertion test** — `grep` the actual codebase / file system for every claim in your skill: file paths, API signatures, parameter names, default values. Do NOT trust your memory of the code.
+3. **Regression test** — fix any issues found, then repeat step 2.
+
+Common errors this catches that the validator misses:
+
+- Fictional file paths (e.g. referencing `helmholtz*.f90` that doesn't exist)
+- API signatures from a previous code version
+- Default parameter values that have since changed
+
+Treat the self-test as mandatory for skills that document an external codebase — fabricated paths and stale signatures are the most damaging failure mode and the validator cannot see them.
+
+### Recommended structure for complex knowledge skills
+
+For skills that bundle non-trivial domain knowledge (multi-topic references, decision trees, ≥300 lines of total content), use a two-level progressive-disclosure structure:
+
+```
+<skill-name>/
+├── SKILL.md              # Routing hub: decision tree + quick start + topic table
+├── README.md             # GitHub-facing description (humans, not agents)
+└── reference/
+    ├── topic-a.md        # Self-contained deep-dive, loaded on demand
+    ├── topic-b.md
+    └── ...
+```
+
+`SKILL.md` is a **decision tree** (~150–180 lines): the agent picks a path, then does a single `read` on the right reference file. Each reference doc covers ONE topic (100–300 lines). The agent loads SKILL.md (~150 lines) plus one reference (~150 lines) instead of one 1000-line monolith.
+
+When NOT to use this pattern: simple skills (single-API wrappers, linear checklists, prose-only references). A flat SKILL.md is correct when total content is under ~300 lines or there is only one path through it.
+
+Reference implementations: `huangzesen/laps-skill`, `huangzesen/helmholtz-skill`.
+
+### SKILL.md vs README.md
+
+Skills published as standalone repos need both files — they serve different audiences.
+
+| File         | Audience                      | Loaded by                            |
+|--------------|-------------------------------|--------------------------------------|
+| `SKILL.md`   | LingTai agents                | `library` capability (system prompt) |
+| `README.md`  | Humans browsing GitHub        | Not loaded by agents                 |
+
+`SKILL.md` is the agent-facing routing hub (frontmatter + decision tree). `README.md` is the human-facing repo description (purpose, install, examples). They are NOT redundant — `README.md` carries information agents do not need (project status, license, contributor notes, screenshots), and `SKILL.md` carries fields humans do not parse (frontmatter `tags`, `version`, machine-readable description).
+
+If you only ship inside `.library_shared/` and never publish to GitHub, you can omit `README.md`.
 
 ## Publishing to the network-shared library
 
@@ -173,9 +230,28 @@ Call `library({"action": "info"})` to verify your library is wired correctly. It
 
 ## Writing a good skill
 
-1. **Trigger-optimized description.** The `description` is the only thing visible in the catalog without loading the file. Say what the skill does AND what it does not cover, so the agent knows when to reach for it and when to skip past.
+1. **Trigger-optimized description.** The `description` is the only thing visible in the catalog without loading the file, so it has to answer: *what does this skill do, what domain is it for, and when should the agent reach for it vs skip?* Aim for 2–4 sentences.
+
+   - Bad: `description: "Helmholtz solver"` — what about it? when would I use it?
+   - Good: `description: "Python implementation of the Helmholtz algorithm — an iterative alternating-projection method for constructing divergence-free, constant-magnitude 3D vector fields. Used to generate SPAW initial conditions for MHD simulations."`
+
+   Spell out what the skill does NOT cover too — that is what stops an agent from loading the file when the task only superficially matches.
 2. **Numbered steps in imperative form.** "Extract the text...", not "You should extract...".
 3. **Concrete templates in `assets/`** rather than prose descriptions of desired output format.
 4. **Deterministic scripts in `scripts/`** for fragile or repetitive operations — a Python script that always produces the same result is better than prose the LLM has to re-derive every time.
 5. **Keep `SKILL.md` focused.** Target under 500 lines. Offload dense content to `references/` and heavy logic to `scripts/`. The body is the procedure; supporting material is a `read` call away.
 6. **Structure subdirectories conventionally.** `scripts/` for executables, `references/` for supplementary context (schemas, cheatsheets, worked examples), `assets/` for templates and static files.
+
+## Publishing to GitHub
+
+If a custom skill is worth sharing outside the network — with humans, external collaborators, or as a standalone resource — publish it as its own GitHub repo:
+
+1. Author the skill in `<agent>/.library/custom/<name>/` as usual.
+2. Copy to a temp directory: `cp -r .library/custom/<name> /tmp/<name>`.
+3. Initialize: `cd /tmp/<name> && git init && git add . && git commit -m "Initial release"`.
+4. Add `README.md` (human-facing — see "SKILL.md vs README.md" above).
+5. Create the repo: `gh repo create <owner>/<name>-skill --public --source=. --push`.
+
+Do NOT `git init` inside `.library/custom/` directly — it is a subtree of your agent working directory and you would entangle two repos. Always copy out first.
+
+Once published, agents elsewhere can install it with `git clone` into their `.library/custom/` and call `system({"action": "refresh"})`.
