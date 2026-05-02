@@ -1887,7 +1887,7 @@ class BaseAgent:
                 logger_fn=self._log,
                 meta_fn=lambda: build_meta(self),
             )
-            for item in items:
+            for idx, item in enumerate(items):
                 if getattr(item, "replace_in_history", False):
                     prior_id = self._appendix_ids_by_source.get(item.source)
                     if prior_id is not None:
@@ -1899,7 +1899,33 @@ class BaseAgent:
                 self._save_chat_history()
 
                 self._log("tc_wake_dispatch", source=item.source, call_id=item.call.id)
-                response = self._session.send([item.result])
+                try:
+                    response = self._session.send([item.result])
+                except Exception as send_err:
+                    # Splice already wrote the assistant tool_call to disk
+                    # (line above). If _session.send raises before producing a
+                    # tool_result, the wire is left with an orphan tool_call —
+                    # a chat-completions invariant violation that bricks the
+                    # agent until heal. Synthesize a placeholder result via
+                    # close_pending_tool_calls (same pattern AED uses), persist,
+                    # re-enqueue any unprocessed remaining items so a future
+                    # safe boundary can retry them, and re-raise so AED sees
+                    # this as a real error rather than the outer except
+                    # swallowing it.
+                    if iface.has_pending_tool_calls():
+                        iface.close_pending_tool_calls(
+                            reason=f"tc_wake send failed: {str(send_err)[:200]}",
+                        )
+                        self._save_chat_history()
+                    self._log(
+                        "tc_wake_send_error",
+                        source=item.source,
+                        call_id=item.call.id,
+                        error=str(send_err)[:300],
+                    )
+                    for remaining in items[idx + 1:]:
+                        self._tc_inbox.enqueue(remaining)
+                    raise
                 self._last_usage = response.usage
                 self._post_llm_call()
                 self._save_chat_history()
