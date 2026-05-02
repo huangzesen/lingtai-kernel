@@ -20,9 +20,19 @@ from lingtai_kernel.llm.interface import (
 from lingtai_kernel.tc_inbox import TCInbox, InvoluntaryToolCall
 
 
+class _StubChatSession:
+    """Stand-in for OpenAIChatSession / AnthropicChatSession etc. The
+    dismiss handler reaches the chat interface via ``_session.chat.interface``
+    — see test_system_dismiss.py module docstring for why mirroring this
+    hierarchy in the stub is load-bearing."""
+
+    def __init__(self, interface: ChatInterface):
+        self.interface = interface
+
+
 @dataclass
 class _StubSession:
-    chat: ChatInterface
+    chat: _StubChatSession
 
 
 @dataclass
@@ -35,7 +45,7 @@ class _StubAgent:
 
     def __post_init__(self) -> None:
         if self._session is None:
-            self._session = _StubSession(chat=ChatInterface())
+            self._session = _StubSession(chat=_StubChatSession(ChatInterface()))
 
     def _log(self, event_type: str, **fields: Any) -> None:
         self._logs.append((event_type, fields))
@@ -43,8 +53,8 @@ class _StubAgent:
 
 def _splice_pair(agent: _StubAgent, item: InvoluntaryToolCall) -> None:
     """Mimic _drain_tc_inbox: splice a queued pair into chat."""
-    agent._session.chat.add_assistant_message(content=[item.call])
-    agent._session.chat.add_tool_results([item.result])
+    agent._session.chat.interface.add_assistant_message(content=[item.call])
+    agent._session.chat.interface.add_tool_results([item.result])
 
 
 def _make_email_notification(
@@ -80,12 +90,12 @@ def test_arrival_then_voluntary_dismiss():
     drained = agent._tc_inbox.drain()
     for it in drained:
         _splice_pair(agent, it)
-    assert len(agent._session.chat.conversation_entries()) == 2
+    assert len(agent._session.chat.interface.conversation_entries()) == 2
 
     # Voluntary dismiss
     res = sys_intrinsic._dismiss(agent, {"ids": ["notif_a"]})
     assert res["results"] == {"notif_a": "dismissed"}
-    assert len(agent._session.chat.conversation_entries()) == 0
+    assert len(agent._session.chat.interface.conversation_entries()) == 0
     assert agent._pending_mail_notifications == {}
 
 
@@ -105,7 +115,7 @@ def test_arrival_then_email_read_auto_dismiss():
     assert notif_id == "notif_b"
     res = sys_intrinsic._dismiss(agent, {"ids": [notif_id], "_invoked_by": "email.read"})
     assert res["results"] == {"notif_b": "dismissed"}
-    assert len(agent._session.chat.conversation_entries()) == 0
+    assert len(agent._session.chat.interface.conversation_entries()) == 0
 
 
 def test_check_does_not_dismiss():
@@ -123,7 +133,7 @@ def test_check_does_not_dismiss():
     # Simulate check: it does NOT touch _pending_mail_notifications.
     # No code is invoked; we just assert the state stays put.
     assert agent._pending_mail_notifications == {"mail_003": "notif_c"}
-    assert len(agent._session.chat.conversation_entries()) == 2
+    assert len(agent._session.chat.interface.conversation_entries()) == 2
 
 
 def test_race_dismiss_before_splice():
@@ -140,7 +150,7 @@ def test_race_dismiss_before_splice():
     assert res["results"] == {"notif_d": "dismissed"}
     # Queue is empty AFTER dismiss; chat was never written.
     assert len(agent._tc_inbox) == 0
-    assert len(agent._session.chat.conversation_entries()) == 0
+    assert len(agent._session.chat.interface.conversation_entries()) == 0
 
 
 def test_multiple_arrivals_dismiss_one_keep_others():
@@ -161,14 +171,14 @@ def test_multiple_arrivals_dismiss_one_keep_others():
     drained = agent._tc_inbox.drain()
     for it in drained:
         _splice_pair(agent, it)
-    assert len(agent._session.chat.conversation_entries()) == 6  # 3 pairs
+    assert len(agent._session.chat.interface.conversation_entries()) == 6  # 3 pairs
 
     # Read mail_005
     notif_id = agent._pending_mail_notifications.pop("mail_005", None)
     sys_intrinsic._dismiss(agent, {"ids": [notif_id], "_invoked_by": "email.read"})
 
     # Two pairs remain.
-    assert len(agent._session.chat.conversation_entries()) == 4
+    assert len(agent._session.chat.interface.conversation_entries()) == 4
     assert agent._pending_mail_notifications == {
         "mail_006": "notif_f", "mail_007": "notif_g",
     }
@@ -209,7 +219,7 @@ def test_bounce_persists_until_voluntary_dismiss():
     # Voluntary dismiss works.
     res = sys_intrinsic._dismiss(agent, {"ids": [notif_id]})
     assert res["results"] == {notif_id: "dismissed"}
-    assert len(agent._session.chat.conversation_entries()) == 0
+    assert len(agent._session.chat.interface.conversation_entries()) == 0
 
 
 def test_no_msg_request_from_system_in_inbox():

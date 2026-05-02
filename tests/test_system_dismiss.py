@@ -1,8 +1,19 @@
 """Tests for intrinsics.system._dismiss — voluntary notification dismissal.
 
-These tests use a stub agent that mimics the BaseAgent attributes the
-dismiss handler reads (_tc_inbox, _session.chat, _pending_mail_notifications,
-_log)."""
+These tests use a stub agent that mimics the production BaseAgent →
+SessionManager → ChatSession → ChatInterface hierarchy. Specifically the
+production access path for the chat-side helper is:
+
+    agent._session.chat.interface.remove_pair_by_notif_id(notif_id)
+
+A previous version of this stub put `ChatInterface` directly on
+`_StubSession.chat`, which let unit tests pass against an implementation
+bug that called `agent._session.chat.remove_pair_by_notif_id(...)` —
+production AttributeError'd because the real `_session.chat` is a
+ChatSession (OpenAIChatSession etc.) without that method. To prevent
+recurrence, the stub now mirrors the real hierarchy: ChatSession-shaped
+holder with `.interface` pointing at the real ChatInterface.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -15,9 +26,20 @@ from lingtai_kernel.llm.interface import (
 from lingtai_kernel.tc_inbox import TCInbox, InvoluntaryToolCall
 
 
+class _StubChatSession:
+    """Stand-in for OpenAIChatSession / AnthropicChatSession etc. Production
+    hierarchy is ``agent._session.chat`` -> ChatSession (provider-specific)
+    -> ``.interface`` -> ChatInterface. The dismiss handler MUST go through
+    ``.interface`` to reach ``remove_pair_by_notif_id``; calling the method
+    directly on the ChatSession would AttributeError in production."""
+
+    def __init__(self, interface: ChatInterface):
+        self.interface = interface
+
+
 @dataclass
 class _StubSession:
-    chat: ChatInterface
+    chat: _StubChatSession
 
 
 @dataclass
@@ -29,7 +51,7 @@ class _StubAgent:
 
     def __post_init__(self) -> None:
         if self._session is None:
-            self._session = _StubSession(chat=ChatInterface())
+            self._session = _StubSession(chat=_StubChatSession(ChatInterface()))
 
     def _log(self, event_type: str, **fields: Any) -> None:
         self._logs.append((event_type, fields))
@@ -52,8 +74,8 @@ def _enqueue_notification(agent: _StubAgent, notif_id: str, ref_id: str = "mail_
         },
     )
     result = ToolResultBlock(id=call_id, name="system", content="...")
-    agent._session.chat.add_assistant_message(content=[call])
-    agent._session.chat.add_tool_results([result])
+    agent._session.chat.interface.add_assistant_message(content=[call])
+    agent._session.chat.interface.add_tool_results([result])
     if source == "email":
         agent._pending_mail_notifications[ref_id] = notif_id
     return call_id
@@ -65,7 +87,7 @@ def test_dismiss_removes_from_chat():
     res = sys_intrinsic._dismiss(agent, {"ids": ["notif_xxx"]})
     assert res["status"] == "ok"
     assert res["results"] == {"notif_xxx": "dismissed"}
-    assert len(agent._session.chat.conversation_entries()) == 0
+    assert len(agent._session.chat.interface.conversation_entries()) == 0
     assert "mail_a" not in agent._pending_mail_notifications
 
 
@@ -114,7 +136,7 @@ def test_dismiss_mixed_ids():
         "notif_does_not_exist": "not_found",
         "notif_b": "dismissed",
     }
-    assert len(agent._session.chat.conversation_entries()) == 0
+    assert len(agent._session.chat.interface.conversation_entries()) == 0
     assert agent._pending_mail_notifications == {}
 
 

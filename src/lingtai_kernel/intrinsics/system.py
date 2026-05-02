@@ -609,9 +609,14 @@ def _dismiss(agent, args: dict) -> dict:
         notif_id = raw
 
         removed_from_queue = agent._tc_inbox.remove_by_notif_id(notif_id)
+        # The chat-side helper lives on ChatInterface, not ChatSession.
+        # Production hierarchy: agent._session.chat is a ChatSession (e.g.
+        # OpenAIChatSession) wrapping the provider adapter; the interface
+        # (where remove_pair_by_notif_id is defined) is at .chat.interface.
         chat = getattr(getattr(agent, "_session", None), "chat", None)
+        iface = getattr(chat, "interface", None) if chat is not None else None
         removed_from_chat = (
-            chat.remove_pair_by_notif_id(notif_id) if chat is not None else False
+            iface.remove_pair_by_notif_id(notif_id) if iface is not None else False
         )
 
         # Reverse-lookup: clear any ref_id pointing to this notif_id.
