@@ -1159,6 +1159,53 @@ class TestSnapshotToolStripping:
         all_blocks = [b for e in loaded.entries for b in e.content]
         assert any(isinstance(b, ThinkingBlock) for b in all_blocks)
 
+    def test_strips_tool_schema_list_from_system_entry(self, tmp_path):
+        # Past self had a real tool schema list bound to its system entry.
+        # After thaw, the system entry's text must survive verbatim, but
+        # both the entry-level _tools and the rebuilt interface's
+        # _current_tools must be None — otherwise an adapter could pick
+        # them up and re-emit the past life's tools on the consultation
+        # wire payload.
+        frozen_tools = [
+            {
+                "name": "psyche",
+                "description": "molt yourself",
+                "input_schema": {"type": "object"},
+            },
+            {
+                "name": "soul",
+                "description": "inner voice",
+                "input_schema": {"type": "object"},
+            },
+        ]
+        iface = ChatInterface()
+        iface.add_system("FROZEN PROMPT WITH TOOL PROSE", tools=frozen_tools)
+        iface.add_user_message("hi")
+        iface.add_assistant_message([TextBlock(text="hello")])
+
+        # Sanity: the source interface really did carry tools.
+        assert iface.current_tools == frozen_tools
+        sys_src = next(e for e in iface.entries if e.role == "system")
+        assert sys_src._tools == frozen_tools
+
+        path = _write_snapshot(
+            tmp_path, molt_count=1, unix_ts=1, entries=iface.to_dict()
+        )
+        loaded = _load_snapshot_interface(path)
+        assert loaded is not None
+
+        # System text is preserved verbatim — that's the past self's
+        # frozen identity / job description.
+        sys_loaded = next(e for e in loaded.entries if e.role == "system")
+        assert sys_loaded.content[0].text == "FROZEN PROMPT WITH TOOL PROSE"
+
+        # But both the entry-level schema list and the interface-level
+        # current_tools must be wiped.
+        assert sys_loaded._tools is None, \
+            "frozen tool schema list leaked through snapshot thaw"
+        assert loaded.current_tools is None, \
+            "ChatInterface._current_tools leaked through snapshot thaw"
+
 
 # ---------------------------------------------------------------------------
 # _kind_for_source / _build_consultation_cue / dispatch

@@ -288,11 +288,24 @@ def _load_snapshot_interface(path):
     schema mismatch, malformed entries) returns None — the caller skips
     that snapshot and proceeds with whatever else loaded.
 
-    Tool stripping: the consultation session is tools-less, so all
-    ``ToolCallBlock`` and ``ToolResultBlock`` entries are filtered out.
-    Only ``TextBlock`` and ``ThinkingBlock`` survive. Entries that become
-    empty after stripping are skipped entirely. System entries are
-    preserved (they carry the past self's frozen system prompt).
+    Tool stripping happens at two layers:
+
+    1) Block layer — every ``ToolCallBlock`` and ``ToolResultBlock`` is
+       filtered out of non-system entries. Only ``TextBlock`` and
+       ``ThinkingBlock`` survive; entries that become empty after
+       stripping are dropped. The consultation session is created with
+       ``tools=None``, so leaving these blocks would orphan tool_results
+       and confuse strict providers.
+
+    2) Schema layer — the past self's frozen tool schema list (stored on
+       the system entry as ``_tools`` and surfaced via the rebuilt
+       interface's ``_current_tools``) is zeroed. The system entry's
+       *prose text* is preserved — it describes the past self's identity
+       and what it could do, and that's what we want the past life to
+       remember itself by — but the machine-readable schema list, which
+       adapters would otherwise pick up and send on the wire, is wiped.
+       This guarantees the consultation can never accidentally re-surface
+       the past life's tools.
     """
     import json
     from pathlib import Path
@@ -321,9 +334,10 @@ def _load_snapshot_interface(path):
 
     # Strip every tool block from the loaded interface. Walk entries,
     # keep only TextBlock+ThinkingBlock content for non-system entries,
-    # drop entries that empty out. System entries pass through verbatim
-    # (their content is text/thinking already, and they carry the past
-    # self's frozen system prompt that anchors the consultation).
+    # drop entries that empty out. System entries pass through with their
+    # *text* preserved (frozen identity / job description) but their
+    # ``tools`` schema list zeroed — the consultation must never re-emit
+    # the past life's tool schemas on the wire.
     #
     # Round-trip via entry.to_dict() so id/timestamp/etc. are preserved
     # (ChatInterface.from_dict requires those keys). For non-system entries
@@ -332,6 +346,7 @@ def _load_snapshot_interface(path):
     for entry in loaded.entries:
         d = entry.to_dict()
         if entry.role == "system":
+            d.pop("tools", None)  # drop frozen tool schema list
             stripped_dicts.append(d)
             continue
         kept_blocks = [b for b in entry.content if isinstance(b, (TextBlock, ThinkingBlock))]
@@ -340,9 +355,19 @@ def _load_snapshot_interface(path):
         d["content"] = [b.to_dict() for b in kept_blocks]
         stripped_dicts.append(d)
     try:
-        return ChatInterface.from_dict(stripped_dicts)
+        rebuilt = ChatInterface.from_dict(stripped_dicts)
     except Exception:
         return None
+
+    # Defense in depth: ChatInterface.from_dict copies the system entry's
+    # _tools onto iface._current_tools (interface.py:853). We just popped
+    # "tools" from the dict so the entry-level _tools is already None, but
+    # zero current_tools explicitly in case future code paths surface it.
+    rebuilt._current_tools = None
+    for e in rebuilt.entries:
+        if e.role == "system":
+            e._tools = None
+    return rebuilt
 
 
 def _fit_interface_to_window(iface, target_tokens: int):
