@@ -60,8 +60,8 @@ Concrete facts that will still be true a year from now. One entry per distinct f
 - **Scope**: self.
 - **Write cost**: moderate — slots are limited (default cap: 20), so curate.
 - **Entry schema**: `{id, title, summary, content, supplementary}`. Use `supplementary` for depth without consuming another slot.
-- **Catalog injection**: system prompt always shows titles + summaries. Full content fetched via `codex(view, ids=[...])`, exported via `codex(export, ids=[...])`.
-- **Tool**: `codex(submit, title=..., summary=..., content=...)`.
+- **Catalog injection**: system prompt always shows id + title + summary for every entry. Full content fetched on demand via `codex(view, ids=[...])`; pass `include_supplementary=true` for backing material.
+- **Tool**: `codex(submit, title=..., summary=..., content=...)` — `content` is optional when title + summary alone capture the nugget.
 
 Graduation: if something you verified is a *fact* (not a procedure), it belongs in codex.
 

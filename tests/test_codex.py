@@ -1,4 +1,4 @@
-"""Tests for codex capability — standalone knowledge store."""
+"""Tests for codex capability — durable self-memory."""
 from __future__ import annotations
 
 import json
@@ -103,47 +103,24 @@ def test_submit_enforces_limit(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Filter
+# Submit — content optional
 # ---------------------------------------------------------------------------
 
 
-def test_filter_with_pattern(tmp_path):
+def test_submit_without_content(tmp_path):
+    """Title + summary alone is a valid entry — content is optional."""
     agent = Agent(
         service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
         capabilities=["codex"],
     )
     mgr = agent.get_capability("codex")
-    mgr.handle({"action": "submit", "title": "TCP Retry", "summary": "About TCP.", "content": "Backoff logic."})
-    mgr.handle({"action": "submit", "title": "HTTP Caching", "summary": "About HTTP.", "content": "Cache rules."})
-    result = mgr.handle({"action": "filter", "pattern": "TCP"})
-    assert len(result["entries"]) == 1
-    assert result["entries"][0]["title"] == "TCP Retry"
-    agent.stop(timeout=1.0)
-
-
-def test_filter_all(tmp_path):
-    agent = Agent(
-        service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
-        capabilities=["codex"],
-    )
-    mgr = agent.get_capability("codex")
-    mgr.handle({"action": "submit", "title": "A", "summary": "s", "content": "c"})
-    mgr.handle({"action": "submit", "title": "B", "summary": "s", "content": "c"})
-    result = mgr.handle({"action": "filter"})
-    assert len(result["entries"]) == 2
-    agent.stop(timeout=1.0)
-
-
-def test_filter_with_limit(tmp_path):
-    agent = Agent(
-        service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
-        capabilities=["codex"],
-    )
-    mgr = agent.get_capability("codex")
-    mgr.handle({"action": "submit", "title": "A", "summary": "s", "content": "c"})
-    mgr.handle({"action": "submit", "title": "B", "summary": "s", "content": "c"})
-    result = mgr.handle({"action": "filter", "limit": 1})
-    assert len(result["entries"]) == 1
+    result = mgr.handle({
+        "action": "submit",
+        "title": "A",
+        "summary": "Summary alone is sometimes the whole nugget.",
+    })
+    assert result["status"] == "ok"
+    assert "id" in result
     agent.stop(timeout=1.0)
 
 
@@ -162,6 +139,26 @@ def test_view_returns_content(tmp_path):
     result = mgr.handle({"action": "view", "ids": [r["id"]]})
     assert result["status"] == "ok"
     assert result["entries"][0]["content"] == "full content here"
+    # supplementary not returned by default
+    assert "supplementary" not in result["entries"][0]
+    agent.stop(timeout=1.0)
+
+
+def test_view_with_include_supplementary(tmp_path):
+    agent = Agent(
+        service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+        capabilities=["codex"],
+    )
+    mgr = agent.get_capability("codex")
+    r = mgr.handle({
+        "action": "submit", "title": "X", "summary": "s",
+        "content": "main", "supplementary": "extra material",
+    })
+    result = mgr.handle({
+        "action": "view", "ids": [r["id"]], "include_supplementary": True,
+    })
+    assert result["entries"][0]["content"] == "main"
+    assert result["entries"][0]["supplementary"] == "extra material"
     agent.stop(timeout=1.0)
 
 
@@ -173,6 +170,20 @@ def test_view_invalid_id(tmp_path):
     mgr = agent.get_capability("codex")
     result = mgr.handle({"action": "view", "ids": ["nope"]})
     assert "error" in result
+    agent.stop(timeout=1.0)
+
+
+def test_filter_and_export_actions_rejected(tmp_path):
+    """Removed actions return error, not silent no-op."""
+    agent = Agent(
+        service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
+        capabilities=["codex"],
+    )
+    mgr = agent.get_capability("codex")
+    for action in ("filter", "export"):
+        result = mgr.handle({"action": action})
+        assert "error" in result, f"{action} should be rejected"
+        assert "Unknown action" in result["error"]
     agent.stop(timeout=1.0)
 
 
@@ -227,106 +238,6 @@ def test_delete(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Export
-# ---------------------------------------------------------------------------
-
-
-def test_export_creates_files(tmp_path):
-    agent = Agent(
-        service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
-        capabilities=["codex"],
-    )
-    mgr = agent.get_capability("codex")
-    r = mgr.handle({
-        "action": "submit", "title": "TCP Retry",
-        "summary": "Backoff logic.", "content": "Exponential backoff details.",
-    })
-    result = mgr.handle({"action": "export", "ids": [r["id"]]})
-    assert result["status"] == "ok"
-    assert result["count"] == 1
-    assert len(result["files"]) == 1
-
-    # File should exist and contain the entry content
-    export_path = agent.working_dir / result["files"][0]
-    assert export_path.is_file()
-    text = export_path.read_text()
-    assert "TCP Retry" in text
-    assert "Exponential backoff details." in text
-    agent.stop(timeout=1.0)
-
-
-def test_export_includes_supplementary(tmp_path):
-    agent = Agent(
-        service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
-        capabilities=["codex"],
-    )
-    mgr = agent.get_capability("codex")
-    r = mgr.handle({
-        "action": "submit", "title": "Deep Dive",
-        "summary": "s.", "content": "Main content.",
-        "supplementary": "Extended material here.",
-    })
-    result = mgr.handle({"action": "export", "ids": [r["id"]]})
-    text = (agent.working_dir / result["files"][0]).read_text()
-    assert "Extended material here." in text
-    agent.stop(timeout=1.0)
-
-
-def test_export_returns_relative_paths(tmp_path):
-    agent = Agent(
-        service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
-        capabilities=["codex"],
-    )
-    mgr = agent.get_capability("codex")
-    r = mgr.handle({"action": "submit", "title": "A", "summary": "s.", "content": "c"})
-    result = mgr.handle({"action": "export", "ids": [r["id"]]})
-    # Paths should be relative (for use in pad.edit files param)
-    for f in result["files"]:
-        assert not f.startswith("/")
-        assert f.startswith("exports/")
-    agent.stop(timeout=1.0)
-
-
-def test_export_invalid_id(tmp_path):
-    agent = Agent(
-        service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
-        capabilities=["codex"],
-    )
-    mgr = agent.get_capability("codex")
-    result = mgr.handle({"action": "export", "ids": ["nope"]})
-    assert "error" in result
-    agent.stop(timeout=1.0)
-
-
-def test_export_to_pad_edit_workflow(tmp_path):
-    """Full workflow: codex export → psyche pad.edit with files."""
-    agent = Agent(
-        service=make_mock_service(), agent_name="test", working_dir=tmp_path / "test",
-        capabilities=["codex"],
-    )
-    lib = agent.get_capability("codex")
-
-    r = lib.handle({
-        "action": "submit", "title": "Key Finding",
-        "summary": "Important.", "content": "The answer is 42.",
-    })
-    export_result = lib.handle({"action": "export", "ids": [r["id"]]})
-
-    pad_result = agent._intrinsics["psyche"]({
-        "object": "pad", "action": "edit",
-        "content": "My working notes.",
-        "files": export_result["files"],
-    })
-    assert pad_result["status"] == "ok"
-
-    md = (agent.working_dir / "system" / "pad.md").read_text()
-    assert "My working notes." in md
-    assert "[file-1]" in md
-    assert "The answer is 42." in md
-    agent.stop(timeout=1.0)
-
-
-# ---------------------------------------------------------------------------
 # Schema
 # ---------------------------------------------------------------------------
 
@@ -335,16 +246,18 @@ def test_schema_has_all_fields():
     from lingtai.core.codex import get_schema
     SCHEMA = get_schema("en")
     actions = SCHEMA["properties"]["action"]["enum"]
-    assert set(actions) == {"submit", "filter", "view", "consolidate", "delete", "export"}
+    assert set(actions) == {"submit", "view", "consolidate", "delete"}
     props = SCHEMA["properties"]
     assert "title" in props
     assert "summary" in props
     assert "content" in props
     assert "supplementary" in props
     assert "ids" in props
-    assert "pattern" in props
-    assert "limit" in props
-    assert "depth" in props
+    assert "include_supplementary" in props
+    # Removed properties must be gone — these fields no longer have any code path.
+    assert "pattern" not in props
+    assert "limit" not in props
+    assert "depth" not in props
 
 
 # ---------------------------------------------------------------------------

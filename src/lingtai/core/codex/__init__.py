@@ -1,9 +1,8 @@
-"""Codex capability — standalone knowledge store.
+"""Codex capability — durable self-memory across molts.
 
-A structured knowledge archive persisted in codex/codex.json.
-Agents submit, browse, read, organize, and delete entries.
-Completely decoupled from psyche and memory — the agent decides
-what to do with the knowledge it retrieves.
+A journal-shaped knowledge store persisted in codex/codex.json.
+Each entry's id + title + summary is always visible in the system prompt;
+content and supplementary load on demand via view().
 
 Usage:
     agent = Agent(capabilities=["codex"])
@@ -13,7 +12,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import tempfile
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -36,7 +34,7 @@ def get_schema(lang: str = "en") -> dict:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["submit", "filter", "view", "consolidate", "delete", "export"],
+                "enum": ["submit", "view", "consolidate", "delete"],
                 "description": t(lang, "codex.action"),
             },
             "title": {
@@ -60,18 +58,9 @@ def get_schema(lang: str = "en") -> dict:
                 "items": {"type": "string"},
                 "description": t(lang, "codex.ids"),
             },
-            "pattern": {
-                "type": "string",
-                "description": t(lang, "codex.pattern"),
-            },
-            "limit": {
-                "type": "integer",
-                "description": t(lang, "codex.limit"),
-            },
-            "depth": {
-                "type": "string",
-                "enum": ["content", "supplementary"],
-                "description": t(lang, "codex.depth"),
+            "include_supplementary": {
+                "type": "boolean",
+                "description": t(lang, "codex.include_supplementary"),
             },
         },
         "required": ["action"],
@@ -80,7 +69,7 @@ def get_schema(lang: str = "en") -> dict:
 
 
 class CodexManager:
-    """Knowledge archive — submit, browse, read, organize, delete."""
+    """Durable self-memory — submit, view, consolidate, delete."""
 
     DEFAULT_MAX_ENTRIES = 20
 
@@ -90,7 +79,6 @@ class CodexManager:
         self._max_entries = codex_limit if codex_limit is not None else self.DEFAULT_MAX_ENTRIES
 
         self._codex_json = self._working_dir / "codex" / "codex.json"
-        self._exports_dir = self._working_dir / "exports"
         self._entries: list[dict] = self._load_entries()
 
     # ------------------------------------------------------------------
@@ -112,7 +100,7 @@ class CodexManager:
         lines.append("")
         lines.append(
             "Use codex(view, ids=[...]) to read full content. "
-            "Use codex(export, ids=[...]) to freeze and import into pad."
+            "Pass include_supplementary=true for backing material."
         )
 
         self._agent.update_system_prompt("codex", "\n".join(lines), protected=True)
@@ -165,7 +153,7 @@ class CodexManager:
     # Dispatch
     # ------------------------------------------------------------------
 
-    _VALID_ACTIONS = {"submit", "filter", "view", "consolidate", "delete", "export"}
+    _VALID_ACTIONS = {"submit", "view", "consolidate", "delete"}
 
     def handle(self, args: dict) -> dict:
         action = args.get("action", "")
@@ -190,8 +178,6 @@ class CodexManager:
             return {"error": "title is required for submit."}
         if not summary:
             return {"error": "summary is required for submit."}
-        if not content:
-            return {"error": "content is required for submit."}
         if len(self._entries) >= self._max_entries:
             return {
                 "error": f"Codex is full ({self._max_entries} entries). "
@@ -202,7 +188,9 @@ class CodexManager:
                 "max": self._max_entries,
             }
         now = datetime.now(timezone.utc).isoformat()
-        entry_id = self._make_id(title + content, now)
+        # Seed for id: title + (content or summary) — preserves uniqueness
+        # when content is omitted.
+        entry_id = self._make_id(title + (content or summary), now)
         self._entries.append({
             "id": entry_id,
             "title": title,
@@ -220,36 +208,11 @@ class CodexManager:
             "max": self._max_entries,
         }
 
-    def _filter(self, args: dict) -> dict:
-        pattern = args.get("pattern")
-        limit = args.get("limit")
-        entries = self._entries
-        if pattern:
-            try:
-                rx = re.compile(pattern, re.IGNORECASE)
-            except re.error as exc:
-                return {"error": f"Invalid regex pattern: {exc}"}
-            entries = [
-                e for e in entries
-                if rx.search(e["title"])
-                or rx.search(e["summary"])
-                or rx.search(e["content"])
-            ]
-        if limit is not None and limit > 0:
-            entries = entries[:limit]
-        return {
-            "status": "ok",
-            "entries": [
-                {"id": e["id"], "title": e["title"], "summary": e["summary"]}
-                for e in entries
-            ],
-        }
-
     def _view(self, args: dict) -> dict:
         ids = args.get("ids")
         if not ids:
             return {"error": "ids is required for view."}
-        depth = args.get("depth", "content")
+        include_supp = bool(args.get("include_supplementary", False))
 
         entries_by_id = {e["id"]: e for e in self._entries}
         invalid = [i for i in ids if i not in entries_by_id]
@@ -263,9 +226,9 @@ class CodexManager:
                 "id": e["id"],
                 "title": e["title"],
                 "summary": e["summary"],
-                "content": e["content"],
+                "content": e.get("content", ""),
             }
-            if depth == "supplementary":
+            if include_supp:
                 item["supplementary"] = e.get("supplementary", "")
             result_entries.append(item)
 
@@ -283,8 +246,6 @@ class CodexManager:
             return {"error": "title is required for consolidate."}
         if not summary:
             return {"error": "summary is required for consolidate."}
-        if not content:
-            return {"error": "content is required for consolidate."}
 
         existing_ids = {e["id"] for e in self._entries}
         invalid = [i for i in ids if i not in existing_ids]
@@ -295,7 +256,7 @@ class CodexManager:
         self._entries = [e for e in self._entries if e["id"] not in ids_set]
 
         now = datetime.now(timezone.utc).isoformat()
-        new_id = self._make_id(title + content, now)
+        new_id = self._make_id(title + (content or summary), now)
         self._entries.append({
             "id": new_id,
             "title": title,
@@ -328,36 +289,9 @@ class CodexManager:
         self._inject_catalog()
         return {"status": "ok", "removed": removed}
 
-    def _export(self, args: dict) -> dict:
-        ids = args.get("ids")
-        if not ids:
-            return {"error": "ids is required for export."}
-
-        entries_by_id = {e["id"]: e for e in self._entries}
-        invalid = [i for i in ids if i not in entries_by_id]
-        if invalid:
-            return {"error": f"Unknown codex IDs: {', '.join(invalid)}"}
-
-        self._exports_dir.mkdir(parents=True, exist_ok=True)
-
-        exported = []
-        for entry_id in ids:
-            e = entries_by_id[entry_id]
-            parts = [f"# {e['title']}", f"\n{e['content']}"]
-            if e.get("supplementary", "").strip():
-                parts.append(f"\n---\n{e['supplementary']}")
-            text = "\n".join(parts)
-
-            path = self._exports_dir / f"{entry_id}.txt"
-            path.write_text(text)
-            # Return path relative to working dir for use in pad.edit(files=[...])
-            exported.append(str(path.relative_to(self._working_dir)))
-
-        return {"status": "ok", "files": exported, "count": len(exported)}
-
 
 def setup(agent: "BaseAgent", *, codex_limit: int | None = None) -> CodexManager:
-    """Set up codex capability — standalone knowledge store."""
+    """Set up codex capability — durable self-memory across molts."""
     lang = agent._config.language
 
     mgr = CodexManager(agent, codex_limit=codex_limit)
