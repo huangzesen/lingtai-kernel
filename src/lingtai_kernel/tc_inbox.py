@@ -77,6 +77,29 @@ class TCInbox:
             self._items = []
         return items
 
+    def remove_by_notif_id(self, notif_id: str) -> bool:
+        """Remove a queued notification item by its ``call.args.notif_id``.
+
+        Used by the dismiss handler to cover the race where the agent
+        dismisses a notification before the kernel has spliced it into the
+        wire chat (still queued here). Idempotent — returns False if no
+        match.
+
+        Only matches items whose call has ``args.get("action") ==
+        "notification"`` to avoid false matches against unrelated synthetic
+        pairs (e.g. soul flow).
+        """
+        with self._lock:
+            for i, item in enumerate(self._items):
+                args = getattr(item.call, "args", None) or {}
+                if args.get("action") != "notification":
+                    continue
+                if args.get("notif_id") != notif_id:
+                    continue
+                del self._items[i]
+                return True
+        return False
+
     def __len__(self) -> int:
         with self._lock:
             return len(self._items)
