@@ -805,11 +805,19 @@ class Agent(BaseAgent):
 
         # Reload config (all fields optional — fall back to AgentConfig defaults)
         soul = m.get("soul", {})
+        # NOTE: defaults here MUST mirror src/lingtai_kernel/config.py
+        # AgentConfig defaults — _read_init reload re-constructs the
+        # whole config and would otherwise silently override any kernel-
+        # side default change with the stale literal here. Kept as
+        # explicit literals for readability rather than introspecting
+        # AgentConfig fields.
         self._config = AgentConfig(
             stamina=m.get("stamina", 86400.0),
-            soul_delay=soul.get("delay", 120.0),
-            consultation_interval=soul.get("consultation_interval", 40),
+            soul_delay=soul.get("delay", 300.0),
+            consultation_interval=soul.get("consultation_interval", 20),
             consultation_past_count=soul.get("consultation_past_count", 2),
+            soul_voice=soul.get("voice", "inner"),
+            soul_voice_prompt=soul.get("voice_prompt", ""),
             max_turns=m.get("max_turns", 50),
             language=m.get("language", "en"),
             context_limit=m.get("context_limit"),

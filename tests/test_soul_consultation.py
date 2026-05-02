@@ -1272,21 +1272,22 @@ class TestRunConsultationDispatchesByKind:
         result = _run_consultation(agent, iface, source)
         return captured, result
 
-    def test_past_dispatch_uses_past_prompt_and_cue(self, tmp_path):
+    def test_past_dispatch_uses_past_cue(self, tmp_path):
         captured, result = self._run(tmp_path, "snapshot:snapshot_3_1735")
         assert result is not None
         assert "DIARY MARKER" in captured["sent_content"]
-        # past system prompt should mention molt/past life
-        assert "past life" in captured["system_prompt"].lower()
+        # System prompt is now voice-driven (default "inner") and identical
+        # for both kinds — the per-fire cue carries the differentiation.
+        assert "soul" in captured["system_prompt"].lower() or "voice" in captured["system_prompt"].lower()
         # cue should call out future self
         assert "future self" in captured["sent_content"].lower()
 
-    def test_insights_dispatch_uses_insights_prompt(self, tmp_path):
+    def test_insights_dispatch_uses_insights_cue(self, tmp_path):
         captured, result = self._run(tmp_path, "insights")
         assert result is not None
         assert "DIARY MARKER" in captured["sent_content"]
-        # insights prompt frames as "soul flow voice"
-        assert "soul flow" in captured["system_prompt"].lower()
+        # Same unified system prompt as past — just check it's non-empty.
+        assert captured["system_prompt"]
         # insights cue should not frame as future-self letter
         assert "future self" not in captured["sent_content"].lower()
 

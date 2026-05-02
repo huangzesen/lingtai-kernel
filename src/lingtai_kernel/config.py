@@ -36,4 +36,6 @@ class AgentConfig:
     insights_interval: int = 0  # turns between auto-insights; 0 = off
     consultation_interval: int = 20  # main-chat LLM calls between past-self consultation fires (counts source="main" ledger entries); 0 = off (wall-clock timer still runs independently)
     consultation_past_count: int = 2  # K random past-snapshot consultations per fire (M = 1 insights + K)
+    soul_voice: str = "inner"  # consultation prompt profile — "inner" (terse, "you are the soul, speak as inner voice"), "observer" (structured stepped-back hook framing), or "custom" (use soul_voice_prompt). One unified prompt per profile; the per-fire cue text differentiates insights (current diary) vs past (future-self diary).
+    soul_voice_prompt: str = ""  # custom voice prompt — only used when soul_voice == "custom". Set/cleared by the agent via soul(action="voice", set="custom", prompt="..."). Length-capped at SOUL_VOICE_PROMPT_MAX in soul.py.
     snapshot_interval: float | None = None  # seconds between git snapshots; None = off

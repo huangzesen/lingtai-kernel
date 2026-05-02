@@ -90,14 +90,15 @@ class TestSoulHandle:
 
 class TestSoulSchema:
 
-    def test_schema_exposes_three_actions(self):
+    def test_schema_exposes_four_actions(self):
         schema = soul.get_schema("en")
-        # Three actions are agent-visible: inquiry (manual self-Q&A),
+        # Four actions are agent-visible: inquiry (manual self-Q&A),
         # flow (mechanical, fires only on the wall clock / turn counter —
-        # agent cannot invoke), and config (agent adjusts cadence + K
-        # at runtime).
+        # agent cannot invoke), config (agent adjusts cadence + K
+        # at runtime), and voice (agent picks/customizes own soul-flow
+        # prompt — read or set).
         assert schema["properties"]["action"]["enum"] == [
-            "inquiry", "flow", "config",
+            "inquiry", "flow", "config", "voice",
         ]
 
     def test_schema_inquiry_property_present(self):
