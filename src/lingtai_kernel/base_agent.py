@@ -25,7 +25,7 @@ from typing import Any, Callable
 from .config import AgentConfig
 from .state import AgentState
 from .workdir import WorkingDir
-from .message import Message, _make_message, MSG_REQUEST, MSG_USER_INPUT
+from .message import Message, _make_message, MSG_REQUEST, MSG_USER_INPUT, MSG_SOUL_WAKE
 from .intrinsics import ALL_INTRINSICS
 from .prompt import SystemPromptManager
 from .llm import (
@@ -942,6 +942,20 @@ class BaseAgent:
                 count=len(voices),
                 sources=sources,
             )
+
+            # Wake the run loop so it picks the queued pair out of tc_inbox
+            # and drives it through _session.send([result]). Without this,
+            # an idle agent blocks on inbox.get() and the pair only lands
+            # when external mail happens to arrive. The MSG_SOUL_WAKE
+            # message is a sentinel — _handle_soul_wake reads tc_inbox for
+            # the actual payload, the message itself carries no content.
+            try:
+                wake_msg = _make_message(MSG_SOUL_WAKE, "system", "")
+                self.inbox.put(wake_msg)
+                self._wake_nap("soul_flow_fired")
+            except Exception as e:
+                self._log("soul_wake_post_error",
+                          fire_id=fire_id, error=str(e)[:200])
         except Exception as e:
             self._log("consultation_fire_error",
                       fire_id=fire_id, error=str(e)[:200])
@@ -1508,6 +1522,8 @@ class BaseAgent:
         """Route message by type. Subclasses may override for routing."""
         if msg.type in (MSG_REQUEST, MSG_USER_INPUT):
             self._handle_request(msg)
+        elif msg.type == MSG_SOUL_WAKE:
+            self._handle_soul_wake(msg)
         else:
             logger.warning(f"[{self.agent_name}] Unknown message type: {msg.type}")
 
@@ -1596,6 +1612,92 @@ class BaseAgent:
         self._save_chat_history()
         result = self._process_response(response)
         self._post_request(msg, result)
+
+    def _handle_soul_wake(self, msg: Message) -> None:
+        """Process queued soul.flow involuntary tool-calls by driving the
+        synthetic (call, result) pairs through the LLM as if the tools just
+        returned — no fake user prompt.
+
+        Triggered by ``MSG_SOUL_WAKE``, posted to inbox by
+        ``_run_consultation_fire`` after it enqueues the synthetic pair.
+        Without this wake, an idle agent would block on ``inbox.get()``
+        indefinitely and the queued pair would only land when an external
+        message happened to arrive.
+
+        Wire-level mechanics per item:
+
+          1. If ``replace_in_history`` is set (soul flow uses this), remove
+             any prior pair of the same source from the wire chat first.
+          2. Append the synthetic assistant tool_call to the interface
+             directly via ``add_assistant_message``.
+          3. Call ``_session.send([result])`` — the adapter appends the
+             tool_result AND fires an LLM call. From the model's POV: it
+             "made a tool call, the tool returned, now react." It produces
+             its next assistant turn naturally — text, more tool calls,
+             whatever — without any fabricated user prompt.
+          4. Process the response through the standard executor loop.
+
+        Idempotent on a busy agent: ``_drain_tc_inbox`` runs at the top of
+        every ``_handle_request``, so a soul pair that arrived mid-turn
+        already got spliced silently into the interface and the user-message
+        turn's LLM call saw it as context. By the time the wake handler
+        runs, ``tc_inbox`` is empty and we no-op. Net cost: one LLM turn
+        per *visible* fire — never extra.
+        """
+        items = self._tc_inbox.drain()
+        if not items:
+            self._log("soul_wake_noop", reason="tc_inbox_empty")
+            return
+        if self._chat is None:
+            # Brand-new agent — chat session not yet created. Re-enqueue
+            # so the next external message can drain at a safe boundary.
+            for item in items:
+                self._tc_inbox.enqueue(item)
+            self._log("soul_wake_noop", reason="chat_not_ready")
+            return
+        iface = self._chat.interface
+        if iface.has_pending_tool_calls():
+            # Mid-pair on the wire — can't splice safely. Re-enqueue and bail.
+            for item in items:
+                self._tc_inbox.enqueue(item)
+            self._log("soul_wake_noop", reason="pending_tool_calls")
+            return
+
+        try:
+            self._executor = ToolExecutor(
+                dispatch_fn=self._dispatch_tool,
+                make_tool_result_fn=lambda name, result, **kw: self.service.make_tool_result(
+                    name, result, provider=self._config.provider, **kw
+                ),
+                guard=LoopGuard(
+                    max_total_calls=self._config.max_turns,
+                    dup_free_passes=2,
+                    dup_hard_block=8,
+                ),
+                known_tools=set(self._intrinsics) | set(self._tool_handlers),
+                parallel_safe_tools=self._PARALLEL_SAFE_TOOLS,
+                logger_fn=self._log,
+                meta_fn=lambda: build_meta(self, drain_inbox=True),
+            )
+            for item in items:
+                if getattr(item, "replace_in_history", False):
+                    prior_id = self._appendix_ids_by_source.get(item.source)
+                    if prior_id is not None:
+                        iface.remove_pair_by_call_id(prior_id)
+                    self._appendix_ids_by_source.pop(item.source, None)
+                iface.add_assistant_message(content=[item.call])
+                if getattr(item, "replace_in_history", False):
+                    self._appendix_ids_by_source[item.source] = item.call.id
+                self._save_chat_history()
+
+                self._log("soul_wake_dispatch", source=item.source, call_id=item.call.id)
+                response = self._session.send([item.result])
+                self._last_usage = response.usage
+                self._post_llm_call()
+                self._save_chat_history()
+                self._process_response(response)
+        except Exception as e:
+            self._log("soul_wake_error", error=str(e)[:300])
 
     def _get_guard_limits(self) -> tuple[int, int, int]:
         """Return (max_total_calls, dup_free_passes, dup_hard_block).

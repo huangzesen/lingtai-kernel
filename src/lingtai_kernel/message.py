@@ -9,6 +9,9 @@ from uuid import uuid4
 
 MSG_REQUEST = "request"
 MSG_USER_INPUT = "user_input"
+# Sentinel — no payload; just unblocks inbox.get() so the run loop can pick
+# up a queued involuntary tool-call (currently soul.flow) from tc_inbox.
+MSG_SOUL_WAKE = "soul_wake"
 
 
 @dataclass
@@ -17,7 +20,7 @@ class Message:
 
     Attributes:
         id:        Unique message ID (auto-generated if not provided).
-        type:      One of MSG_REQUEST, MSG_USER_INPUT.
+        type:      One of MSG_REQUEST, MSG_USER_INPUT, MSG_SOUL_WAKE.
         sender:    Agent ID, "user", etc.
         content:   Payload — str for requests, dict for structured data.
         reply_to:  Links back to original message.
