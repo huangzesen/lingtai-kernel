@@ -34,6 +34,6 @@ class AgentConfig:
     molt_prompt: str = ""  # user-provided instruction for how to prepare for molt
     ensure_ascii: bool = False  # JSON output: False = readable unicode, True = \uXXXX escapes
     insights_interval: int = 0  # turns between auto-insights; 0 = off
-    consultation_interval: int = 20  # main-chat LLM calls between past-self consultation fires; 0 = off (wall-clock timer still runs independently)
+    consultation_interval: int = 40  # main-chat LLM calls between past-self consultation fires; 0 = off (wall-clock timer still runs independently)
     consultation_past_count: int = 2  # K random past-snapshot consultations per fire (M = 1 insights + K)
     snapshot_interval: float | None = None  # seconds between git snapshots; None = off

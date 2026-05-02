@@ -808,6 +808,8 @@ class Agent(BaseAgent):
         self._config = AgentConfig(
             stamina=m.get("stamina", 86400.0),
             soul_delay=soul.get("delay", 120.0),
+            consultation_interval=soul.get("consultation_interval", 40),
+            consultation_past_count=soul.get("consultation_past_count", 2),
             max_turns=m.get("max_turns", 50),
             language=m.get("language", "en"),
             context_limit=m.get("context_limit"),

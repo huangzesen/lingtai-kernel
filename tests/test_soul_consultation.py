@@ -578,9 +578,9 @@ class TestPostLlmCallHook:
         events = [e for e, _ in agent.logged]
         assert "post_llm_call_error" in events
 
-    def test_default_interval_is_twenty(self):
+    def test_default_interval_is_forty(self):
         from lingtai_kernel.config import AgentConfig
-        assert AgentConfig().consultation_interval == 20
+        assert AgentConfig().consultation_interval == 40
 
     def test_default_past_count_is_two(self):
         from lingtai_kernel.config import AgentConfig
@@ -1334,18 +1334,23 @@ class TestRunConsultationDispatchesByKind:
 
 
 # ---------------------------------------------------------------------------
-# action='set_delay' — agent-tunable soul cadence
+# action='config' — agent-tunable soul cadence (delay + interval + K)
 # ---------------------------------------------------------------------------
 
 
-class _SetDelayFakeAgent(_FakeAgent):
-    """Extension of _FakeAgent with the attributes _handle_set_delay
-    touches: _soul_delay (read+written), _shutdown (Event), and
-    _start_soul_timer (callback). Tracks whether the timer was restarted."""
+class _ConfigFakeAgent(_FakeAgent):
+    """Extension of _FakeAgent with the attributes _handle_config touches:
+    _soul_delay, _config.consultation_interval, _config.consultation_past_count,
+    _consultation_turn_counter, _shutdown (Event), _start_soul_timer (callback).
+    Tracks whether the timer was restarted."""
 
-    def __init__(self, tmp_path, *, initial_delay=120.0, shutdown=False):
+    def __init__(self, tmp_path, *, initial_delay=120.0, shutdown=False,
+                 initial_interval=40, initial_past_count=2):
         super().__init__(tmp_path)
         self._soul_delay = float(initial_delay)
+        self._config.consultation_interval = initial_interval
+        self._config.consultation_past_count = initial_past_count
+        self._consultation_turn_counter = 7
         import threading
         self._shutdown = threading.Event()
         if shutdown:
@@ -1356,69 +1361,117 @@ class _SetDelayFakeAgent(_FakeAgent):
         self.timer_restart_count += 1
 
 
-class TestSoulSetDelay:
+class TestSoulConfig:
 
-    def test_set_delay_updates_soul_delay_and_restarts_timer(self, tmp_path):
+    def test_config_updates_delay_and_restarts_timer(self, tmp_path):
         from lingtai_kernel.intrinsics.soul import handle
-        agent = _SetDelayFakeAgent(tmp_path, initial_delay=120.0)
+        agent = _ConfigFakeAgent(tmp_path, initial_delay=120.0)
 
-        result = handle(agent, {"action": "set_delay", "delay_seconds": 600})
+        result = handle(agent, {"action": "config", "delay_seconds": 600})
 
         assert result["status"] == "ok"
-        assert result["old_delay_seconds"] == 120.0
-        assert result["new_delay_seconds"] == 600.0
+        assert result["old"]["delay_seconds"] == 120.0
+        assert result["new"]["delay_seconds"] == 600.0
         assert agent._soul_delay == 600.0
         assert agent.timer_restart_count == 1
-        # logged
-        assert any(ev == "soul_set_delay" for ev, _ in agent.logged)
+        assert any(ev == "soul_config" for ev, _ in agent.logged)
 
-    def test_set_delay_rejects_below_minimum(self, tmp_path):
+    def test_config_updates_consultation_interval(self, tmp_path):
+        from lingtai_kernel.intrinsics.soul import handle
+        agent = _ConfigFakeAgent(tmp_path, initial_interval=40)
+
+        result = handle(agent, {"action": "config", "consultation_interval": 80})
+
+        assert result["status"] == "ok"
+        assert result["old"]["consultation_interval"] == 40
+        assert result["new"]["consultation_interval"] == 80
+        assert agent._config.consultation_interval == 80
+        # Counter resets so the new interval starts cleanly.
+        assert agent._consultation_turn_counter == 0
+        # delay untouched -> no timer restart
+        assert agent.timer_restart_count == 0
+
+    def test_config_updates_consultation_past_count(self, tmp_path):
+        from lingtai_kernel.intrinsics.soul import handle
+        agent = _ConfigFakeAgent(tmp_path, initial_past_count=2)
+
+        result = handle(agent, {"action": "config", "consultation_past_count": 4})
+
+        assert result["status"] == "ok"
+        assert result["old"]["consultation_past_count"] == 2
+        assert result["new"]["consultation_past_count"] == 4
+        assert agent._config.consultation_past_count == 4
+
+    def test_config_accepts_multiple_fields_at_once(self, tmp_path):
+        from lingtai_kernel.intrinsics.soul import handle
+        agent = _ConfigFakeAgent(tmp_path, initial_delay=120.0,
+                                  initial_interval=40, initial_past_count=2)
+
+        result = handle(agent, {
+            "action": "config",
+            "delay_seconds": 300,
+            "consultation_interval": 60,
+            "consultation_past_count": 1,
+        })
+
+        assert result["status"] == "ok"
+        assert result["new"] == {
+            "delay_seconds": 300.0,
+            "consultation_interval": 60,
+            "consultation_past_count": 1,
+        }
+        assert agent._soul_delay == 300.0
+        assert agent._config.consultation_interval == 60
+        assert agent._config.consultation_past_count == 1
+        assert agent.timer_restart_count == 1  # delay changed
+
+    def test_config_rejects_delay_below_minimum(self, tmp_path):
         from lingtai_kernel.intrinsics.soul import (
             handle,
             SOUL_DELAY_MIN_SECONDS,
         )
-        agent = _SetDelayFakeAgent(tmp_path, initial_delay=120.0)
+        agent = _ConfigFakeAgent(tmp_path, initial_delay=120.0)
 
         result = handle(agent, {
-            "action": "set_delay",
+            "action": "config",
             "delay_seconds": SOUL_DELAY_MIN_SECONDS - 1,
         })
 
         assert "error" in result
-        assert agent._soul_delay == 120.0  # unchanged
-        assert agent.timer_restart_count == 0  # timer not touched
+        assert agent._soul_delay == 120.0
+        assert agent.timer_restart_count == 0
 
-    def test_set_delay_accepts_exactly_minimum(self, tmp_path):
+    def test_config_accepts_delay_exactly_at_minimum(self, tmp_path):
         from lingtai_kernel.intrinsics.soul import (
             handle,
             SOUL_DELAY_MIN_SECONDS,
         )
-        agent = _SetDelayFakeAgent(tmp_path, initial_delay=120.0)
+        agent = _ConfigFakeAgent(tmp_path, initial_delay=120.0)
 
         result = handle(agent, {
-            "action": "set_delay",
+            "action": "config",
             "delay_seconds": SOUL_DELAY_MIN_SECONDS,
         })
 
         assert result["status"] == "ok"
         assert agent._soul_delay == SOUL_DELAY_MIN_SECONDS
 
-    def test_set_delay_requires_delay_seconds(self, tmp_path):
+    def test_config_requires_at_least_one_field(self, tmp_path):
         from lingtai_kernel.intrinsics.soul import handle
-        agent = _SetDelayFakeAgent(tmp_path, initial_delay=120.0)
+        agent = _ConfigFakeAgent(tmp_path, initial_delay=120.0)
 
-        result = handle(agent, {"action": "set_delay"})
+        result = handle(agent, {"action": "config"})
 
         assert "error" in result
         assert agent._soul_delay == 120.0
         assert agent.timer_restart_count == 0
 
-    def test_set_delay_rejects_non_numeric(self, tmp_path):
+    def test_config_rejects_non_numeric_delay(self, tmp_path):
         from lingtai_kernel.intrinsics.soul import handle
-        agent = _SetDelayFakeAgent(tmp_path, initial_delay=120.0)
+        agent = _ConfigFakeAgent(tmp_path, initial_delay=120.0)
 
         result = handle(agent, {
-            "action": "set_delay",
+            "action": "config",
             "delay_seconds": "fast",
         })
 
@@ -1426,43 +1479,116 @@ class TestSoulSetDelay:
         assert agent._soul_delay == 120.0
         assert agent.timer_restart_count == 0
 
-    def test_set_delay_rejects_nan(self, tmp_path):
+    def test_config_rejects_nan_delay(self, tmp_path):
         from lingtai_kernel.intrinsics.soul import handle
-        agent = _SetDelayFakeAgent(tmp_path, initial_delay=120.0)
+        agent = _ConfigFakeAgent(tmp_path, initial_delay=120.0)
 
         result = handle(agent, {
-            "action": "set_delay",
+            "action": "config",
             "delay_seconds": float("nan"),
         })
 
         assert "error" in result
         assert agent._soul_delay == 120.0
 
-    def test_set_delay_skips_timer_restart_when_shutdown(self, tmp_path):
+    def test_config_skips_timer_restart_when_shutdown(self, tmp_path):
         from lingtai_kernel.intrinsics.soul import handle
-        agent = _SetDelayFakeAgent(tmp_path, initial_delay=120.0, shutdown=True)
+        agent = _ConfigFakeAgent(tmp_path, initial_delay=120.0, shutdown=True)
 
-        result = handle(agent, {"action": "set_delay", "delay_seconds": 300})
+        result = handle(agent, {"action": "config", "delay_seconds": 300})
 
-        # Value still updates so the next boot picks up the new delay.
         assert result["status"] == "ok"
         assert agent._soul_delay == 300.0
-        # But timer is NOT restarted while shutdown is signalled.
         assert agent.timer_restart_count == 0
 
-    def test_set_delay_in_schema_enum(self):
+    def test_config_consultation_interval_zero_disables(self, tmp_path):
+        from lingtai_kernel.intrinsics.soul import handle
+        agent = _ConfigFakeAgent(tmp_path, initial_interval=40)
+
+        # 0 = off, valid
+        result = handle(agent, {"action": "config", "consultation_interval": 0})
+        assert result["status"] == "ok"
+        assert agent._config.consultation_interval == 0
+
+    def test_config_rejects_consultation_interval_below_floor(self, tmp_path):
+        from lingtai_kernel.intrinsics.soul import (
+            handle, CONSULTATION_INTERVAL_MIN,
+        )
+        agent = _ConfigFakeAgent(tmp_path, initial_interval=40)
+
+        # 1..MIN-1 should fail (0 is valid as "off")
+        result = handle(agent, {
+            "action": "config",
+            "consultation_interval": CONSULTATION_INTERVAL_MIN - 1,
+        })
+        assert "error" in result
+        assert agent._config.consultation_interval == 40
+
+    def test_config_rejects_negative_consultation_interval(self, tmp_path):
+        from lingtai_kernel.intrinsics.soul import handle
+        agent = _ConfigFakeAgent(tmp_path, initial_interval=40)
+
+        result = handle(agent, {
+            "action": "config",
+            "consultation_interval": -1,
+        })
+        assert "error" in result
+        assert agent._config.consultation_interval == 40
+
+    def test_config_rejects_past_count_above_max(self, tmp_path):
+        from lingtai_kernel.intrinsics.soul import (
+            handle, CONSULTATION_PAST_COUNT_MAX,
+        )
+        agent = _ConfigFakeAgent(tmp_path, initial_past_count=2)
+
+        result = handle(agent, {
+            "action": "config",
+            "consultation_past_count": CONSULTATION_PAST_COUNT_MAX + 1,
+        })
+        assert "error" in result
+        assert agent._config.consultation_past_count == 2
+
+    def test_config_rejects_past_count_below_min(self, tmp_path):
+        from lingtai_kernel.intrinsics.soul import handle
+        agent = _ConfigFakeAgent(tmp_path, initial_past_count=2)
+
+        result = handle(agent, {
+            "action": "config",
+            "consultation_past_count": -1,
+        })
+        assert "error" in result
+        assert agent._config.consultation_past_count == 2
+
+    def test_config_in_schema_enum(self):
         from lingtai_kernel.intrinsics.soul import get_schema
         schema = get_schema("en")
-        assert "set_delay" in schema["properties"]["action"]["enum"]
+        assert "config" in schema["properties"]["action"]["enum"]
+        # set_delay removed from enum
+        assert "set_delay" not in schema["properties"]["action"]["enum"]
+        # All three knobs present in schema
         assert "delay_seconds" in schema["properties"]
         assert schema["properties"]["delay_seconds"]["type"] == "number"
         assert schema["properties"]["delay_seconds"]["minimum"] == 30.0
+        assert "consultation_interval" in schema["properties"]
+        assert schema["properties"]["consultation_interval"]["type"] == "integer"
+        assert "consultation_past_count" in schema["properties"]
+        assert schema["properties"]["consultation_past_count"]["type"] == "integer"
 
     def test_unknown_action_still_errors(self, tmp_path):
-        # Regression guard — error message updated to mention set_delay,
-        # but unknown actions must still error.
         from lingtai_kernel.intrinsics.soul import handle
-        agent = _SetDelayFakeAgent(tmp_path)
+        agent = _ConfigFakeAgent(tmp_path)
         result = handle(agent, {"action": "bogus"})
         assert "error" in result
         assert "bogus" in result["error"]
+
+    def test_set_delay_action_now_unknown(self, tmp_path):
+        # Regression guard: set_delay was removed; agents calling it must
+        # see an unknown-action error pointing them at config.
+        from lingtai_kernel.intrinsics.soul import handle
+        agent = _ConfigFakeAgent(tmp_path, initial_delay=120.0)
+
+        result = handle(agent, {"action": "set_delay", "delay_seconds": 600})
+
+        assert "error" in result
+        assert "config" in result["error"]
+        assert agent._soul_delay == 120.0  # state unchanged

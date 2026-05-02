@@ -1,32 +1,36 @@
 """Soul intrinsic — the agent's inner voice.
 
 Three actions:
-    flow      — past-self consultation appendix. Every ``_soul_delay`` seconds,
-                fires M=1+K parallel LLM calls (1 stepped-back read of the
-                current chat as "insights", K random past-snapshot
-                consultations sampled from history/snapshots/). Voices bundle
-                into one synthetic (assistant{tool_call}, user{tool_result})
-                pair with action="flow"; the pair is enqueued on tc_inbox
-                with replace_in_history=True so the drain side enforces a
-                single-slot invariant in chat history. The pair drifts
-                naturally through the prompt cache as the agent's own turns
-                accumulate after it. Mechanical — agent cannot invoke
-                manually.
-    inquiry   — sync mirror session. Clones conversation (text+thinking only),
-                sends question, returns answer in tool result. On-demand.
-    set_delay — adjust the wall-clock cadence at which flow fires. Agent-
-                tunable: if the agent finds flow too noisy (or too quiet) it
-                can raise/lower the delay. Cancels and restarts the live timer
-                with the new value.
+    flow    — past-self consultation appendix. Every ``_soul_delay`` seconds,
+              fires M=1+K parallel LLM calls (1 stepped-back read of the
+              current chat as "insights", K random past-snapshot
+              consultations sampled from history/snapshots/). Voices bundle
+              into one synthetic (assistant{tool_call}, user{tool_result})
+              pair with action="flow"; the pair is enqueued on tc_inbox
+              with replace_in_history=True so the drain side enforces a
+              single-slot invariant in chat history. Mechanical — agent
+              cannot invoke manually.
+    inquiry — sync mirror session. Clones conversation (text+thinking only),
+              sends question, returns answer in tool result. On-demand.
+    config  — adjust soul flow knobs. Accepts any subset of three optional
+              fields: delay_seconds (wall-clock cadence), consultation_interval
+              (turn-counter cadence), consultation_past_count (K, number of
+              past-self voices per fire). Updates live state, restarts the
+              wall-clock timer if delay changed, persists to init.json.
 """
 from __future__ import annotations
 
 
 # Lower bound on agent-set soul delay. Below this, the consultation cost
-# (M parallel LLM calls per fire) dominates the agent's own turns. The
-# bound is conservative — the wall clock can fire mid-turn and there's
-# no hard rate limit beyond this on the consultation side.
+# (M parallel LLM calls per fire) dominates the agent's own turns.
 SOUL_DELAY_MIN_SECONDS = 30.0
+# Lower bound on turn-counter cadence — below this, every few turns triggers
+# a fire and consultation cost dominates work. 0 disables the turn counter.
+CONSULTATION_INTERVAL_MIN = 5
+# Bounds on K — past-self voice count per fire. 0 = insights-only fires;
+# 5 caps M=6 LLM calls per fire (cost + chat-history bloat).
+CONSULTATION_PAST_COUNT_MIN = 0
+CONSULTATION_PAST_COUNT_MAX = 5
 
 
 def get_description(lang: str = "en") -> str:
@@ -41,7 +45,7 @@ def get_schema(lang: str = "en") -> dict:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["inquiry", "flow", "set_delay"],
+                "enum": ["inquiry", "flow", "config"],
                 "description": t(lang, "soul.action_description"),
             },
             "inquiry": {
@@ -53,21 +57,26 @@ def get_schema(lang: str = "en") -> dict:
                 "minimum": SOUL_DELAY_MIN_SECONDS,
                 "description": t(lang, "soul.delay_seconds_description"),
             },
+            "consultation_interval": {
+                "type": "integer",
+                "minimum": 0,
+                "description": t(lang, "soul.consultation_interval_description"),
+            },
+            "consultation_past_count": {
+                "type": "integer",
+                "minimum": CONSULTATION_PAST_COUNT_MIN,
+                "maximum": CONSULTATION_PAST_COUNT_MAX,
+                "description": t(lang, "soul.consultation_past_count_description"),
+            },
         },
         "required": ["action"],
     }
 
 
 def handle(agent, args: dict) -> dict:
-    """Handle soul tool — inquiry and set_delay are agent-invocable; flow
+    """Handle soul tool — inquiry and config are agent-invocable; flow
     is mechanical and fires on a wall-clock timer (cannot be invoked
     manually).
-
-    flow fires automatically every ``_soul_delay`` seconds via the soul
-    timer. Each fire runs past-self consultation (M=1+K parallel LLM calls)
-    and lands a single soul.flow pair in chat history, replacing any prior
-    one. Initial cadence comes from manifest.soul.delay (seconds); the
-    agent can adjust it at runtime via action='set_delay'.
     """
     action = args.get("action", "")
 
@@ -76,7 +85,7 @@ def handle(agent, args: dict) -> dict:
             "error": (
                 f"soul flow fires automatically every {agent._soul_delay}s. "
                 "It cannot be invoked manually. Use inquiry for on-demand "
-                "reflection, or set_delay to change the cadence."
+                "reflection, or config to change the cadence."
             ),
         }
 
@@ -97,86 +106,136 @@ def handle(agent, args: dict) -> dict:
             agent._log("soul_inquiry_done")
             return {"status": "ok", "voice": "(silence)"}
 
-    if action == "set_delay":
-        return _handle_set_delay(agent, args)
+    if action == "config":
+        return _handle_config(agent, args)
 
     return {
         "error": (
-            f"Unknown soul action: {action}. Use inquiry, set_delay, "
+            f"Unknown soul action: {action}. Use inquiry, config, "
             "or wait for flow (mechanical)."
         )
     }
 
 
-def _handle_set_delay(agent, args: dict) -> dict:
-    """Handle action='set_delay' — adjust the soul cadence wall clock.
+def _handle_config(agent, args: dict) -> dict:
+    """Handle action='config' — adjust soul flow knobs.
 
-    Validates the requested delay against ``SOUL_DELAY_MIN_SECONDS``,
-    updates ``agent._soul_delay``, and restarts the live timer so the
-    next fire happens on the new schedule. The previously-pending fire
-    (if any) is cancelled — a too-short delay won't snap to "fire now",
-    it just means the next scheduled fire is sooner than the old one
-    would have been.
-
-    Returns a status dict containing the old and new delays so the agent
-    sees what changed.
+    Accepts any subset of: delay_seconds, consultation_interval,
+    consultation_past_count. Validates each provided field, updates live
+    state, restarts the wall-clock timer if delay changed, persists to
+    init.json. Returns old and new values for every field that was
+    actually changed (untouched fields are absent from the response).
     """
-    raw = args.get("delay_seconds")
-    if raw is None:
-        return {"error": "delay_seconds is required for action='set_delay'."}
-    try:
-        new_delay = float(raw)
-    except (TypeError, ValueError):
+    provided: dict = {}
+    if "delay_seconds" in args:
+        provided["delay_seconds"] = args["delay_seconds"]
+    if "consultation_interval" in args:
+        provided["consultation_interval"] = args["consultation_interval"]
+    if "consultation_past_count" in args:
+        provided["consultation_past_count"] = args["consultation_past_count"]
+    if not provided:
         return {
             "error": (
-                f"delay_seconds must be a number, got {type(raw).__name__}."
-            ),
-        }
-    if new_delay != new_delay:  # NaN check
-        return {"error": "delay_seconds must be a finite number, got NaN."}
-    if new_delay < SOUL_DELAY_MIN_SECONDS:
-        return {
-            "error": (
-                f"delay_seconds must be at least {SOUL_DELAY_MIN_SECONDS}s "
-                f"(got {new_delay}). Below this, consultation cost dominates "
-                "the main agent loop."
+                "config requires at least one of: delay_seconds, "
+                "consultation_interval, consultation_past_count."
             ),
         }
 
-    old_delay = float(agent._soul_delay)
-    agent._soul_delay = new_delay
+    new_values: dict = {}
+    old_values: dict = {}
 
-    # Restart the wall-clock timer if it's running. _start_soul_timer
-    # cancels the existing timer first, so this is the safe call. Skip
-    # if shutdown has been signalled — _start_soul_timer no-ops in that
-    # case anyway, but the explicit guard avoids a stale log entry.
-    try:
-        if not agent._shutdown.is_set():
-            agent._start_soul_timer()
-    except Exception as e:
-        agent._log("soul_set_delay_restart_failed", error=str(e)[:200])
+    if "delay_seconds" in provided:
+        raw = provided["delay_seconds"]
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            return {"error": f"delay_seconds must be a number, got {type(raw).__name__}."}
+        if v != v:  # NaN
+            return {"error": "delay_seconds must be a finite number, got NaN."}
+        if v < SOUL_DELAY_MIN_SECONDS:
+            return {
+                "error": (
+                    f"delay_seconds must be at least {SOUL_DELAY_MIN_SECONDS}s "
+                    f"(got {v}). Below this, consultation cost dominates "
+                    "the main agent loop."
+                ),
+            }
+        old_values["delay_seconds"] = float(agent._soul_delay)
+        agent._soul_delay = v
+        new_values["delay_seconds"] = v
 
-    # Persist to init.json so the new cadence survives reboot. The
-    # in-memory _soul_delay update above is the source of truth at
-    # runtime; this rewrite makes it the source of truth at boot too.
-    # Best-effort: a write failure leaves the runtime state intact, only
-    # the persistent record reverts on next reboot — log and move on.
-    persist_error = _persist_soul_delay(agent, new_delay)
+    if "consultation_interval" in provided:
+        raw = provided["consultation_interval"]
+        try:
+            v = int(raw)
+        except (TypeError, ValueError):
+            return {"error": f"consultation_interval must be an integer, got {type(raw).__name__}."}
+        if v < 0:
+            return {"error": f"consultation_interval must be >= 0 (got {v})."}
+        if v > 0 and v < CONSULTATION_INTERVAL_MIN:
+            return {
+                "error": (
+                    f"consultation_interval must be 0 (off) or >= "
+                    f"{CONSULTATION_INTERVAL_MIN} (got {v}). Below the floor, "
+                    "fires would dominate the agent's main work."
+                ),
+            }
+        old_values["consultation_interval"] = int(getattr(agent._config, "consultation_interval", 0))
+        agent._config.consultation_interval = v
+        # Reset the per-turn counter so the new interval starts cleanly.
+        agent._consultation_turn_counter = 0
+        new_values["consultation_interval"] = v
 
-    log_kw = {"old_delay": old_delay, "new_delay": new_delay}
+    if "consultation_past_count" in provided:
+        raw = provided["consultation_past_count"]
+        try:
+            v = int(raw)
+        except (TypeError, ValueError):
+            return {"error": f"consultation_past_count must be an integer, got {type(raw).__name__}."}
+        if v < CONSULTATION_PAST_COUNT_MIN or v > CONSULTATION_PAST_COUNT_MAX:
+            return {
+                "error": (
+                    f"consultation_past_count must be in "
+                    f"[{CONSULTATION_PAST_COUNT_MIN}, {CONSULTATION_PAST_COUNT_MAX}] "
+                    f"(got {v}). 0 = insights-only fires; cap protects against "
+                    "fan-out cost and chat-history bloat."
+                ),
+            }
+        old_values["consultation_past_count"] = int(getattr(agent._config, "consultation_past_count", 2))
+        agent._config.consultation_past_count = v
+        new_values["consultation_past_count"] = v
+
+    # Restart the wall-clock timer if delay changed (or if any change
+    # happened — restarting on every config call keeps the cadence in
+    # sync without surprising drift; cheap operation).
+    if "delay_seconds" in new_values:
+        try:
+            if not agent._shutdown.is_set():
+                agent._start_soul_timer()
+        except Exception as e:
+            agent._log("soul_config_restart_failed", error=str(e)[:200])
+
+    persist_error = _persist_soul_config(agent, new_values)
+
+    log_kw: dict = {"old": old_values, "new": new_values}
     if persist_error:
         log_kw["persist_error"] = persist_error
-    agent._log("soul_set_delay", **log_kw)
+    agent._log("soul_config", **log_kw)
 
     return {
         "status": "ok",
-        "old_delay_seconds": old_delay,
-        "new_delay_seconds": new_delay,
+        "old": old_values,
+        "new": new_values,
     }
 
 
-def _persist_soul_delay(agent, new_delay: float) -> str | None:
-    """Write the new soul_delay into manifest.soul.delay in init.json.
+def _persist_soul_config(agent, new_values: dict) -> str | None:
+    """Write changed soul knobs into manifest.soul.* in init.json.
+
+    Maps:
+      - delay_seconds            -> manifest.soul.delay
+      - consultation_interval    -> manifest.soul.consultation_interval
+      - consultation_past_count  -> manifest.soul.consultation_past_count
 
     Atomic via temp-file-then-rename. Returns ``None`` on success, or a
     short error string on failure (caller logs it; runtime state is
@@ -204,9 +263,14 @@ def _persist_soul_delay(agent, new_delay: float) -> str | None:
     if not isinstance(soul_block, dict):
         soul_block = {}
         manifest["soul"] = soul_block
-    soul_block["delay"] = new_delay
 
-    # Atomic write — temp file in the same directory, then rename.
+    if "delay_seconds" in new_values:
+        soul_block["delay"] = new_values["delay_seconds"]
+    if "consultation_interval" in new_values:
+        soul_block["consultation_interval"] = new_values["consultation_interval"]
+    if "consultation_past_count" in new_values:
+        soul_block["consultation_past_count"] = new_values["consultation_past_count"]
+
     tmp_path = init_path.with_suffix(init_path.suffix + ".tmp")
     try:
         with tmp_path.open("w", encoding="utf-8") as f:
@@ -216,7 +280,7 @@ def _persist_soul_delay(agent, new_delay: float) -> str | None:
             try:
                 os.fsync(f.fileno())
             except OSError:
-                pass  # not all filesystems support fsync; the rename below is the durable barrier
+                pass
         os.replace(tmp_path, init_path)
         return None
     except Exception as e:

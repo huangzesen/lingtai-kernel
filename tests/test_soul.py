@@ -93,22 +93,29 @@ class TestSoulSchema:
     def test_schema_exposes_three_actions(self):
         schema = soul.get_schema("en")
         # Three actions are agent-visible: inquiry (manual self-Q&A),
-        # flow (mechanical, fires only on the wall clock — agent cannot
-        # invoke), and set_delay (agent adjusts the cadence at runtime).
+        # flow (mechanical, fires only on the wall clock / turn counter —
+        # agent cannot invoke), and config (agent adjusts cadence + K
+        # at runtime).
         assert schema["properties"]["action"]["enum"] == [
-            "inquiry", "flow", "set_delay",
+            "inquiry", "flow", "config",
         ]
 
     def test_schema_inquiry_property_present(self):
         schema = soul.get_schema("en")
         assert "inquiry" in schema["properties"]
 
-    def test_schema_delay_seconds_property_present(self):
-        # set_delay parameter — number with a 30s minimum.
+    def test_schema_config_properties_present(self):
+        # config parameters — delay_seconds (number, min 30s),
+        # consultation_interval (integer, 0 or >=5), consultation_past_count
+        # (integer, [0, 5]).
         schema = soul.get_schema("en")
         assert "delay_seconds" in schema["properties"]
         assert schema["properties"]["delay_seconds"]["type"] == "number"
         assert schema["properties"]["delay_seconds"]["minimum"] == 30.0
+        assert "consultation_interval" in schema["properties"]
+        assert schema["properties"]["consultation_interval"]["type"] == "integer"
+        assert "consultation_past_count" in schema["properties"]
+        assert schema["properties"]["consultation_past_count"]["type"] == "integer"
 
     def test_schema_required_is_action(self):
         assert soul.get_schema("en")["required"] == ["action"]
