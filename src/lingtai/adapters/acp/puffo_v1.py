@@ -38,11 +38,14 @@ def validate_puffo_v1_mcp_servers(value: Any) -> tuple[StdioMCPServerConfig, ...
             INVALID_PARAMS,
             "puffo-v1 MCP server must run puffo_agent.mcp.puffo_core_server",
         )
-    env_names = {name for name, _value in config.env}
-    if _REQUIRED_ENV_NAME not in env_names:
+    token_value = next(
+        (value for name, value in config.env if name == _REQUIRED_ENV_NAME),
+        None,
+    )
+    if not token_value:
         raise _RpcError(
             INVALID_PARAMS,
-            "puffo-v1 MCP server is missing Puffo local service token",
+            "puffo-v1 MCP server requires a non-empty Puffo local service token",
         )
     return configs
 

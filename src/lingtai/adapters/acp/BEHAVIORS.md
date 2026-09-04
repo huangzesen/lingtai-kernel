@@ -112,7 +112,7 @@ the evidence trail in the task report.
    non-empty `mcpServers` input. `puffo-v1` accepts exactly one `puffo` service
    with `-m puffo_agent.mcp.puffo_core_server`, a deployment-local absolute
    Python path, ordinary unique string environment values, and
-   `PUFFO_LOCAL_SERVICE_TOKEN`; unknown environment names pass through and do
+   a non-empty `PUFFO_LOCAL_SERVICE_TOKEN`; unknown environment names pass through and do
    not identify the service. Missing/extra/alternate descriptors fail. The
    operator-managed tool surface is retained, but
    legacy/inbox/internal events cannot queue or dispatch any provider/model

@@ -477,11 +477,15 @@ def test_puffo_v1_session_mounts_only_the_fixed_puffo_core_service(tmp_path):
         ),
         (
             [_puffo_server_config(env=[])],
-            "puffo-v1 MCP server is missing Puffo local service token",
+            "puffo-v1 MCP server requires a non-empty Puffo local service token",
         ),
         (
             [_puffo_server_config(env=[{"name": "HOME", "value": "/tmp"}])],
-            "puffo-v1 MCP server is missing Puffo local service token",
+            "puffo-v1 MCP server requires a non-empty Puffo local service token",
+        ),
+        (
+            [_puffo_server_config(env=[{"name": "PUFFO_LOCAL_SERVICE_TOKEN", "value": ""}])],
+            "puffo-v1 MCP server requires a non-empty Puffo local service token",
         ),
     ],
 )

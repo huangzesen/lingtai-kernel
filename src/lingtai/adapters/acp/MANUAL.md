@@ -155,8 +155,8 @@ the driver handoff the sole path that can reach the fixed MCP ingress.
 
 The Puffo driver supplies exactly one `mcpServers` descriptor to `session/new`.
 LingTai requires its name to be `puffo`, its arguments to be exactly
-`-m puffo_agent.mcp.puffo_core_server`, and `PUFFO_LOCAL_SERVICE_TOKEN` in its
-ordinary unique name/value environment. Other environment entries are passed
+`-m puffo_agent.mcp.puffo_core_server`, and a non-empty
+`PUFFO_LOCAL_SERVICE_TOKEN` in its ordinary unique name/value environment. Other environment entries are passed
 through unchanged, and their values are never logged; no env-name allowlist is
 used because Puffo can add deployment-specific variables independently. Env is
 not an identity or hostile-peer check—an interpreter and Python environment can
@@ -167,7 +167,7 @@ interpreter chosen by the Puffo installation, so LingTai validates its generic
 absolute stdio shape rather than a machine-specific path. The driver must pass
 the whole descriptor through unchanged except for the ACP field conversion:
 every tool the one Puffo service exports is available. A missing/extra service,
-alternate module/name, missing local-service token, or any other MCP descriptor
+alternate module/name, missing or empty local-service token, or any other MCP descriptor
 fails the `session/new` request. This is not a general MCP-import feature, and
 it does not weaken `puffo-v0`, which remains empty-only.
 
