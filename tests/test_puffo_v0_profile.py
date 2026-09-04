@@ -23,6 +23,7 @@ from lingtai.adapters.acp.puffo_v0 import (
     revoke_runtime,
 )
 from lingtai.adapters.acp.server import AcpStdioServer, INVALID_PARAMS
+from lingtai.adapters.acp.puffo_v1 import validate_puffo_v1_mcp_servers
 from lingtai.agent import Agent
 from lingtai.kernel.execution_workspace import ExecutionWorkspace
 from lingtai.kernel.config import AgentConfig
@@ -35,6 +36,16 @@ from tests.test_deep_refresh import _make_init
 class _Agent:
     def __init__(self):
         self._shutdown = None
+        self.session_mcp_configs = None
+
+    def mount_session_mcp_stdio(self, configs):
+        self.session_mcp_configs = configs
+        return _SessionMCPLease()
+
+
+class _SessionMCPLease:
+    def close(self):
+        return None
 
 
 def _frames(output: io.StringIO) -> list[dict]:
@@ -61,6 +72,36 @@ def _new_profile_server(workspace: Path) -> tuple[AcpStdioServer, io.StringIO]:
             fixed_execution_workspace=ExecutionWorkspace(workspace),
             allow_session_mcp=False,
         ),
+        output,
+    )
+
+
+def _puffo_server_config(**overrides):
+    config = {
+        "name": "puffo",
+        "command": "/usr/local/bin/python3",
+        "args": ["-m", "puffo_agent.mcp.puffo_core_server"],
+        "env": [
+            {"name": "PUFFO_LOCAL_SERVICE_TOKEN", "value": "test-token"},
+            {"name": "PYTHONPATH", "value": "/tmp/editable"},
+        ],
+    }
+    config.update(overrides)
+    return config
+
+
+def _new_v1_profile_server(workspace: Path) -> tuple[AcpStdioServer, _Agent, io.StringIO]:
+    output = io.StringIO()
+    agent = _Agent()
+    return (
+        AcpStdioServer(
+            agent,
+            io.StringIO(),
+            output,
+            fixed_execution_workspace=ExecutionWorkspace(workspace),
+            session_mcp_validator=validate_puffo_v1_mcp_servers,
+        ),
+        agent,
         output,
     )
 
@@ -398,6 +439,79 @@ def test_profile_session_rejects_remote_workspace_and_mcp_inputs(tmp_path):
     server.close()
 
 
+def test_puffo_v1_session_mounts_only_the_fixed_puffo_core_service(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    server, agent, output = _new_v1_profile_server(workspace)
+    _request(server, 1, "initialize", {"protocolVersion": 1})
+    _request(
+        server,
+        2,
+        "session/new",
+        {"cwd": str(workspace), "mcpServers": [_puffo_server_config()]},
+    )
+
+    frames = _wait_for_frames(output, 2)
+    assert "result" in frames[1]
+    assert agent.session_mcp_configs is not None
+    assert len(agent.session_mcp_configs) == 1
+    assert agent.session_mcp_configs[0].name == "puffo"
+    assert agent.session_mcp_configs[0].args == (
+        "-m", "puffo_agent.mcp.puffo_core_server"
+    )
+    server.close()
+
+
+@pytest.mark.parametrize(
+    ("servers", "message"),
+    [
+        ([], "puffo-v1 requires exactly one Puffo MCP server"),
+        (
+            [_puffo_server_config(), _puffo_server_config(name="puffo-two")],
+            "puffo-v1 requires exactly one Puffo MCP server",
+        ),
+        ([_puffo_server_config(name="not-puffo")], "puffo-v1 MCP server must be named puffo"),
+        (
+            [_puffo_server_config(args=["-m", "another.server"])],
+            "puffo-v1 MCP server must run puffo_agent.mcp.puffo_core_server",
+        ),
+        (
+            [_puffo_server_config(env=[])],
+            "puffo-v1 MCP server is missing Puffo local service token",
+        ),
+        (
+            [_puffo_server_config(env=[{"name": "HOME", "value": "/tmp"}])],
+            "puffo-v1 MCP server is missing Puffo local service token",
+        ),
+    ],
+)
+def test_puffo_v1_session_rejects_any_other_mcp_shape(tmp_path, servers, message):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    server, _agent, output = _new_v1_profile_server(workspace)
+    _request(server, 1, "initialize", {"protocolVersion": 1})
+    _request(server, 2, "session/new", {"cwd": str(workspace), "mcpServers": servers})
+
+    frames = _wait_for_frames(output, 2)
+    assert frames[1]["error"] == {"code": INVALID_PARAMS, "message": message}
+    server.close()
+
+
+def test_puffo_v1_session_preserves_unknown_environment_names(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    server, agent, output = _new_v1_profile_server(workspace)
+    _request(server, 1, "initialize", {"protocolVersion": 1})
+    config = _puffo_server_config()
+    config["env"].append({"name": "HOME", "value": "/tmp"})
+    _request(server, 2, "session/new", {"cwd": str(workspace), "mcpServers": [config]})
+
+    frames = _wait_for_frames(output, 2)
+    assert "result" in frames[1]
+    assert ("HOME", "/tmp") in agent.session_mcp_configs[0].env
+    server.close()
+
+
 def test_profile_cli_resolves_an_opaque_id_before_composing_acp(monkeypatch, tmp_path):
     import lingtai.cli_acp as cli_acp
     from lingtai.adapters.acp.driver_authority import UnavailableDriverAuthorityAdapter
@@ -466,6 +580,67 @@ def test_profile_cli_composes_a_root_driver_for_both_admission_boundaries(monkey
     assert observed["provider_call_admission_port"] is authority
     assert isinstance(observed["derived_launch_admission_port"], DriverDerivedLaunchAdmissionAdapter)
     assert observed["derived_launch_admission_port"]._authority is authority
+
+
+def test_puffo_v1_cli_reuses_the_bound_runtime_with_fixed_mcp_ingress(monkeypatch, tmp_path):
+    import lingtai.cli_acp as cli_acp
+    from lingtai.adapters.acp.driver_authority import DriverAuthorityClient
+    from lingtai.adapters.acp.puffo_v1 import validate_puffo_v1_mcp_servers
+    from lingtai.adapters.acp.puffo_v0 import DirectoryBinding, PuffoV0Runtime
+
+    agent_dir = tmp_path / "identity"
+    agent_dir.mkdir()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    binding = DirectoryBinding(device=1, inode=2, owner=3, group=4)
+    runtime = PuffoV0Runtime(
+        "runtime-1", agent_dir, workspace, "digest", binding, binding,
+        RUNTIME_POLICY.policy_version,
+    )
+    observed = {}
+    monkeypatch.setattr("lingtai.adapters.acp.puffo_v0.resolve_runtime", lambda _id: runtime)
+    authority = object.__new__(DriverAuthorityClient)
+    monkeypatch.setattr(
+        "lingtai.adapters.acp.driver_authority.authority_adapter_from_environment",
+        lambda: authority,
+    )
+    monkeypatch.setattr(cli_acp, "run_acp", lambda directory, **kwargs: observed.update(directory=directory, **kwargs))
+
+    cli_acp.handle_acp_command(SimpleNamespace(profile="puffo-v1", runtime_id="runtime-1", agent_dir=None))
+
+    assert observed["directory"] == agent_dir
+    assert observed["fixed_execution_workspace"].root == workspace
+    assert observed["session_mcp_validator"] is validate_puffo_v1_mcp_servers
+    assert observed["turn_origin_policy"] is RUNTIME_POLICY
+
+
+def test_puffo_v1_cli_requires_an_authenticated_driver_authority(monkeypatch, tmp_path, capsys):
+    import lingtai.cli_acp as cli_acp
+    from lingtai.adapters.acp.driver_authority import UnavailableDriverAuthorityAdapter
+    from lingtai.adapters.acp.puffo_v0 import DirectoryBinding, PuffoV0Runtime
+
+    agent_dir = tmp_path / "identity"
+    agent_dir.mkdir()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    binding = DirectoryBinding(device=1, inode=2, owner=3, group=4)
+    runtime = PuffoV0Runtime(
+        "runtime-1", agent_dir, workspace, "digest", binding, binding,
+        RUNTIME_POLICY.policy_version,
+    )
+    monkeypatch.setattr("lingtai.adapters.acp.puffo_v0.resolve_runtime", lambda _id: runtime)
+    monkeypatch.setattr(
+        "lingtai.adapters.acp.driver_authority.authority_adapter_from_environment",
+        UnavailableDriverAuthorityAdapter,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_acp.handle_acp_command(
+            SimpleNamespace(profile="puffo-v1", runtime_id="runtime-1", agent_dir=None)
+        )
+
+    assert exc_info.value.code == 1
+    assert "puffo-v1 requires an authenticated Puffo Driver authority" in capsys.readouterr().err
 
 
 def test_constrained_acp_refuses_to_start_without_its_derived_launch_port(tmp_path):

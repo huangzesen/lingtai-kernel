@@ -20,11 +20,11 @@ def add_acp_parser(subparsers) -> None:
     )
     source.add_argument(
         "--runtime-id",
-        help="Opaque operator-provisioned Puffo runtime id (requires --profile puffo-v0)",
+        help="Opaque operator-provisioned Puffo runtime id (requires a Puffo profile)",
     )
     parser.add_argument(
         "--profile",
-        choices=("puffo-v0",),
+        choices=("puffo-v0", "puffo-v1"),
         help="Constrained locally provisioned ACP launch profile",
     )
 
@@ -71,6 +71,7 @@ def run_acp(
     derived_launch_admission_port=None,
     requires_derived_launch_admission_port: bool = False,
     puffo_runtime=None,
+    session_mcp_validator=None,
 ) -> None:
     """Compose one Agent and the local ACP stdio driving adapter.
 
@@ -165,16 +166,16 @@ def run_acp(
         ):
             server = AcpStdioServer(agent, wire_in, wire_out)
         else:
-            server = AcpStdioServer(
-                agent,
-                wire_in,
-                wire_out,
-                fixed_execution_workspace=fixed_execution_workspace,
-                allow_session_mcp=(
+            server_options = {
+                "fixed_execution_workspace": fixed_execution_workspace,
+                "allow_session_mcp": (
                     fixed_execution_workspace is None
                     and not (forced_disable and "mcp" in forced_disable)
                 ),
-            )
+            }
+            if session_mcp_validator is not None:
+                server_options["session_mcp_validator"] = session_mcp_validator
+            server = AcpStdioServer(agent, wire_in, wire_out, **server_options)
         try:
             server.serve()
         except (BrokenPipeError, OSError, UnicodeError, KeyboardInterrupt):
@@ -205,7 +206,7 @@ def run_acp(
 def handle_acp_command(args) -> None:
     if args.profile is None:
         if args.runtime_id is not None:
-            print("error: --runtime-id requires --profile puffo-v0", file=sys.stderr)
+            print("error: --runtime-id requires a Puffo ACP profile", file=sys.stderr)
             raise SystemExit(1)
         agent_dir = args.agent_dir.resolve()
         if not agent_dir.is_dir():
@@ -214,14 +215,14 @@ def handle_acp_command(args) -> None:
         run_acp(agent_dir)
         return
 
-    if args.profile == "puffo-v0" and args.agent_dir is not None:
+    if args.profile in {"puffo-v0", "puffo-v1"} and args.agent_dir is not None:
         print(
-            "error: puffo-v0 does not accept --agent-dir; use --runtime-id",
+            f"error: {args.profile} does not accept --agent-dir; use --runtime-id",
             file=sys.stderr,
         )
         raise SystemExit(1)
-    if args.profile != "puffo-v0" or args.runtime_id is None:
-        print("error: puffo-v0 requires --runtime-id", file=sys.stderr)
+    if args.profile not in {"puffo-v0", "puffo-v1"} or args.runtime_id is None:
+        print("error: Puffo ACP profiles require --runtime-id", file=sys.stderr)
         raise SystemExit(1)
     from lingtai.adapters.acp.puffo_v0 import (
         PuffoV0RegistryError,
@@ -235,12 +236,24 @@ def handle_acp_command(args) -> None:
     )
     from lingtai.kernel.execution_workspace import ExecutionWorkspace
 
+    session_mcp_validator = None
+    if args.profile == "puffo-v1":
+        from lingtai.adapters.acp.puffo_v1 import validate_puffo_v1_mcp_servers
+
+        session_mcp_validator = validate_puffo_v1_mcp_servers
+
     try:
         runtime = resolve_runtime(args.runtime_id)
     except PuffoV0RegistryError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1) from None
     authority = authority_adapter_from_environment()
+    if args.profile == "puffo-v1" and not isinstance(authority, DriverAuthorityClient):
+        print(
+            "error: puffo-v1 requires an authenticated Puffo Driver authority",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
     derived_launch_port = (
         DriverDerivedLaunchAdmissionAdapter(authority)
         if isinstance(authority, DriverAuthorityClient)
@@ -255,6 +268,7 @@ def handle_acp_command(args) -> None:
         provider_call_admission_port=authority,
         derived_launch_admission_port=derived_launch_port,
         requires_derived_launch_admission_port=True,
+        session_mcp_validator=session_mcp_validator,
     )
 
 

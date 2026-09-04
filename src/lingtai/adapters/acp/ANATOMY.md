@@ -8,6 +8,7 @@ related_files:
   - src/lingtai/adapters/acp/__init__.py
   - src/lingtai/adapters/acp/driver_authority.py
   - src/lingtai/adapters/acp/puffo_v0.py
+  - src/lingtai/adapters/acp/puffo_v1.py
   - src/lingtai/adapters/acp/server.py
   - src/lingtai/cli_acp.py
   - src/lingtai/cli_puffo_v0.py
@@ -75,11 +76,17 @@ co-located [`CONTRACT.md`](CONTRACT.md), and its operator/developer procedure is
   turns; it is not a tool/runtime containment policy. Its Phase A
   owner-only-filesystem implementation deliberately rejects Windows until an
   equivalent ACL-backed adapter exists.
+- `puffo_v1.py` — the one fixed session-MCP ingress for the next profile. It
+  accepts exactly one Puffo-owned stdio service named `puffo`, with fixed
+  `-m puffo_agent.mcp.puffo_core_server` arguments. The interpreter and
+  environment are deployment-owned: ordinary ACP string values are preserved,
+  while the required local-service token is never logged. They do not identify
+  the service or form a security boundary.
 - `../../cli_acp.py` — outer composition root. Captures the original stdout wire,
   quarantines Python application stdout to stderr before Agent construction,
   composes the existing Agent, consumes the typed bounded stop proof, and hard-
   exits on incomplete quiescence so no later Python state write can race teardown.
-  For `puffo-v0`, it consumes the one launcher-injected Driver authority
+  For both Puffo profiles, it consumes the one launcher-injected Driver authority
   descriptor and composes either its root Port pair or a fail-closed pair.
   Shared poisoned-worker exit logging is lease-aware: retained ownership may log,
   while a successful `STOPPED` release skips every later workdir append and still
@@ -105,18 +112,19 @@ co-located [`CONTRACT.md`](CONTRACT.md), and its operator/developer procedure is
 ## Connections
 
 Inbound: a local ACP client launches `lingtai-agent acp --agent-dir <dir>` and
-exchanges one JSON-RPC object per stdio line. The constrained Puffo profile instead
-launches `lingtai-agent acp --profile puffo-v0 --runtime-id <opaque-id>`; its
-registry resolves the full spawn identity locally, server policy fixes the
-workspace and denies session MCP, and Core admits only the typed authenticated
-adapter origin to provider dispatch. This controls turn initiation, not what
-state the eventual turn can read. The composition root re-resolves a profile
-runtime immediately before Agent composition so a normal resolve-to-start drift
-fails closed; host-principal filesystem replacement after that check remains
-outside this profile's trust boundary. The same composition root consumes and
-removes `LINGTAI_DRIVER_AUTHORITY_FD`; only a valid root endpoint becomes the
-profile's provider and derived-launch Port pair, while every other outcome is
-typed fail-closed. Outbound: the Adapter calls only the
+exchanges one JSON-RPC object per stdio line. The constrained Puffo profiles
+instead launch `lingtai-agent acp --profile puffo-v0|puffo-v1 --runtime-id
+<opaque-id>` and share the same registry-bound identity/workspace. `puffo-v0`
+denies every session MCP; `puffo-v1` accepts only its one fixed Puffo Core stdio
+service. Core admits only the typed authenticated adapter origin to provider
+dispatch. This controls turn initiation, not what state the eventual turn can
+read. The composition root re-resolves a profile runtime immediately before
+Agent composition so a normal resolve-to-start drift fails closed; host-principal
+filesystem replacement after that check remains outside this profile's trust
+boundary. The same composition root consumes and removes
+`LINGTAI_DRIVER_AUTHORITY_FD`; only a valid root endpoint becomes the profile's
+provider and derived-launch Port pair, while every other outcome is typed
+fail-closed. Outbound: the Adapter calls only the
 protocol-neutral `BaseAgent.submit_turn`/`TurnHandle` boundary with an optional
 turn-scoped tool observer. The CLI root
 reuses `cli.load_init`, `cli.build_agent`, venv resolution, logging, lifecycle,
@@ -138,8 +146,8 @@ one lock-owned pending-permission registry,
 closing/aborted generation, a bounded 64-batch FIFO, one disposable
 daemon writer, and short-lived waiter thread records. Active/busy ownership lasts
 through physical terminal-batch completion, close invalidation, or fatal abort.
-ACP session/correlation identifiers are not persisted. `puffo-v0` additionally
-reads an operator-managed local registry at spawn time; it neither creates a
+ACP session/correlation identifiers are not persisted. Both Puffo profiles
+read the same operator-managed local registry at spawn time; neither creates a
 durable ACP session nor changes the Agent's own durable identity state. Durable
 agent state remains owned by the existing Agent/workdir lifecycle. The one-time
 Driver authority environment locator is removed at composition and is not
@@ -156,7 +164,7 @@ capability-gated rich content fail explicitly. Capability objects stay empty so 
 features are never advertised. Follow the manual and Contract before widening
 scope.
 
-`puffo-v0` is a second gate on its controlled entrypoint, not host isolation:
+Both Puffo profiles are a second gate on their controlled entrypoint, not host isolation:
 the same OS identity can still alter the registry or bypass it by launching the
 generic `--agent-dir` ACP command. That is an explicit host trust boundary.
 

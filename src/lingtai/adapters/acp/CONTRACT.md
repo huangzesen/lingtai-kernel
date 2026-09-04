@@ -279,6 +279,22 @@ argv, environment, or MCP command from the remote caller.
     plan) from operator-managed binding/configuration, then emit only this
     profile command and opaque id. `puffo-v0` identity binding is valid only
     through that ACP entrypoint; Puffo's OpenCode driver is explicitly excluded.
+    `puffo-v1` consumes that same immutable identity/workspace binding but has
+    one intentionally different session ingress: `mcpServers` must contain
+    exactly one local stdio descriptor whose name is `puffo` and whose arguments
+    are exactly `-m puffo_agent.mcp.puffo_core_server`. Its interpreter path is
+    deployment-specific and is validated only as the ordinary non-empty absolute
+    stdio command. Its ordinary unique string name/value environment must
+    include `PUFFO_LOCAL_SERVICE_TOKEN`; all other names and values pass through
+    unchanged and are never logged. Environment is not service identity or a
+    hostile-peer boundary: an executable path and Python environment can change
+    what code runs. Service identity is the unique service, exact name/module,
+    and trusted Puffo-to-LingTai startup boundary; a future hostile-peer defense
+    needs a launch nonce/capability, not an environment-name list. No second
+    service, alternate name/module, arbitrary MCP descriptor, missing local
+    service token, or missing authenticated Driver authority is accepted. This
+    means *all* tools exported by that one Puffo service are available; it does
+    not mean arbitrary MCP ingress. `puffo-v0` remains strictly `mcpServers: []`.
 
 ## Contract tests
 

@@ -7,7 +7,7 @@ import threading
 from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, Callable, TextIO
 from uuid import uuid4
 
 from lingtai.kernel.turns import TurnHandle, TurnOutcome
@@ -252,6 +252,7 @@ class AcpStdioServer:
         *,
         fixed_execution_workspace: ExecutionWorkspace | None = None,
         allow_session_mcp: bool = True,
+        session_mcp_validator: Callable[[Any], tuple[StdioMCPServerConfig, ...]] | None = None,
     ):
         self._agent = agent
         self._input = input_stream
@@ -263,6 +264,7 @@ class AcpStdioServer:
         self._execution_workspace: ExecutionWorkspace | None = None
         self._fixed_execution_workspace = fixed_execution_workspace
         self._allow_session_mcp = allow_session_mcp
+        self._session_mcp_validator = session_mcp_validator
         self._session_mcp_lease = None
         self._active: _ActivePrompt | None = None
         self._closing = False
@@ -557,7 +559,9 @@ class AcpStdioServer:
                     INVALID_PARAMS,
                     "cwd must match the profile's fixed execution workspace",
                 )
-        if not self._allow_session_mcp:
+        if self._session_mcp_validator is not None:
+            configs = self._session_mcp_validator(mcp_servers)
+        elif not self._allow_session_mcp:
             if mcp_servers != []:
                 raise _RpcError(
                     INVALID_PARAMS,
