@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from lingtai.tools.mcp import get_description as mcp_description
 from lingtai.tools.mcp import get_schema as mcp_schema
 from lingtai.tools.psyche import get_description as psyche_description
@@ -50,3 +52,24 @@ def test_mcp_description_and_actions_are_explicit_signposts() -> None:
     assert "settings: show the MCP-owned init.addons" in action
     assert "manual: return only the mcp-manual skill body" in action
     assert "No action mutates MCP configuration" in action
+
+
+def test_mcp_manual_is_a_short_router_with_required_preflight() -> None:
+    # Resolve the source package from the imported module, not the repository cwd.
+    import lingtai.tools.mcp as mcp
+
+    manual = Path(mcp.__file__).parent / "skills" / "mcp-manual" / "SKILL.md"
+    text = manual.read_text(encoding="utf-8")
+    assert len(text) < 10_000
+    for route in (
+        "reference/curated-addons.md",
+        "reference/third-party-and-legacy.md",
+        "reference/troubleshooting.md",
+        "reference/runtime-and-identity.md",
+    ):
+        assert route in text
+    for state in ("Catalog", "Registered", "Active"):
+        assert state in text
+    assert 'mcp(action="info", input={}, reasoning="check MCP registry health")' in text
+    assert "explicit human authorization" in text
+    assert "manual_path" in text and "never falls back" in text
