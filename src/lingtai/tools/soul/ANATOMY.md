@@ -13,6 +13,9 @@ related_files:
   - src/lingtai/tools/soul/glossary-wen.md
   - src/lingtai/tools/soul/CONTRACT.md
   - src/lingtai/tools/soul/manual/SKILL.md
+  - src/lingtai/tools/soul/manual/reference/flow.md
+  - src/lingtai/tools/soul/manual/reference/configuration.md
+  - src/lingtai/tools/soul/manual/reference/consultation.md
   - src/lingtai/kernel/tool_plugin/ANATOMY.md
   - src/lingtai/kernel/tool_plugin/CONTRACT.md
   - src/lingtai/adapters/tool_plugin_host.py

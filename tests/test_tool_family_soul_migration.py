@@ -126,6 +126,24 @@ def test_public_actions_include_the_additive_settings_child():
     assert soul.get_schema("en")["properties"]["action"]["enum"] == list(_ACTIONS)
 
 
+def test_compact_description_retains_first_call_safety_and_routes_depth():
+    description = soul.get_description()
+    assert len(description) < 1500
+    for required in (
+        "LINGTAI_SOUL_FLOW_ENABLED",
+        "disabled",
+        "do not retry",
+        "config tunes cadence/count only and cannot enable or disable flow",
+        "inquiry is on-demand self-reflection",
+        "flow is mechanical, asynchronous periodic consultation",
+        "voice reads or sets the flow-voice profile",
+        "config sends both nullable knobs with at least one non-null",
+        "voice sends both nullable fields, where null/null reads",
+        "cost and privacy",
+    ):
+        assert required in description
+
+
 def test_every_action_has_its_own_strict_closed_input_branch():
     schema = soul.get_schema("en")
     branches = schema["properties"]["input"]["anyOf"]
