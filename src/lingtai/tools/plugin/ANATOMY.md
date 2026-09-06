@@ -6,6 +6,9 @@ related_files:
   - src/lingtai/tools/plugin/settings.py
   - src/lingtai/tools/plugin/CONTRACT.md
   - src/lingtai/tools/plugin/manual/SKILL.md
+  - src/lingtai/tools/plugin/manual/reference/format-and-containment.md
+  - src/lingtai/tools/plugin/manual/reference/registration-and-lifecycle.md
+  - src/lingtai/tools/plugin/manual/reference/diagnostics-and-settings.md
   - src/lingtai/kernel/tool_plugin/ANATOMY.md
   - src/lingtai/adapters/tool_plugin_host.py
   - src/lingtai/tools/plugin/glossary-en.md

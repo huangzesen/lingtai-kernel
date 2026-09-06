@@ -1,5 +1,6 @@
 ---
 related_files:
+- src/lingtai/tools/plugin/ANATOMY.md
 - src/lingtai/tools/plugin/manual/SKILL.md
 - src/lingtai/services/plugin_registry.py
 - src/lingtai/tools/plugin/CONTRACT.md
