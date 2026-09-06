@@ -1460,7 +1460,20 @@ class _ToolCollector:
         return getattr(self._parent, name)
 
 
-_DESCRIPTION = 'Daemon (神識) — delegate work to ephemeral subagents for context isolation. Each is a disposable LLM session sharing your working directory, retaining no memory after completion. Use for noisy work where you only need the conclusion; results are truncated to ~2000 chars, so instruct the emanation to write detailed output to a file. Actions: daemon(action=\'emanate\', input={"tasks": [...]}) dispatches; daemon(action=\'list\', input={}) shows the newest 1000 entries by default; daemon(action=\'ask\', input={"id": "em-1", "message": "..."}) sends a follow-up; daemon(action=\'check\', input={"id": "em-1"}) inspects recent events; daemon(action=\'reclaim\', input={}) kills all; daemon(action=\'settings\', input={}) shows the read-only owner inventory; daemon(action=\'manual\', input={}) returns the installed daemon-manual skill. Daemons also receive compact for a repeatable sole-call context reset (compact(action="run", _reason=...); compact(action="manual") is read-only procedures). Every terminal outcome — done, failed, cancelled, or timed out — is push-notified exactly once with the daemon id, status, task summary, and result/error path: wait for it, then act with daemon(action="check", input={"id": ...}); do not poll for "is it done". POSIX daemon batches route through the central daemon manager (see daemon-manual for the pool-size cap). Before using this tool, read the `daemon-manual` skill — it covers settings meaning/change procedures, inspection patterns, polling cadence, preset/capability inheritance, and compact procedures; no exceptions. Programmatic callers outside a live agent turn (shell, Python, CI) should use the `lingtai-agent daemon` subcommand instead of scripting this tool directly — see the daemon-manual "Programmatic use / CLI" section.'
+_DESCRIPTION = (
+    "Daemon — dispatch disposable subagents for isolated parallel work. "
+    "Call daemon(action='manual', input={}, reasoning='...') before first use. "
+    "The complete task instruction belongs in each emanate task; selected tools "
+    "are only that run's capability surface. Actions are emanate (dispatch), "
+    "list (bounded status), ask (follow-up), check (progress/artifacts), reclaim "
+    "(cancel), settings (read-only inventory), and manual (procedures). "
+    "emanate returns immediately; terminal outcomes are push-notified, then use "
+    "check and read the durable result/error path. Results are bounded, so ask "
+    "the daemon to save detailed work to a file. LingTai runs also receive the "
+    "sole-call compact(action='run', _reason='...') reset; compact(action='manual') "
+    "is read-only. CLI backends, presets, MCP, polling, and programmatic use are "
+    "documented in daemon-manual references."
+)
 
 
 def get_description(lang: str = "en") -> str:
