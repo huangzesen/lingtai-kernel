@@ -25,6 +25,7 @@ from tests.test_task_card_controller import _FakeAgent, _OK_BODY, _manager, _wri
 ROOT = Path(__file__).resolve().parents[1]
 PROCEDURES = ROOT / "src/lingtai/prompts/procedures/procedures.md"
 TASK_CARD_MANUAL = ROOT / "src/lingtai/tools/task_card/manual/SKILL.md"
+TASK_CARD_LIFECYCLE = ROOT / "src/lingtai/tools/task_card/manual/reference/lifecycle.md"
 
 
 class _StubCard:
@@ -198,7 +199,7 @@ def test_exhausted_watch_reports_itself_inactive(tmp_path):
 
 
 def test_tool_description_asks_for_a_restart_after_expiry():
-    assert "Restart a new watch when one expires mid-task." in get_description()
+    assert "Restart after expiry" in get_description()
 
 
 def test_resident_procedures_routes_to_task_card_manual():
@@ -209,8 +210,8 @@ def test_resident_procedures_routes_to_task_card_manual():
     assert "`daemon`, `avatar`, `shell`, or `task_card` manual" in text
 
 
-def test_task_card_manual_names_the_card_worthy_triggers():
-    text = TASK_CARD_MANUAL.read_text(encoding="utf-8")
+def test_task_card_lifecycle_reference_names_the_card_worthy_triggers():
+    text = TASK_CARD_LIFECYCLE.read_text(encoding="utf-8")
     section = text.split("## When to use it", 1)[1].split("\n## ", 1)[0]
     for fragment in (
         "multi-daemon fleets",
