@@ -73,23 +73,16 @@ _DECLARED_INPUT_SCHEMAS = {
 }
 
 _ACTION_ENUM_DESCRIPTION = (
-    "Required Psyche operation. Every action takes an empty input object and "
-    "is strictly read-only — none of them writes a file, "
-    "reloads the prompt, or rescans a catalog.\n"
-    "pad: return pad-manual (the sketchboard body at system/pad.md and its "
-    "pinned read-only references).\n"
-    "lingtai: return lingtai-manual (your 灵台 / character at system/lingtai.md).\n"
-    "knowledge: return the knowledge manual (private durable entries under "
-    "knowledge/<name>/KNOWLEDGE.md).\n"
-    "skills: return the skills manual (your catalog under .library/ plus any "
-    "configured skills paths).\n"
-    "settings: return the redacted inventory of Psyche-owned Pad and "
-    "prompt-owner configuration.\n"
-    "manual: return the psyche routing table — which action loads which "
-    "domain manual, and the shared mutation/rebuild model.\n"
-    "To CHANGE any durable source, use file.write for a full rewrite or "
-    "file.edit for exact replacement, then apply it with one explicit "
-    "context.rebuild; file mutation never hot-loads the prompt."
+    "Choose one Psyche operation. Every action takes input={} and is strictly "
+    "read-only: no file write, prompt reload, catalog rescan, pin, or install.\n"
+    "pad: return pad-manual for system/pad.md and pinned Pad references.\n"
+    "lingtai: return lingtai-manual for system/lingtai.md (灵台 / character).\n"
+    "knowledge: return the knowledge manual for durable KNOWLEDGE.md entries.\n"
+    "skills: return the skills manual for the configured .library catalog.\n"
+    "settings: show the applied, fully redacted Psyche-owned inventory.\n"
+    "manual: return the psyche routing table and shared rebuild model.\n"
+    "For durable changes, use file.write or file.edit on the domain source, "
+    "then one explicit context.rebuild; mutation never hot-loads the prompt."
 )
 
 
@@ -125,17 +118,14 @@ _FAMILY = _build_family(None)
 def get_description(lang: str = "en") -> str:
     return (
         "SIGNPOST ONLY: your psyche is your four durable domains — pad, "
-        "lingtai (灵台), knowledge, and skills. Domain actions "
-        "(pad/lingtai/knowledge/skills, input={}) return that domain's "
-        "manual; settings (input={}) returns one compact redacted inventory "
-        "of Psyche-owned Pad and prompt settings; manual (input={}) returns "
-        "the routing table that says which action you want and how the "
-        "domains relate. It never authors, edits, pins, installs, rescans, "
-        "or loads anything. Durable content is changed with file.write (full "
-        "rewrite) or file.edit (exact replacement) on the domain's own "
-        "source, and becomes visible only after an explicit context.rebuild "
-        "or passive refresh/molt reconstruction. Read the relevant manual "
-        "before acting on a domain you do not already know. Results are "
+        "lingtai (灵台), knowledge, and skills. Each action takes input={} and "
+        "returns exact domain guidance or a compact redacted settings inventory. "
+        "It never authors, edits, pins, installs, rescans, or loads anything. "
+        "Read the relevant manual before acting on a domain you do not already "
+        "know. Change durable content with file.write (full rewrite) or "
+        "file.edit (exact replacement) on that domain's source, then apply it "
+        "with one explicit context.rebuild or passive refresh/molt "
+        "reconstruction; file mutation never hot-loads the prompt. Results are "
         "exact guidance — leave root summarize false."
     )
 

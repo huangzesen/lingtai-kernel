@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -195,6 +196,24 @@ def test_router_manual_is_a_routing_table_naming_all_four_domains(tmp_path):
         # the domain manuals it points at.
         assert "file.write" in body and "file.edit" in body
         assert 'context(action="rebuild"' in body
+    finally:
+        agent.stop(timeout=1.0)
+
+
+def test_router_manual_discloses_depth_and_first_call_guard(tmp_path):
+    """The resident router points to depth and keeps the safe first call."""
+    agent = _agent(tmp_path)
+    try:
+        result = _call(agent, "manual")
+        body = result["manual"]
+        assert "reference/settings/SKILL.md" in body
+        assert "reference/network-rules/SKILL.md" in body
+        assert "strict empty `input`" in body
+        assert "manual first" in body
+        assert len(body) < 10000
+        manual_path = Path(result["manual_path"])
+        assert (manual_path.parent / "reference/settings/SKILL.md").is_file()
+        assert (manual_path.parent / "reference/network-rules/SKILL.md").is_file()
     finally:
         agent.stop(timeout=1.0)
 
