@@ -8,7 +8,7 @@ description: >
   producing, or debugging notification payloads; skip for dismissal policy.
 version: 0.6.0
 tags: [lingtai, notifications, channels, protocol, sync, delay, alarm, nudge, hooks, whitelist]
-last_changed_at: "2026-09-04T00:00:00Z"
+last_changed_at: "2026-09-06T00:00:00Z"
 related_files:
 - src/lingtai/tools/notification/manual/SKILL.md
 - src/lingtai/tools/notification/schema.py
