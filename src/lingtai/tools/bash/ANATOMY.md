@@ -43,6 +43,7 @@ related_files:
   - src/lingtai/tools/bash/glossary-zh.md
   - src/lingtai/tools/bash/glossary-wen.md
   - src/lingtai/tools/bash/_output_hygiene.py
+  - src/lingtai/tools/bash/manual/reference/async-jobs/SKILL.md
   - src/lingtai/tools/bash/manual/reference/debugging-cleanup/SKILL.md
   - src/lingtai/tools/bash/manual/reference/notification-reminders/SKILL.md
   - src/lingtai/tools/bash/manual/reference/scheduled-work/SKILL.md
@@ -198,5 +199,5 @@ bash/__init__.py
 
 - **Parent:** `src/lingtai/tools/` (tool package).
 - **Siblings:** `daemon/`, `avatar/`, `mcp/`, `knowledge/` (private durable memory), `skills/` (skill catalog).
-- **Manual:** `bash/manual/SKILL.md` — operational guide for agents covering async/poll/reminder durability plus scheduled / cron-driven work, wake-by-mailbox-drop, hygiene rules, OS-specific scheduler recipes, and debugging walkthroughs. It progressively discloses into three nested sub-skills under `manual/reference/`: `bash-debugging-cleanup`, `bash-notification-reminders`, and `bash-scheduled-work`.
+- **Manual:** `bash/manual/SKILL.md` — short operational router for agents covering first-call/result-fidelity rules, async/poll/reminder durability, scheduled / cron-driven work, wake-by-mailbox-drop, hygiene, and cleanup. It progressively discloses into four nested sub-skills under `manual/reference/`: `bash-async-jobs`, `bash-debugging-cleanup`, `bash-notification-reminders`, and `bash-scheduled-work`.
 - **Kernel hooks:** `setup()` is called during capability initialization; `ShellManager.handle()` is registered as the canonical `shell` tool handler.
