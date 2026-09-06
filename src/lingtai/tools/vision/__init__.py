@@ -549,7 +549,7 @@ _ANALYZE_INPUT_SCHEMA: dict[str, Any] = {
             # required nullable property. Null means absent, and the analyze
             # handler then applies the same default prompt it always has.
             "type": ["string", "null"],
-            "description": "Image question; null uses the default prompt",
+            "description": "Image question; null uses `Describe what you see in this image.`",
         },
         "preset": {
             "type": ["string", "null"],
