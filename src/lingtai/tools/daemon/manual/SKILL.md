@@ -69,8 +69,9 @@ copying that contract. For exact backend command/flag surfaces, use
 
 Every call is the closed LTP-v2 envelope below. `input` contains only the
 selected action's fields; `reasoning` is required; root `summarize` is optional
-and is not action input. Passing another action's field is rejected before the
-engine runs.
+and is not action input. The optional root `summarize` boolean replaces the
+former flat `summary` field. Passing another action's field is rejected before
+the engine runs.
 
 | Action | Example | State |
 |---|---|---|
@@ -82,7 +83,7 @@ engine runs.
 | `reclaim` | `daemon(action="reclaim", input={}, reasoning="stop confirmed work")` | cancels |
 | `manual` | `daemon(action="manual", input={}, reasoning="read procedures")` | read-only |
 
-`emanate`, `ask`, and `reclaim` are the side-effectful actions. `manual` is
+`list`, `check`, `settings`, and `manual` are read-only; `emanate`, `ask`, and `reclaim` are the side-effectful actions. `manual` is
 always directly callable and does not reach the daemon engine. An emanate
 returns immediately with ids and a batch `group_id`; use each returned id/run id
 for inspection and audit.
@@ -162,12 +163,14 @@ Success is exactly `{"settings": [...]}` with five fields per row:
 set/reset input and writes no files, environment, launcher state, or run.
 `configurable: true` means an authorized owner procedure exists; it does not
 grant this caller mutation authority. Verify an owner change with a fresh SHOW.
+A serialization or read failure returns `SETTINGS_UNAVAILABLE` rather than
+partial rows; SHOW never mutates configuration.
 
 ### Max turns
 
 Anchor: `daemon-manual#max-turns`. `max_turns` is the manager's positive
-integer default/ceiling, normally `5000`; valid environment, setup, and owner
-file precedence is defined by the Contract. A per-call `emanate.max_turns` may
+integer default/ceiling, normally `5000`; valid `LINGTAI_DAEMON_MAX_TURNS`
+environment, setup, and owner-file precedence is defined by the Contract. A per-call `emanate.max_turns` may
 choose a smaller positive value up to the schema maximum for one batch only.
 Do not set a low cap merely because a task looks simple: exploration, action,
 verification, and truthful completion all consume turns.
@@ -176,26 +179,29 @@ verification, and truthful completion all consume turns.
 
 Anchor: `daemon-manual#manager-pool-size`. `manager_pool_size` is a
 non-negative integer, normally `100`; `0` selects the classic per-run path.
-It bounds concurrent POSIX central-manager execution children and applies when a
-manager is rebuilt. The owner procedure is configuration/setup, not SHOW.
+`LINGTAI_DAEMON_MANAGER_POOL_SIZE` is its environment source. It bounds
+concurrent POSIX central-manager execution children and applies when a manager
+is rebuilt. The owner procedure is configuration/setup, not SHOW.
 
 ### System prompt budget chars
 
 Anchor: `daemon-manual#system-prompt-budget-chars`.
 `system_prompt_budget_chars` is a positive character limit, normally `20000`,
-for a LingTai daemon's complete rendered prompt. Over-budget task/skill/MCP
-context fails rather than silently truncating constraints. Environment, setup,
-and owner-file precedence plus apply timing are in the Contract; SHOW never
-changes it.
+for a LingTai daemon's complete rendered prompt. `LINGTAI_DAEMON_SYSTEM_PROMPT_BUDGET_CHARS`
+is its environment source. Over-budget task/skill/MCP context fails rather than
+silently truncating constraints. Setup and owner-file precedence plus apply
+timing are in the Contract; SHOW never changes it.
 
 ### Timeout
 
 Anchor: `daemon-manual#timeout`. `timeout` is the manager's finite wall-clock
 seconds default, normally `3600.0`, with an operational minimum of 5 and no
-upper bound. Its owner value comes from capability/launcher setup, not the
-owner file or environment. A per-call `emanate.timeout` is a one-batch override,
-not a settings mutation. Invalid stored values are not silently repaired and
-may make SHOW or later arithmetic fail closed.
+upper bound. Its owner value is a finite JSON number from the
+launcher/capability setup layer, not the owner file or environment. The existing
+setup seam does not enforce that type, range, or finiteness; invalid stored
+values are not silently repaired and may make SHOW or later arithmetic fail
+closed. A per-call `emanate.timeout` is a one-batch override, not a settings
+mutation.
 
 ## Progress, inspection, and follow-up
 

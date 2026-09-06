@@ -137,8 +137,8 @@ when recorded), result preview, and filesystem paths, each read from the
 ledger-selected run's own `daemon.json`. It does not enumerate historical run
 folders and does not lazily create or repair a missing or invalid
 `daemon.json`; inspect a known legacy run (one predating the ledger, or with
-a damaged file) directly with `daemon(action="check")` or manual filesystem
-inspection instead — an omitted `list` entry does not mean the run was
+a damaged file) directly with `daemon(action="check", input={"id": "em-N"})` or
+manual filesystem inspection instead — an omitted `list` entry does not mean the run was
 deleted or failed. Use `contains` for
 case-insensitive substring search over that visible index, `status` for status
 filtering, and `last` as a positive result limit: omitted or null returns the
