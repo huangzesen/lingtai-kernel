@@ -126,6 +126,44 @@ def test_public_actions_include_the_additive_settings_child():
     assert soul.get_schema("en")["properties"]["action"]["enum"] == list(_ACTIONS)
 
 
+def test_compact_description_retains_first_call_safety_and_routes_depth():
+    description = soul.get_description()
+    assert len(description) < 1500
+    for required in (
+        "LINGTAI_SOUL_FLOW_ENABLED",
+        "disabled",
+        "do not retry",
+        "config tunes cadence/count only and cannot enable or disable flow",
+        "inquiry is on-demand self-reflection",
+        "flow is mechanical, asynchronous periodic consultation",
+        "voice reads or sets the flow-voice profile",
+        "cost and privacy",
+    ):
+        assert required in description
+    # Strict child schemas own these first-call details; the root prose routes
+    # to the relevant action instead of repeating them a second time.
+    assert "config sends both nullable knobs with at least one non-null" not in description
+    assert "voice sends both nullable fields, where null/null reads" not in description
+
+
+def test_manual_router_discloses_packaged_soul_references():
+    manual_dir = Path(soul.__file__).with_name("manual")
+    body = manual_dir.joinpath("SKILL.md").read_text(encoding="utf-8")
+    routes = {
+        "reference/flow.md": "# Soul flow and opt-in gate",
+        "reference/configuration.md": "# Soul configuration and voices",
+        "reference/consultation.md": "# Soul consultation mechanics",
+    }
+    assert len(body) < 7000
+    assert "## Actions and routes" in body
+    assert "## Choose a path" not in body
+    assert "## Reference map" not in body
+    for relative, heading in routes.items():
+        assert relative in body
+        reference = manual_dir.joinpath(relative).read_text(encoding="utf-8")
+        assert heading in reference
+
+
 def test_every_action_has_its_own_strict_closed_input_branch():
     schema = soul.get_schema("en")
     branches = schema["properties"]["input"]["anyOf"]

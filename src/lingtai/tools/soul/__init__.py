@@ -71,7 +71,7 @@ _INQUIRY_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "inquiry": {
             "type": "string",
-            "description": "Your self-inquiry — a question to yourself. Required for action='inquiry'. This is you asking yourself a question, not prompting someone else.",
+            "description": "Required non-empty question for on-demand self-reflection; the answer returns in the result, not as periodic flow.",
         },
     },
     "required": ["inquiry"],
@@ -99,13 +99,13 @@ _CONFIG_INPUT_SCHEMA: dict[str, Any] = {
         "delay_seconds": {
             "type": ["number", "null"],
             "minimum": SOUL_DELAY_MIN_SECONDS,
-            "description": "Wall-clock delay between soul flow fires, in seconds. This is ONLY the cadence AFTER soul flow is enabled via env LINGTAI_SOUL_FLOW_ENABLED=1 — it is NOT an off switch, and cannot itself enable/disable flow. If the env var is unset, soul flow is disabled entirely and NO fires occur regardless of this value. Soul flow is your periodic inner reflection — when enabled and the timer fires, past versions of yourself (from molt snapshots) and a stepped-back read of your current work speak to you as voices, surfacing patterns, blind spots, and perspective you might miss while busy. Pass null to leave it unchanged. Minimum 30s; lower for more frequent reflection (e.g. 300 = every 5 minutes; 7200 = every 2 hours). Setting it while flow is enabled cancels the currently-pending fire and restarts the timer on the new schedule. See soul-manual.",
+            "description": "Seconds between enabled flow fires; null leaves it unchanged. Cadence only: it cannot enable or disable flow. Minimum 30 seconds. See soul-manual/reference/configuration.md.",
         },
         "consultation_past_count": {
             "type": ["integer", "null"],
             "minimum": CONSULTATION_PAST_COUNT_MIN,
             "maximum": CONSULTATION_PAST_COUNT_MAX,
-            "description": "K — number of past-self voices sampled per fire. Pass null when not setting it. Each fire runs M=1+K parallel LLM calls (1 stepped-back diary reader + K random past-snapshot voices). Range [0, 5]. 0 = insights-only fires (cheapest, no past-self voices). Higher K is costlier per fire and fills more chat-history with voice content; lower K is faster and quieter. At least one of delay_seconds/consultation_past_count must be non-null.",
+            "description": "Past-self voices per fire (K); null leaves it unchanged. Each fire runs 1+K calls; range 0–5. At least one config value must be non-null. See soul-manual/reference/consultation.md.",
         },
     },
     "required": ["delay_seconds", "consultation_past_count"],
@@ -117,12 +117,12 @@ _VOICE_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "set": {
             "type": ["string", "null"],
-            "description": "Which voice profile to switch to. Built-ins: 'inner' (terse — 'you are the soul, speak as inner voice') or 'observer' (structured stepped-back hook framing). Or 'custom', which requires a 'prompt' field with your own system-prompt text. Pass null to read the current voice and resolved prompt without changing anything.",
+            "description": "Profile to read or set: inner, observer, or custom. Null reads the current resolved voice; custom requires prompt. See soul-manual/reference/configuration.md.",
         },
         "prompt": {
             "type": ["string", "null"],
             "maxLength": SOUL_VOICE_PROMPT_MAX,
-            "description": "Custom system prompt for soul-flow voice. Required when set='custom'; ignored otherwise. Length capped at 4000 characters. Speak to yourself as the soul — describe how you want to be framed when reading your own diary. The same prompt is used for both insights (current self) and past (frozen earlier self) consultations; the per-fire cue text differentiates whose diary you're reading.",
+            "description": "Custom flow-voice prompt; required with set='custom', ignored otherwise, and capped at 4000 characters. Null when not setting. See soul-manual/reference/configuration.md.",
         },
     },
     "required": ["set", "prompt"],
@@ -188,18 +188,12 @@ def _handle_flow(runtime) -> dict:
             "enabled": False,
             "env_var": SOUL_FLOW_ENABLED_ENV,
             "message": (
-                "Soul flow is disabled by default on this agent. It is "
-                "opt-in: set the environment variable "
+                "Soul flow is disabled (expected state; opt-in required). Set "
                 f"{SOUL_FLOW_ENABLED_ENV}=1 (also true/yes/on), then "
-                "refresh/restart, to enable periodic and voluntary "
-                "past-self consultation. delay_seconds is only the "
-                "cadence AFTER this opt-in — it is not an off switch, "
-                "and soul(action='config') does not enable flow. "
-                "inquiry, config, voice, and dismiss remain available "
-                "while flow is disabled. Do not retry flow blindly; the "
-                "operator must set the env var first. See soul-manual "
-                "skill for how to enable/disable, troubleshoot, and the "
-                "privacy/cost rationale."
+                "refresh/restart; config changes cadence only and cannot "
+                "enable flow. Do not retry flow blindly. inquiry, config, "
+                "voice, and dismiss remain available. See soul-manual for "
+                "the gate procedure and cost/privacy guidance."
             ),
         }
 
@@ -298,25 +292,19 @@ _DECLARED_INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 _DESCRIPTION = (
-    "Your inner voice. One tool, seven actions, each with its own strict input "
-    "object: soul(action=..., input={...}, reasoning='why'). flow is OPT-IN "
-    "and DISABLED by default: it runs only when the operator sets env "
-    "LINGTAI_SOUL_FLOW_ENABLED=1 (then refreshes). While disabled, "
-    "soul(action='flow', input={}) returns status='disabled' (not an error — do not retry); inquiry/config/voice/dismiss still work. When enabled, "
-    "flow fires periodic past-self consultation every soul_delay seconds while "
-    "IDLE — M=1+K parallel LLM calls (1 stepped-back read of current chat + K "
-    "past-snapshot voices) arrive as an involuntary soul(action='flow') pair. "
-    "delay_seconds is only the cadence after opt-in, NOT an off switch, and no "
-    "action in this family can enable flow. inquiry: ask a deep copy of "
-    "yourself a question; answer returns in the tool result. config: tune flow "
-    "knobs at runtime (delay_seconds, consultation_past_count) — does not enable "
-    "flow. voice: read or choose how your own soul-flow voice sounds. dismiss: "
-    "clear the current flow notification. settings: show Soul's five current "
-    "settings without changing them. manual: return the installed "
-    "soul-manual skill without performing any soul operation. Results are "
-    "small, so leave root summarize false (short-result profile); call manual "
-    "with summarize=false so the exact procedure is not summarized away. See "
-    "soul-manual for details."
+    "Soul is the agent's inner voice. Use one closed envelope: "
+    "soul(action=..., input={...}, reasoning='why'). Actions are inquiry, flow, "
+    "config, voice, dismiss, settings, and manual; each has strict action-local "
+    "input. inquiry is on-demand self-reflection; flow is mechanical, "
+    "asynchronous periodic consultation and is opt-in, disabled by default until "
+    "an operator sets LINGTAI_SOUL_FLOW_ENABLED=1 and refreshes. Disabled flow "
+    "returns status='disabled' before work; it is expected state, so do not retry "
+    "until the environment changes. config tunes cadence/count only and cannot "
+    "enable or disable flow; voice reads or sets the flow-voice profile; dismiss "
+    "clears its notification; settings is read-only; manual returns the installed "
+    "guide without Soul work. Flow reads current and past-self context and may "
+    "run 1+K LLM calls, so the opt-in protects cost and privacy. Keep root "
+    "summarize=false; see soul-manual for routed detail."
 )
 
 
