@@ -144,6 +144,21 @@ def test_compact_description_retains_first_call_safety_and_routes_depth():
         assert required in description
 
 
+def test_manual_router_discloses_packaged_soul_references():
+    manual_dir = Path(soul.__file__).with_name("manual")
+    body = manual_dir.joinpath("SKILL.md").read_text(encoding="utf-8")
+    routes = {
+        "reference/flow.md": "# Soul flow and opt-in gate",
+        "reference/configuration.md": "# Soul configuration and voices",
+        "reference/consultation.md": "# Soul consultation mechanics",
+    }
+    assert len(body) < 7000
+    for relative, heading in routes.items():
+        assert relative in body
+        reference = manual_dir.joinpath(relative).read_text(encoding="utf-8")
+        assert heading in reference
+
+
 def test_every_action_has_its_own_strict_closed_input_branch():
     schema = soul.get_schema("en")
     branches = schema["properties"]["input"]["anyOf"]
