@@ -134,7 +134,7 @@ def _same_provider_identity(provider_identity: "ProviderIdentityPort", name: str
 _SEARCH_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "query": {"type": "string", "description": "Search query."},
+        "query": {"type": "string", "description": "Query for current web sources."},
     },
     "required": ["query"],
     "additionalProperties": False,
@@ -145,26 +145,26 @@ _BROWSE_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "url": {
             "type": ["string", "null"],
-            "description": "Public HTTP(S) URL; use null when link_ref or cursor is supplied.",
+            "description": "Public HTTP(S) URL; use null with link_ref or cursor.",
         },
         "link_ref": {
             "type": ["string", "null"],
-            "description": "Same-Agent search result reference; use null when not supplied.",
+            "description": "Same-Agent search reference; null when unused.",
         },
         "cursor": {
             "type": ["string", "null"],
-            "description": "Same-Agent continuation cursor; use null when not supplied.",
+            "description": "Same-Agent continuation cursor; null when unused.",
         },
         "extract": {
             "type": ["string", "null"],
             "enum": ["article", None],
-            "description": "Article extraction, or null for the default.",
+            "description": "Use article extraction, or null for default.",
         },
         "max_chars": {
             "type": ["integer", "null"],
             "minimum": 1,
             "maximum": 100000,
-            "description": "Per-call override of the inline-vs-artifact delivery threshold; null uses the shared settings/web.json setting (default 50000). The complete document is always delivered, inline or as an artifact.",
+            "description": "Per-call delivery threshold override (1–100000); null uses settings/web.json.",
         },
     },
     "required": ["url", "link_ref", "cursor", "extract", "max_chars"],
@@ -209,12 +209,9 @@ def _schema_only_family() -> ToolFamily:
 
 def get_description(lang: str = "en") -> str:
     return (
-        "Unified web capability. Use web(action='search', input={'query': '...'}, "
-        "reasoning='discover current sources') for current discovery, then "
-        "web(action='browse', input={'link_ref': '...'}, reasoning='read the "
-        "selected source') for a known result. Use web(action='settings', input={}, "
-        "reasoning='inspect web settings') for effective configuration and "
-        "web(action='manual', input={}, reasoning='load web guidance') for procedure."
+        "Web search current sources, then browse a returned link_ref or public HTTP(S) URL. "
+        "Use settings(input={}) for read-only configuration and manual(input={}) for procedures; "
+        "browse unused optionals are JSON null and complete content is inline or a full artifact."
     )
 
 
