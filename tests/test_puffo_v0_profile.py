@@ -682,6 +682,39 @@ def test_profile_cli_rejects_agent_dir_instead_of_ignoring_it(capsys):
     assert exc_info.value.code == 2
 
 
+def test_acp_parser_rejects_profile_flag_abbreviations():
+    """The ACP profile flag must be matched exactly, never abbreviated.
+
+    A constrained caller classifies the launch on the literal ``--profile``
+    token.  If argparse also accepted ``--prof``/``--p``/``--pro=``, a real
+    ``puffo-v0``/``puffo-v1`` profile could be admitted while bypassing that
+    classifier and its authority/controlled-spawn path, so every abbreviated
+    long-option form must exit 2 while the exact spellings still parse.
+    """
+    import lingtai.cli_acp as cli_acp
+
+    def _parse(argv):
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command", required=True)
+        cli_acp.add_acp_parser(subparsers)
+        return parser.parse_args(argv)
+
+    for exact in (
+        ["acp", "--profile", "puffo-v0", "--runtime-id", "opaque-id"],
+        ["acp", "--profile=puffo-v1", "--runtime-id", "opaque-id"],
+    ):
+        assert _parse(exact).profile in {"puffo-v0", "puffo-v1"}
+
+    for abbreviated in (
+        ["acp", "--prof", "puffo-v0", "--runtime-id", "opaque-id"],
+        ["acp", "--pro=puffo-v1", "--runtime-id", "opaque-id"],
+        ["acp", "--p", "puffo-v0", "--runtime-id", "opaque-id"],
+    ):
+        with pytest.raises(SystemExit) as exc_info:
+            _parse(abbreviated)
+        assert exc_info.value.code == 2
+
+
 def test_full_tool_profile_keeps_operator_managed_capabilities_available(tmp_path):
     agent = Agent(
         service=make_mock_service(),

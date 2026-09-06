@@ -11,6 +11,12 @@ def add_acp_parser(subparsers) -> None:
     parser = subparsers.add_parser(
         "acp",
         help="Serve one existing LingTai agent over local ACP v1 stdio",
+        # Reject long-option abbreviation so the ACP wire syntax stays exact.
+        # A constrained caller classifies profiles on the literal ``--profile``
+        # token; if argparse also accepted ``--prof``/``--p``/``--pro=``, a
+        # constrained ``puffo-v0``/``puffo-v1`` launch could slip past that
+        # classifier and be treated as a generic (unconstrained) profile.
+        allow_abbrev=False,
     )
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument(

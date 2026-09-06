@@ -273,6 +273,11 @@ argv, environment, or MCP command from the remote caller.
     is a controlled-entrypoint guard,
     not host isolation: an OS principal able to edit the registry or launch the
     generic `--agent-dir` command remains outside this profile's threat model.
+    The profile flag is matched by its exact `--profile` spelling only:
+    abbreviated long-option forms (`--prof`, `--p`, `--pro=`) are rejected with
+    argparse's usage error (`exit 2`), so a constrained `puffo-v0`/`puffo-v1`
+    launch cannot be smuggled past a trusted caller that classifies the launch on
+    the literal `--profile` token.
     The required Puffo integration seam is outside this repository: before ACP
     spawn, Puffo's trusted ACP driver must derive its `ValidatedLaunchPlan`
     (executable, complete argv, environment, workspace, and empty MCP session
@@ -308,8 +313,8 @@ Agent-stop-with-open-stdin, Windows duplicate-before-cleanup, typed quiescence,
 and CLI Python-stdout quarantine/hard-exit ownership.
 `tests/test_puffo_v0_profile.py` pins opaque-id provisioning/resolution,
 tamper/revocation rejection, full-tool composition, fixed-workspace and
-empty-session-MCP rejection, authenticated-adapter admission, and profile CLI
-composition. `tests/test_driver_authority_adapter.py` pins the inherited root
+empty-session-MCP rejection, authenticated-adapter admission, profile CLI
+composition, and rejection of abbreviated `--profile` flag spellings. `tests/test_driver_authority_adapter.py` pins the inherited root
 endpoint configuration and its fail-closed missing/malformed/derived-role
 outcomes. `tests/test_correlated_turns.py` independently proves an
 untrusted inbox event cannot reach provider dispatch under this profile policy.
