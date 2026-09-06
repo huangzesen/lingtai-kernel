@@ -370,6 +370,78 @@ jobs:
             --skip-gitee \
             $execute_flag
 
+      - name: Notify lingtai-web download mirror
+        # Only after the GitHub upload above actually ran for real -- never on
+        # a dry run, and never before the upload step, so the mirror can only
+        # ever be asked to fetch bytes GitHub has already accepted. This is a
+        # download-acceleration mirror, not an alternate release-publication
+        # path: a missing/failed dispatch never edits or undoes the GitHub
+        # release published above. continue-on-error isolates a dispatch
+        # failure (e.g. an expired/under-scoped LINGTAI_WEB_DISPATCH_TOKEN,
+        # or a transient API error) from this job's overall result, so a
+        # download-acceleration outage can never fail the release-manifest
+        # job or skip the "Upload release manifest artifact" step below --
+        # only the actual manifest/wheel/sdist publish gate stays fail-closed.
+        if: steps.publish_mode.outputs.execute == '1'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.LINGTAI_WEB_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::LINGTAI_WEB_DISPATCH_TOKEN is not set; skipping the lingtai.ai download-mirror dispatch. This is a documented deployment prerequisite (a token with repository_dispatch write access on huangzesen/lingtai-web), not a release failure -- the GitHub release above already succeeded."
+            exit 0
+          fi
+          version="$(python -c 'import tomllib,sys; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
+          tag="${{ github.event.release.tag_name || inputs.release_tag || '' }}"
+          tag="${tag:-v${version}}"
+          python3 - "$tag" << 'PY' | gh api repos/huangzesen/lingtai-web/dispatches --method POST --input -
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          tag = sys.argv[1]
+          assets_dir = Path("release-assets")
+          manifest = json.loads((assets_dir / "lingtai-kernel-release-manifest.json").read_text())
+
+          def sha256_of(path: Path) -> str:
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          assets = []
+          # The wheels/sdist already carry a verified sha256 in the manifest
+          # (verify_local_assets() proved it matches on-disk bytes earlier in
+          # this job); the manifest and SHA256SUMS files describe themselves,
+          # so their digests are computed fresh here.
+          for artifact in manifest["artifacts"]:
+              path = assets_dir / artifact["filename"]
+              assets.append({
+                  "name": artifact["filename"],
+                  "sha256": artifact["sha256"],
+                  "size": path.stat().st_size,
+              })
+          for extra_name in ("lingtai-kernel-release-manifest.json", "SHA256SUMS"):
+              path = assets_dir / extra_name
+              assets.append({
+                  "name": extra_name,
+                  "sha256": sha256_of(path),
+                  "size": path.stat().st_size,
+              })
+
+          print(json.dumps({
+              "event_type": "release-asset-published",
+              "client_payload": {
+                  "source_repo": "Lingtai-AI/lingtai-kernel",
+                  "tag": tag,
+                  "assets": assets,
+              },
+          }))
+          PY
+
       - name: Upload release manifest artifact
         uses: actions/upload-artifact@v4
         with:

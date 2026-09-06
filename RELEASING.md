@@ -126,6 +126,25 @@ asset with different bytes, missing/ambiguous metadata, or a failed download
 always triggers a fail-loud error before upload planning completes.
 **There is no delete-and-replace path.**
 
+### Download-mirror dispatch (lingtai.ai acceleration)
+
+Immediately after the publish step above uploads assets for real (never on a
+dry run), `wheels.yml`'s "Notify lingtai-web download mirror" step sends one
+`repository_dispatch` (`release-asset-published`) to `huangzesen/lingtai-web`
+naming this release's tag and every uploaded asset's filename, sha256, and
+size — artifact digests come from the already-verified manifest; the
+manifest and SHA256SUMS digests are computed from their published local bytes. This exists solely so `lingtai.ai` can
+mirror the exact same bytes for mainland-China download acceleration; GitHub
+remains the sole official release authority, and a missing or failed dispatch
+never edits, retries, or undoes the GitHub release itself.
+
+**Deployment prerequisite:** the `LINGTAI_WEB_DISPATCH_TOKEN` repository
+secret (a token with `repository_dispatch` write access on
+`huangzesen/lingtai-web`) must be configured for this step to do anything;
+until then it prints a `::warning::` and exits 0, so its absence cannot fail
+a release. See `huangzesen/lingtai-web`'s `docs/release-mirror/CONTRACT.md` for the
+receiving side's contract.
+
 ### Manual dry run (safe, no token required)
 
 ```bash
