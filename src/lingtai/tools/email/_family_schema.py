@@ -17,13 +17,12 @@ per-action data here means the model-facing composition and the legacy flat
 shape have one owner each, and the ledger in the migration report can name
 exactly what each file is for.
 
-Field descriptions are reused verbatim from ``schema.py``'s flat properties
-wherever the field is the same field, so the migration changes the envelope
-and not the prose the model reads. ``ACTION_ORDER`` owns the operational/manual
-order and child registration order in ``__init__.py``. The generic declaration
-opt-in inserts ``settings`` immediately before ``manual`` and consequently
-composes the public ``input.anyOf``/``allOf`` order without adding a
-hand-authored schema here.
+Field descriptions retain the first-call semantics of ``schema.py``'s flat
+properties while moving rationale, catalogs, and examples to ``email-manual``
+references. ``ACTION_ORDER`` owns the operational/manual order and child
+registration order in ``__init__.py``. The generic declaration opt-in inserts
+``settings`` immediately before ``manual`` and consequently composes the public
+``input.anyOf``/``allOf`` order without adding a hand-authored schema here.
 
 Optional fields are declared in the provider-compatible nullable
 representation (``"type": [..., "null"]`` plus membership in ``required``) per
@@ -53,97 +52,66 @@ ACTION_ORDER: tuple[str, ...] = (
 
 # --- Shared field descriptions, verbatim from the pre-migration flat schema ---
 
-_ADDRESS_DESCRIPTION = "Target address(es) for send"
-_CC_DESCRIPTION = "CC addresses — visible to all recipients"
-_BCC_DESCRIPTION = "BCC addresses — hidden from other recipients"
-_ATTACHMENTS_DESCRIPTION = "File paths to attach (for send)"
-_SUBJECT_DESCRIPTION = "Email subject line"
-_MESSAGE_DESCRIPTION = (
-    "Email body (max 50,000 chars; longer internal emails are rejected "
-    "because unread bodies are injected in full into persistent "
-    "notifications)."
-)
-_EMAIL_ID_DESCRIPTION = (
-    "List of email IDs for read. For reply/reply_all, pass a single-element "
-    "list."
-)
-_N_DESCRIPTION = "Max recent emails to show (for check, default 10)"
-_QUERY_DESCRIPTION = "Regex pattern for search (matches from, subject, message)"
-_FOLDER_DESCRIPTION = (
-    "Folder for check/search/read/delete. Default: inbox for check, both for "
-    "search. Note: 'sent' is read-only — delete only works on inbox or "
-    "archive."
-)
-_DELAY_DESCRIPTION = (
-    "Delay in seconds before delivery (default: 0). Use for scheduled or "
-    "deferred sends."
-)
-_TYPE_DESCRIPTION = "Email type (for send). Defaults to 'normal'."
-_NAME_DESCRIPTION = (
-    "Contact's human-readable name (for add_contact, edit_contact)"
-)
-_NOTE_DESCRIPTION = (
-    "Free-text note about the contact (for add_contact, edit_contact)"
-)
+_ADDRESS_DESCRIPTION = "Bare name/path for send; string or list."
+_CC_DESCRIPTION = "Visible CC addresses."
+_BCC_DESCRIPTION = "Hidden BCC addresses."
+_ATTACHMENTS_DESCRIPTION = "Attachment paths for send."
+_SUBJECT_DESCRIPTION = "Subject."
+_MESSAGE_DESCRIPTION = "Body; max 50,000 characters."
+_EMAIL_ID_DESCRIPTION = "Own mailbox ID list; replies use one ID."
+_N_DESCRIPTION = "Max messages for check; default 10."
+_QUERY_DESCRIPTION = "Regex query over sender, subject, and body."
+_FOLDER_DESCRIPTION = "Folder; check inbox/search both; sent is read-only."
+_DELAY_DESCRIPTION = "Delivery delay in seconds; default 0."
+_TYPE_DESCRIPTION = "Send type; default normal."
+_NAME_DESCRIPTION = "Contact name."
+_NOTE_DESCRIPTION = "Contact note."
 
-# The ``filter`` object for ``check``, verbatim from the flat schema's own
-# nested ``filter`` property (same properties, same descriptions, same
-# ``truncate`` default). ``additionalProperties: False`` is added because a
+# The ``filter`` object for ``check`` keeps the flat schema's property set,
+# defaults, and first-call matching semantics; its long catalog and examples
+# live in the Email manual. ``additionalProperties: False`` is added because a
 # migrated family's ``input`` branches are closed all the way down
 # (``tools/CONTRACT.md`` "Envelope": "Action branches are closed").
 _FILTER_SCHEMA: dict[str, Any] = {
     "type": ["object", "null"],
-    "description": (
-        "Optional filter object for check. Pass filter={sort, from, subject, "
-        "contains, after, before, unread_only, has_attachments, truncate} to "
-        "narrow and control results."
-    ),
+    "description": "Optional check filters; see email-manual for fields and defaults.",
     "properties": {
         "sort": {
             "type": ["string", "null"],
             "enum": ["newest", "oldest", None],
-            "description": "'newest' (default) or 'oldest'.",
+            "description": "Sort newest (default) or oldest.",
         },
         "from": {
             "type": ["string", "null"],
-            "description": "Filter by sender (case-insensitive substring match).",
+            "description": "Case-insensitive sender substring.",
         },
         "subject": {
             "type": ["string", "null"],
-            "description": "Filter by subject (case-insensitive substring match).",
+            "description": "Case-insensitive subject substring.",
         },
         "contains": {
             "type": ["string", "null"],
-            "description": (
-                "Filter by message body content (case-insensitive substring "
-                "match)."
-            ),
+            "description": "Case-insensitive body substring.",
         },
         "after": {
             "type": ["string", "null"],
-            "description": (
-                "Only show emails after this ISO 8601 timestamp (e.g. "
-                "2026-04-01T00:00:00Z)."
-            ),
+            "description": "Only messages after an ISO 8601 timestamp.",
         },
         "before": {
             "type": ["string", "null"],
-            "description": "Only show emails before this ISO 8601 timestamp.",
+            "description": "Only messages before an ISO 8601 timestamp.",
         },
         "unread_only": {
             "type": ["boolean", "null"],
-            "description": "Only show unread emails.",
+            "description": "Only unread messages.",
         },
         "has_attachments": {
             "type": ["boolean", "null"],
-            "description": "Only show emails that have attachments.",
+            "description": "Only messages with attachments.",
         },
         "truncate": {
             "type": ["integer", "null"],
-            "description": (
-                "Max characters for message preview (default 500). Set to 0 "
-                "for full message body."
-            ),
+            "description": "Preview characters; default 500, 0 means full body.",
         },
     },
     "required": [
@@ -408,26 +376,15 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     "manual": MANUAL_INPUT_SCHEMA,
 }
 
-# The canonical ``action`` enum prose. Reuses the pre-migration flat schema's
-# own action description verbatim, with the envelope's ``input=`` call form
-# substituted for the old flat keyword form, and the ``manual`` sentence
-# extended with the family's ``summarize`` guidance profile
-# (``tools/CONTRACT.md`` "Dispatch and actions").
+# The canonical concise ``action`` enum router. It retains first-call action
+# choice and critical safety guidance; action procedures and examples live in
+# the Email manual references (``tools/CONTRACT.md`` "Dispatch and actions").
 ACTION_ENUM_DESCRIPTION = (
-    "send: send with optional cc/bcc (requires address, message; message body "
-    "max 50,000 chars because unread bodies are injected in full into "
-    "persistent notifications). check: list mailbox with preview of each email "
-    "(up to 500 chars). read: fetch inbox emails by ID list "
-    "(input={'email_id': [id1, id2, ...], ...}) AND marks each as read; "
-    "ordinary unread content is already injected in "
-    "notification_persistent.email, so prefer dismiss when you only need to "
-    "clear handled mail. dismiss: same read-state effect as read but returns "
-    "no bodies — preferred after handling content visible in persistent "
-    "notification. reply: reply to email (requires email_id, message). "
-    "reply_all: reply to all recipients. search: regex search mailbox. "
-    "archive/delete: move/remove from inbox or archive. "
-    "contacts/add_contact/remove_contact/edit_contact manage contacts. "
-    "settings shows read-only Email policy/source truth. manual "
-    "returns the installed email-manual skill without reading or changing "
-    "mailbox state."
+    "Choose one action; put only that action's fields in input. send: new internal "
+    "message (address and message required; body max 50,000 characters). check: "
+    "list/filter mail. read: fetch mailbox IDs and mark them read; dismiss: mark "
+    "handled IDs read without returning bodies. reply/reply_all: reply in-thread "
+    "on the arrival channel. search: regex lookup. archive/delete: move or remove "
+    "inbox/archive mail. contacts actions manage the address book. settings is "
+    "read-only. manual returns this manual without mailbox I/O."
 )

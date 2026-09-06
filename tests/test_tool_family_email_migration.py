@@ -117,6 +117,38 @@ def test_settings_is_the_only_added_public_action_and_order_is_pinned():
     assert list(email_tool.DECLARATION.public_actions) == _PUBLIC_ACTIONS
 
 
+def test_email_schema_keeps_first_call_safety_while_disclosing_depth():
+    """The compact schema retains routing, cap, and channel guards."""
+    schema = email_tool.get_schema()
+    description = email_tool.get_description()
+    action_description = schema["properties"]["action"]["description"]
+    fields = schema["properties"]["input"]["anyOf"]
+    prose = " ".join((description, action_description))
+    assert "50,000" in prose
+    assert "reply" in prose and "channel" in prose
+    assert "manual" in prose
+    assert any("email-manual" in str(branch) for branch in fields)
+
+
+def test_email_manual_is_a_short_router_with_focused_references():
+    """Long procedures stay available without inflating the installed router."""
+    root = Path(__file__).resolve().parents[1]
+    manual = root / "src/lingtai/tools/email/manual/SKILL.md"
+    body = manual.read_text(encoding="utf-8")
+    assert len(body) < 12_000
+    assert "## Reference map" in body
+    assert "Reply on the channel where the message arrived." in body
+    for reference in (
+        "addressing-and-replies",
+        "actions-and-storage",
+        "notifications-and-delivery",
+        "settings-reference",
+    ):
+        path = manual.parent / "reference" / reference / "SKILL.md"
+        assert path.is_file(), reference
+        assert f"reference/{reference}/SKILL.md" in body
+
+
 def test_reserved_unread_is_not_a_public_child_or_action():
     schema = email_tool.get_schema()
     assert "unread" not in schema["properties"]["action"]["enum"]
