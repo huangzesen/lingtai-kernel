@@ -7,6 +7,7 @@ moved to `system` (`tests/test_tool_family_system_migration.py`).
 """
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -281,6 +282,45 @@ def test_context_schema_has_session_journal_path_only_on_molt():
     )
     molt_required = molt_branch["then"]["properties"]["input"]["required"]
     assert "summary" in molt_required and "session_journal_path" in molt_required
+
+
+def test_context_manual_is_a_short_router_to_focused_references():
+    """The first manual response routes depth instead of duplicating recipes."""
+    manual_path = Path(__file__).resolve().parents[1] / "src/lingtai/tools/context/manual/SKILL.md"
+    body = manual_path.read_text(encoding="utf-8")
+    assert len(body) < 8_000
+    assert "context(action=\"manual\", input={}, reasoning=\"load context guidance\")" in body
+    assert "reference/molt-manual/SKILL.md" in body
+    assert "reference/summarize-manual/SKILL.md" in body
+    assert "assets/session-journal-entry-template.md" in body
+    assert "assets/molt-template.md" in body
+
+    molt_reference = manual_path.parent / "reference" / "molt-manual" / "SKILL.md"
+    detail = molt_reference.read_text(encoding="utf-8")
+    assert "## 2. Write the session-journal child first" in detail
+    assert "## Input field dictionary" in detail
+    assert "## Pre-molt checklist" in detail
+    assert "type: session-journal" in detail
+
+
+def test_context_schema_keeps_first_call_safety_signposts():
+    """Schema prose retains only the facts needed to choose a safe first call."""
+    from lingtai.tools.context import get_schema
+
+    schema = get_schema("en")
+    root_description = schema["properties"]["action"]["description"]
+    assert "molt" in root_description and "summarize" in root_description
+    assert "rebuild" in root_description and "manual" in root_description
+    assert "bare input={}" in root_description
+
+    branches = {
+        branch["if"]["properties"]["action"]["const"]: branch["then"]["properties"]["input"]["properties"]
+        for branch in schema["allOf"]
+    }
+    assert "before shedding" in branches["molt"]["session_journal_path"]["description"]
+    assert "not the parent index" in branches["molt"]["session_journal_path"]["description"]
+    assert "does not rebuild" in branches["summarize"]["items"]["description"]
+    assert "bare input={}" in branches["rebuild"]["items"]["description"]
 
 
 # ---------------------------------------------------------------------------

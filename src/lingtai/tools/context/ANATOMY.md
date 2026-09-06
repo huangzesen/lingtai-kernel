@@ -4,6 +4,7 @@ related_files:
   - src/lingtai/tools/context/manual/assets/molt-template.md
   - src/lingtai/tools/context/manual/assets/session-journal-entry-template.md
   - src/lingtai/tools/context/manual/reference/summarize-manual/SKILL.md
+  - src/lingtai/tools/context/manual/reference/molt-manual/SKILL.md
   - src/lingtai/kernel/tool_plugin/ANATOMY.md
   - src/lingtai/adapters/tool_plugin_host.py
   - src/lingtai/tools/ANATOMY.md

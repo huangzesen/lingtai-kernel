@@ -89,20 +89,20 @@ _MOLT_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "summary": {
             "type": "string",
-            "description": 'Your session retrospective (~10,000 tokens). Write as a record — what happened, what you learned, what remains. The four stores must be tended BEFORE molt. Saved to `system/summaries/molt_<count>_<ts>.md` and replayed to the next you. See context-manual for full writing guidance. This is domain input the molt itself consumes, not the root `summarize` post-processing control.',
+            "description": 'Required retrospective for the next session. Tend all four durable stores and write the session-journal entry before calling molt. See context-manual and its molt reference.',
         },
         "session_journal_path": {
             "type": "string",
-            "description": 'REQUIRED. The path to the session-journal entry you wrote for the just-finished segment BEFORE molting: knowledge/session-journal/<entry>/KNOWLEDGE.md (a per-segment sub-entry, NOT the parent index). Must be inside your workdir, exist, be non-empty UTF-8, have valid YAML frontmatter with `name` and `description`, and identify itself as session knowledge via `type: session-journal` or `session_journal: true`. The molt is refused before any context is shed if this is missing or invalid. See context-manual §4.',
+            "description": 'REQUIRED pre-molt path: knowledge/session-journal/<entry>/KNOWLEDGE.md, a per-segment child inside the workdir (not the parent index). It must be non-empty UTF-8 with `name`/`description` frontmatter and `type: session-journal` or `session_journal: true`; missing or invalid input is refused before shedding. See context-manual and its molt reference.',
         },
         "keep_tool_calls": {
             "type": ["array", "null"],
             "items": {"type": "string"},
-            "description": 'Optional list of tool-call IDs to replay across the molt, in your chosen order. If any ID is not found, molt is refused before anything is shed. Keep short — durable stores are primary persistence. Pass null to keep none. See context-manual.',
+            "description": 'Optional ordered prior tool-call IDs to replay; unknown IDs refuse before shedding. Pass null to keep none. Keep short because durable stores are primary persistence. See context-manual\'s molt reference.',
         },
         "keep_last": {
             "type": ["integer", "null"],
-            "description": 'Optional requested minimum number of recent conversation entries to replay into the fresh session (default: 20 when null). The retained suffix may contain more entries when needed to preserve one adjacent assistant tool-call/result batch whole. Pass 0 to archive everything. Overlapping entries with keep_tool_calls are deduplicated. See context-manual.',
+            "description": 'Optional minimum recent entries to replay (null defaults to 20; 0 archives all). A retained suffix may expand to keep one assistant tool-call/result batch whole, and overlaps with keep_tool_calls are deduplicated. See context-manual\'s molt reference.',
         },
     },
     "required": ["summary", "session_journal_path", "keep_tool_calls", "keep_last"],
@@ -154,24 +154,17 @@ _ITEM_SCHEMA: dict[str, Any] = {
 }
 
 _SUMMARIZE_ITEMS_DESCRIPTION = (
-    "REQUIRED, non-empty. The tool results to replace with your own compact "
-    "summaries, each with 'tool_call_id' (the id of the prior tool-result "
-    "block) and 'summary' (your agent-authored text). Supports multiple items "
-    "per call. The original is NOT deleted — it remains retrievable from "
-    "events.jsonl by tool_call_id. Pick targets from "
-    "`_meta.agent_meta.agent_state.current_tool_result_chars.top_results`. "
-    "This action RECORDS ONLY: the active provider context may still carry "
-    "the old raw results until context(action='rebuild') applies them."
+    "REQUIRED, non-empty list of {tool_call_id, summary} items. Each ID names a "
+    "prior tool-result block and each summary is agent-authored. The raw event "
+    "remains retrievable; this action records only and does not rebuild. See "
+    "context-manual/reference/summarize-manual."
 )
 
 _REBUILD_ITEMS_DESCRIPTION = (
-    "Optional — omit it entirely for the ordinary call. Every rebuild first "
-    "re-reads and recomposes ALL canonical system-prompt sections from durable "
-    "and configured sources, then applies summaries, then requests provider "
-    "replay with the new prompt/history. context(action='rebuild', input={}) is "
-    "valid even with zero pending summaries; an explicit null means the same. "
-    "Pass items to record those summaries after prompt composition and apply "
-    "them in the same call. Same item shape as context(action='summarize')."
+    "Optional list of the same {tool_call_id, summary} items; omit it for the "
+    "ordinary bare input={} call (explicit null is equivalent). Rebuild composes "
+    "all canonical prompt sources, then applies pending/new summaries, then "
+    "requests provider replay. See context-manual/reference/summarize-manual."
 )
 
 _SUMMARIZE_INPUT_SCHEMA: dict[str, Any] = {
@@ -350,26 +343,28 @@ def _build_family(
 #: guidance the model actually needs to pick an action replaces it in
 #: :func:`get_schema` rather than being lost.
 _ACTION_ENUM_DESCRIPTION = (
-    'Required operation. '
-    'molt: shed your conversation context, keep the durable stores. Requires '
-    '`summary` and a valid `session_journal_path` — tend the four stores '
-    'BEFORE molting. See context-manual.\n'
-    'summarize: record your own compact replacements for prior tool results in '
-    'runtime history. RECORD ONLY — it does not rebuild, so the active '
-    'provider context may still carry the old raw results.\n'
-    'rebuild: re-read and recompose ALL canonical prompt sources, then apply '
-    'pending/new summaries, then replay provider context with the new prompt and '
-    'history. Bare input={} is valid even with zero pending summaries. Prefer '
-    'one tactical rebuild; do not loop rebuild.\n'
-    'manual: return the installed context-manual skill without performing any '
-    'context operation.\n'
-    'Identity/lifecycle actions are not here: use '
-    'system(action=\'name_set\'|\'name_nickname\').'
+    "Required operation. "
+    "molt sheds conversation while retaining durable stores; it requires a "
+    "retrospective and valid session-journal path. See context-manual.\n"
+    "summarize records compact prior tool-result replacements only; it does not "
+    "rebuild provider context.\n"
+    "rebuild recomposes canonical prompt sources, then applies summaries, then "
+    "requests provider replay; bare input={} is valid. Make one tactical call.\n"
+    "manual returns the installed context-manual without a lifecycle operation. "
+    "Name actions belong to system."
 )
 
 
 def get_description(lang: str = "en") -> str:
-    return 'Your context: shed it, compact it, rebuild it. Four actions, each with its own strict input object. molt (凝蜕): shed the conversation, keep the durable stores; requires a written session journal. summarize: record compact replacements for bulky prior tool results — records only, does NOT rebuild. rebuild: re-read and recompose every canonical prompt source, apply pending/new summaries, then replay provider context with the new prompt/history; bare input={} is valid even with zero pending summaries. manual: return the installed context-manual skill. Identity/lifecycle actions are not here — use system(action=\'name_set\'|\'name_nickname\'). Note the two levels: the ACTION named summarize is this domain operation, while the optional ROOT summarize boolean is the unrelated result-presentation control — leave it false here (results are small), including for manual, so the exact molt procedure is not summarized away.'
+    return (
+        "Context lifecycle: molt sheds conversation while retaining durable stores; "
+        "summarize records compact tool-result replacements only; rebuild "
+        "recomposes canonical prompt sources, applies summaries, and requests "
+        "provider replay; manual returns context-manual. Read the manual before "
+        "molt/rebuild. The action named summarize is unrelated to the optional "
+        "root summarize boolean presentation control; leave that boolean false "
+        "for Context results."
+    )
 
 
 def get_schema(lang: str = "en") -> dict:
