@@ -1,38 +1,14 @@
 """Psyche's declared official host-plugin slice.
 
-``psyche`` is the mandatory, model-visible LTP v2 root for the four durable
-self domains: ``pad + lingtai + knowledge + skills = psyche``. Its exact action
-set remains ``pad | lingtai | knowledge | skills | settings | manual``:
+``psyche`` is the mandatory model-visible LTP v2 root for the four durable
+self-domains: ``pad + lingtai + knowledge + skills = psyche``. Its six actions
+are four manual routes, redacted ``settings``, and the ``manual`` router; every
+child uses the canonical strict-empty input and is read-only. The declaration
+binds only ``workdir`` and the applied Psyche settings snapshot.
 
-- ``pad``, ``lingtai``, ``knowledge``, and ``skills`` each return that domain's
-  own installed manual;
-- ``settings`` returns eight fully redacted Psyche-owned prompt-configuration
-  rows (Pad plus the three configurable prompt pairs);
-- ``manual`` returns the psyche routing-table manual, which explains the four
-  durable domains and their shared mutation/rebuild model.
-
-Every child takes the canonical strict-empty ``input``. No public action mutates
-disk, prompt state, configuration, or a catalog. The static declaration binds
-the family only to ``workdir`` plus a read-only view of the last successfully
-applied Pad settings snapshot; it receives no Agent or prompt mutation surface.
-
-This root replaces the four former public roots ``pad``, ``lingtai``,
-``knowledge``, and ``skills``. That was a clean break: those roots, the
-``pad.append`` action, and the ``skills.info`` / ``knowledge.info`` actions have
-no alias, wrapper, or compatibility path and now fail as unknown tools/actions.
-The name ``psyche`` was also used by a long-dissolved family; reusing the root
-name grants none of that family's actions.
-
-The capabilities themselves remain private lifecycle owners:
-
-- durable text mutation is ``file.write`` / ``file.edit``;
-- Pad and LingTai keep their private canonical prompt composers;
-- Skills/Knowledge keep their capability-owned catalog composition; and
-- one explicit ``context.rebuild`` or passive refresh/molt reconstruction makes
-  durable content prompt-visible.
-
-The static-plan ``substrate`` prompt contribution is separate from this family;
-the kernel's render slot and mechanics remain unchanged.
+The former public domain roots and dissolved Psyche actions remain retired
+without aliases. Domain lifecycle/composition stays private to its owners, and
+the static-plan ``substrate`` prompt section remains a separate kernel concept.
 """
 from __future__ import annotations
 
@@ -73,16 +49,14 @@ _DECLARED_INPUT_SCHEMAS = {
 }
 
 _ACTION_ENUM_DESCRIPTION = (
-    "Choose one Psyche operation. Every action takes input={} and is strictly "
-    "read-only: no file write, prompt reload, catalog rescan, pin, or install.\n"
+    "Choose one Psyche operation. Every action takes strict input={} and is "
+    "read-only; load the returned manual before acting on an unfamiliar domain.\n"
     "pad: return pad-manual for system/pad.md and pinned Pad references.\n"
     "lingtai: return lingtai-manual for system/lingtai.md (灵台 / character).\n"
     "knowledge: return the knowledge manual for durable KNOWLEDGE.md entries.\n"
     "skills: return the skills manual for the configured .library catalog.\n"
-    "settings: show the applied, fully redacted Psyche-owned inventory.\n"
-    "manual: return the psyche routing table and shared rebuild model.\n"
-    "For durable changes, use file.write or file.edit on the domain source, "
-    "then one explicit context.rebuild; mutation never hot-loads the prompt."
+    "settings: show Psyche's fully redacted settings view.\n"
+    "manual: return the psyche routing table."
 )
 
 
@@ -117,16 +91,15 @@ _FAMILY = _build_family(None)
 
 def get_description(lang: str = "en") -> str:
     return (
-        "SIGNPOST ONLY: your psyche is your four durable domains — pad, "
-        "lingtai (灵台), knowledge, and skills. Each action takes input={} and "
-        "returns exact domain guidance or a compact redacted settings inventory. "
-        "It never authors, edits, pins, installs, rescans, or loads anything. "
-        "Read the relevant manual before acting on a domain you do not already "
-        "know. Change durable content with file.write (full rewrite) or "
-        "file.edit (exact replacement) on that domain's source, then apply it "
-        "with one explicit context.rebuild or passive refresh/molt "
-        "reconstruction; file mutation never hot-loads the prompt. Results are "
-        "exact guidance — leave root summarize false."
+        "SIGNPOST ONLY: psyche routes four durable domains — pad, lingtai "
+        "(灵台), knowledge, and skills. Every action takes strict input={} and is "
+        "read-only; it never authors, edits, pins, installs, rescans, or loads "
+        "anything. Call manual first for an unfamiliar domain. Durable changes "
+        "use file.write for a full rewrite or file.edit for an exact replacement, "
+        "then one explicit context.rebuild (or passive refresh/molt); file "
+        "mutation never hot-loads the prompt. Psyche owns no lifecycle action: "
+        "context owns rebuild/molt and system owns identity. Results are exact; "
+        "leave root summarize false."
     )
 
 
