@@ -389,13 +389,13 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::warning::LINGTAI_WEB_DISPATCH_TOKEN is not set; skipping the lingtai.ai download-mirror dispatch. This is a documented deployment prerequisite (a token with repository_dispatch write access on huangzesen/lingtai-web), not a release failure -- the GitHub release above already succeeded."
+            echo "::warning::LINGTAI_WEB_DISPATCH_TOKEN is not set; skipping the lingtai.ai download-mirror dispatch. This is a documented deployment prerequisite (a token with repository_dispatch write access on Lingtai-AI/lingtai-web), not a release failure -- the GitHub release above already succeeded."
             exit 0
           fi
           version="$(python -c 'import tomllib,sys; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
           tag="${{ github.event.release.tag_name || inputs.release_tag || '' }}"
           tag="${tag:-v${version}}"
-          python3 - "$tag" << 'PY' | gh api repos/huangzesen/lingtai-web/dispatches --method POST --input -
+          python3 - "$tag" << 'PY' | gh api repos/Lingtai-AI/lingtai-web/dispatches --method POST --input -
           import hashlib
           import json
           import sys
