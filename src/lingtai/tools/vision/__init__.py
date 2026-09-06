@@ -542,27 +542,18 @@ _ANALYZE_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "image_path": {
             "type": "string",
-            "description": "Path to the image file",
+            "description": "Image file path; relative paths use the workdir",
         },
         "question": {
             # Strict OpenAI object branches express an optional field as a
             # required nullable property. Null means absent, and the analyze
             # handler then applies the same default prompt it always has.
             "type": ["string", "null"],
-            "description": (
-                "Question about the image, or null for the default "
-                "\"Describe what you see in this image.\""
-            ),
+            "description": "Image question; null uses the default prompt",
         },
         "preset": {
             "type": ["string", "null"],
-            "description": (
-                "Optional preset name/path whose vision service should be "
-                "borrowed for this call (e.g. \"codex-pool\" for gpt-5.6 "
-                "vision). Must be a path listed in manifest.preset.allowed. "
-                "Null/absent uses the default route (active provider or the "
-                "configured vision capability)."
-            ),
+            "description": "Optional manifest.preset.allowed route to borrow; null uses the default",
         },
     },
     "required": ["image_path", "question"],
@@ -578,14 +569,7 @@ _CHECK_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "preset": {
             "type": ["string", "null"],
-            "description": (
-                "Optional preset name/path whose vision service should be "
-                "checked (e.g. \"codex-pool\" for gpt-5.6 vision). Must be a "
-                "path listed in manifest.preset.allowed. Null/absent checks "
-                "the default route (active provider or the configured vision "
-                "capability). The check resolves the service identity without "
-                "sending an image request."
-            ),
+            "description": "Optional manifest.preset.allowed route to check; null checks the default without an image",
         },
     },
     "required": ["preset"],
@@ -653,18 +637,14 @@ class VisionConfiguration:
 
 
 _DESCRIPTION = (
-    "Analyze an image with the active preset. Use vision(action='analyze', "
-    "input={'image_path': '...', 'question': null}, reasoning='read the "
-    "image') for the direct request; the optional input preset field "
-    "borrows another allowed preset's vision service (e.g. 'codex-pool'). "
-    "Use vision(action='check', input={'preset': null}, reasoning='verify "
-    "the vision route') to resolve which preset's vision service actually "
-    "works without sending an image. Use vision(action='settings', input={}, "
-    "reasoning='inspect the bound Vision route') for its read-only five-field "
-    "inventory. A real request failure returns a "
-    "sanitized error and points to vision(action='manual', input={}, "
-    "reasoning='load vision guidance') for read-only alternatives. No "
-    "provider, model, credential, or MCP fallback is automatic."
+    "Analyze an image on one explicit route. Use vision(action='analyze', "
+    "input={'image_path': '...', 'question': null}, reasoning='...'); null "
+    "question uses the default image prompt. Use check to verify a route, list "
+    "to enumerate allowed routes, settings for the read-only applied snapshot, "
+    "and manual for guidance. A non-null preset is an explicit "
+    "manifest.preset.allowed borrow and uses that preset's own identity. "
+    "Failures are sanitized; no provider, model, credential, preset, or MCP "
+    "fallback is automatic."
 )
 
 
