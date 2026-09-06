@@ -1,22 +1,14 @@
 ---
 name: shell-manual
 description: >
-  **Read before running a long-lived agent/coding CLI as a shell subprocess**
-  (`claude -p`, `codex exec`, `opencode run`, Cursor Agent, Gemini CLI, Aider,
-  Goose, OpenHands, Crush, or a similar harness), or before setting up cron,
-  launchd, systemd timers, crontab jobs, or scheduled reminders. Router for
-  Shell depth beyond the tool schema: async + poll discipline for long-running
-  children, host-scheduler setup, LingTai wake-by-mailbox-drop, async
-  last-resort reminders, script hygiene, one-shot `.notification/cron.json`
-  reminders, debugging silent jobs, and safe cleanup. The nine CLIs with
-  daemon backends (claude/codex/opencode/cursor/mimocode/qwen/kimi/oh-my-pi/deepseek)
-  are supported both as daemon backends and via `shell`; their per-backend
-  operational details (command shapes, flags, env contracts, caveats) are owned
-  by `daemon-manual` → `reference/cli-backends/SKILL.md` and its per-backend
-  submanuals, which supersede the old bash reference guides. Gemini CLI, Aider,
-  Goose, OpenHands, and Crush are shell-only harnesses with no LingTai backend
-  id. This manual owns only the shell-side supervision discipline (async +
-  poll, reminders, scheduling, debugging, cleanup).
+  **Read before running a long-lived agent/coding CLI as a shell subprocess**,
+  or before setting up cron/launchd/systemd timers or scheduled reminders.
+  Routes shell-side async+poll supervision, host-scheduler setup, LingTai
+  wake-by-mailbox-drop, one-shot reminders, and safe cleanup. Per-backend CLI
+  operational detail (command shapes, flags, env contracts) for daemon-backed
+  CLIs now lives in `daemon-manual` → `reference/cli-backends/SKILL.md`, which
+  supersedes the old bash reference guides — this manual owns only the
+  shell-side supervision discipline.
 version: 1.12.1
 last_changed_at: 2026-09-05T00:00:00Z
 related_files:

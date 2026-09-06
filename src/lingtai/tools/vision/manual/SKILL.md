@@ -1,9 +1,8 @@
 ---
 name: vision-manual
 description: >
-  Use this manual when the vision capability has no usable provider route or
-  reports a direct setup/request failure and needs safe, provider-neutral
-  troubleshooting guidance.
+  Troubleshoot an unavailable or failed vision route without automatic
+  provider/credential fallback.
 last_changed_at: 2026-08-29T00:00:00Z
 related_files:
   - src/lingtai/tools/vision/__init__.py

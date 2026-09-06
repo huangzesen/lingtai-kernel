@@ -1,14 +1,10 @@
 ---
 name: email-manual
 description: >
-  Operational guide for the `email` tool — LingTai email protocol within your
-  `.lingtai/` network. Covers send/check/read/dismiss/reply/reply_all/search/
-  archive/delete/contacts/settings, reply discipline, bare-path addressing (`human`,
-  `mimo-1`) and `peer`/`abs` modes, self-send notes that survive molt, delayed
-  self-send time capsules, the full-body persistent notification contract, and
-  the 50,000-char send cap. INTERNAL only — real internet email is `mcp-manual`;
-  recurring schedules are `shell-manual`. Calls use the LTP v2
-  action/input/reasoning envelope.
+  Internal LingTai mail: send/read/dismiss/reply, bare-path addressing,
+  delayed self-send time capsules, and the full-body persistent notification
+  contract. Not internet email (see `mcp-manual`) or recurring schedules
+  (see `shell-manual`).
 version: 1.2.2
 tags: [capabilities, email, communication]
 last_changed_at: "2026-09-04T00:00:00Z"

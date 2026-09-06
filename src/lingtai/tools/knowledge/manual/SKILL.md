@@ -1,12 +1,9 @@
 ---
 name: knowledge-manual
 description: >
-  Concise guide to the `knowledge` capability: private agent-owned memory in
-  `<agent>/knowledge/<name>/KNOWLEDGE.md`, progressive disclosure through the
-  prompt catalog, nested knowledge folders, routing/index entries with
-  sub-knowledge children, and cross-references between entries. Read this when you
-  need to create, organize, or load private knowledge, lay out a routing parent
-  over related entries, or explain how knowledge differs from portable skills.
+  Read before creating/organizing private durable knowledge
+  (`knowledge/<name>/KNOWLEDGE.md`), nested indexes, or cross-references;
+  explains how knowledge differs from portable skills.
 version: 1.0.0
 last_changed_at: "2026-07-19T00:00:00Z"
 related_files:

@@ -359,16 +359,17 @@ _ACTION_ENUM_DESCRIPTION = (
     'provider context may still carry the old raw results.\n'
     'rebuild: re-read and recompose ALL canonical prompt sources, then apply '
     'pending/new summaries, then replay provider context with the new prompt and '
-    'history. Bare input is valid even with zero pending summaries. Prefer one '
-    'tactical rebuild; do not loop rebuild.\n'
+    'history. Bare input={} is valid even with zero pending summaries. Prefer '
+    'one tactical rebuild; do not loop rebuild.\n'
     'manual: return the installed context-manual skill without performing any '
     'context operation.\n'
-    'Your name is not here: use system(action=\'name_set\'|\'name_nickname\').'
+    'Identity/lifecycle actions are not here: use '
+    'system(action=\'name_set\'|\'name_nickname\').'
 )
 
 
 def get_description(lang: str = "en") -> str:
-    return 'Your context: shed it, compact it, rebuild it. One tool, four actions, each with its own strict input object: context(action=..., input={...}, reasoning=\'why\'). molt: 凝蜕 — shed the conversation, keep the durable stores; requires a written session journal. summarize: record compact replacements for bulky prior tool results (records only, does NOT rebuild). rebuild: re-read and recompose every canonical prompt source, then apply pending/new summaries, then replay provider context with the new prompt/history; bare input is valid even with zero pending summaries. manual: return the installed context-manual skill. Your name lives on system(action=\'name_set\'|\'name_nickname\'); your 灵台 and pad are lingtai(...) and pad(...). Note the two levels: the ACTION named summarize is this domain operation, while the optional ROOT summarize boolean is the unrelated result-presentation control — leave it false here (results are small), and call manual with summarize=false so the exact molt procedure is not summarized away.'
+    return 'Your context: shed it, compact it, rebuild it. Four actions, each with its own strict input object. molt (凝蜕): shed the conversation, keep the durable stores; requires a written session journal. summarize: record compact replacements for bulky prior tool results — records only, does NOT rebuild. rebuild: re-read and recompose every canonical prompt source, apply pending/new summaries, then replay provider context with the new prompt/history; bare input={} is valid even with zero pending summaries. manual: return the installed context-manual skill. Identity/lifecycle actions are not here — use system(action=\'name_set\'|\'name_nickname\'). Note the two levels: the ACTION named summarize is this domain operation, while the optional ROOT summarize boolean is the unrelated result-presentation control — leave it false here (results are small), including for manual, so the exact molt procedure is not summarized away.'
 
 
 def get_schema(lang: str = "en") -> dict:

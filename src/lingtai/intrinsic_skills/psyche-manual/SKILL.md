@@ -2,12 +2,9 @@
 name: psyche-manual
 last_changed_at: 2026-09-04T00:00:00Z
 description: >
-  Routing table for the `psyche` tool — the one public root for your four
-  durable domains: pad + lingtai + knowledge + skills = psyche. Read this to
-  learn which action loads which manual, inspect Psyche-owned prompt settings,
-  follow the one mutation/rebuild model all four domains share, and
-  distinguish that model from the separate `.rules` heartbeat-signal protocol
-  (also documented here, though not a psyche action).
+  Routing table for the four durable domains — pad, lingtai (灵台), knowledge,
+  skills — behind one shared file-mutation/rebuild model; also documents the
+  separate `.rules` heartbeat-signal protocol (not a psyche action).
 related_files:
 - src/lingtai/tools/psyche/CONTRACT.md
 - src/lingtai/tools/psyche/ANATOMY.md

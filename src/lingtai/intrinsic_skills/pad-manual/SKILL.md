@@ -1,7 +1,7 @@
 ---
 name: pad-manual
 description: |
-  Operational guide for Pad's pinned read-only reference list and for editing the durable Pad body through file. Read this before pinning references, changing system/pad.md, or preparing Pad state for rebuild/molt.
+  Read before editing the living Pad, pinning references, or preparing Pad state for rebuild/molt.
 version: 2.0.0
 last_changed_at: 2026-07-28T00:00:00-07:00
 related_files:

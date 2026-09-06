@@ -1,13 +1,10 @@
 ---
 name: skills-manual
 description: >
-  Meta-manual for the `skills` capability: how your catalog is built from
-  `.library/{intrinsic,custom}/` plus `init.json` paths, and how to author,
-  validate, install, share, publish, and pin skills. Read when writing a skill in
-  `.library/custom/<name>/`, installing an external skill repo, debugging a skill
-  missing from the catalog, adding a skills path, or turning a manual into a
-  progressive-disclosure router. Does NOT document the bundled skills themselves
-  — their own SKILL.md files do.
+  Read before authoring/installing/sharing a skill (`.library/custom/<name>/`),
+  adding a skills path, or diagnosing an entry missing from the catalog built
+  from `.library/{intrinsic,custom}/` plus `init.json`. Individual skills own
+  their own procedures — this does not document the bundled skills themselves.
 version: 1.2.0
 last_changed_at: "2026-07-27T04:30:00-07:00"
 related_files:

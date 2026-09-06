@@ -1,10 +1,10 @@
 ---
 name: lingtai-doctor
 description: >
-  Read-only health diagnostics for LingTai agents and bots: when one looks dead
-  but the evidence is mixed, when a migration may have left stale MCP/addon
-  command paths, or before deciding whether to mail, refresh, CPR, or edit
-  persistent configuration. Includes a bundled read-only `doctor.py`.
+  Read-only health diagnostics when an agent looks dead but the evidence is
+  mixed, or a migration may have left stale MCP/addon paths; run before
+  deciding to mail, refresh, CPR, or edit persistent configuration. Includes
+  a bundled read-only `doctor.py`.
 version: 0.2.0
 tags: [doctor, diagnostics, mcp, addons, heartbeat, migration, recovery]
 last_changed_at: "2026-08-07T00:00:00Z"

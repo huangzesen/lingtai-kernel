@@ -1,7 +1,7 @@
 ---
 name: context-manual
 description: |
-  Router and operational guide for the context tool: molt, summarize/rebuild, session journaling, and post-wipe recovery. Read it when molting, compacting or rebuilding provider context, tending the four durable stores, or waking from a system-performed wipe. Routes consequential handoffs to assets/molt-template.md and the summarize/rebuild procedure to reference/summarize-manual.
+  Read before summarize/rebuild/molt, session journaling, consequential handoff or context-loss recovery.
 version: 2.1.2
 last_changed_at: "2026-09-04T00:00:00Z"
 related_files:

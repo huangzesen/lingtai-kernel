@@ -1,12 +1,10 @@
 ---
 name: notification-manual
 description: >
-  Router for LingTai's notification filesystem protocol and the standalone
-  `notification` tool. Read it when interpreting `.notification/<channel>.json`
-  or deciding between producer-specific handling and safe mirror dismissal.
-  Routes channel/sync mechanics and dismissal safety into nested references;
-  large-result compaction is owned by
-  `context-manual` → `reference/summarize-manual/SKILL.md`.
+  Router for the notification filesystem protocol and the standalone
+  `notification` tool: read when interpreting `.notification/<channel>.json`,
+  or choosing producer-specific handling vs safe mirror dismissal.
+  Large-result/context compaction belongs to `context-manual`, not here.
 version: 0.13.0
 tags: [lingtai, notifications, channels, dismiss, delay, alarm, settings, manual, force, stale, nudge, hooks, whitelist]
 last_changed_at: "2026-08-29T00:00:00Z"

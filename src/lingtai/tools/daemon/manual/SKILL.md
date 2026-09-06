@@ -1,12 +1,10 @@
 ---
 name: daemon-manual
 description: >
-  Operational router for the `daemon` tool: inspect slow/stuck/failed emanations,
-  interpret the read-only settings inventory and use its owner procedures,
-  read daemon artifact folders, choose polling cadence, avoid reclaiming on a
-  hunch, understand `daemon(action="list", input={})`, use CLI backends and `backend_options`,
-  and clean up daemon footprint. Read this after dispatching daemon work that is
-  slow, failed, timed out, exited 143 / SIGTERM, or needs backend-specific reasoning.
+  Read before delegating work, diagnosing a slow/stuck/failed/timed-out
+  emanation (including exit 143 / SIGTERM), or before reclaiming on a hunch;
+  owns CLI backends/`backend_options`, settings meaning, polling cadence,
+  compact, and footprint cleanup procedures.
 version: 0.13.2
 last_changed_at: 2026-09-04T00:00:00Z
 related_files:
