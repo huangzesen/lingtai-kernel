@@ -204,16 +204,11 @@ def _emanate_task_schema() -> dict[str, Any]:
                 "type": "integer",
                 "minimum": 1,
                 "description": (
-                    "Separate provider-compaction threshold; it does not set daemon "
-                    "context or window. For LingTai tasks whose native LLM provider "
-                    "(`manifest.llm.provider`) is Codex or mimo; other providers and "
-                    "external CLI backends ignore it. Uses the daemon session's own "
-                    "resolved context window; an explicit preset uses canonical "
-                    "manifest.llm.context_limit, while implicit/no-preset uses the "
-                    "inherited parent effective window (272,000 fallback). Codex "
-                    "Responses uses context_management with stateless/full-history "
-                    "replay: failure is non-fatal; native mimo failure is a HARD "
-                    "failure. The external mimo/mimocode CLI alias is unrelated."
+                    "Positive provider-compaction threshold, not a spend or window "
+                    "setting. Applies only to supported native LingTai providers; "
+                    "external CLI backends and other providers ignore it. Omission "
+                    "uses the resolved session window. Native failure behavior and "
+                    "window resolution live in the built-in LingTai child/manual."
                 ),
             },
         },

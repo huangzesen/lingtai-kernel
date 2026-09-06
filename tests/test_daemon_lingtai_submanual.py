@@ -19,6 +19,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 ROUTER = ROOT / "src/lingtai/tools/daemon/manual/reference/cli-backends/SKILL.md"
+TOP_MANUAL = ROOT / "src/lingtai/tools/daemon/manual/SKILL.md"
 CHILD = (
     ROOT
     / "src/lingtai/tools/daemon/manual/reference/cli-backends"
@@ -50,6 +51,32 @@ def test_router_has_yaml_catalog_entry_for_lingtai_child():
     assert len(lingtai_entries) == 1
     assert lingtai_entries[0]["name"] == "daemon-backend-lingtai"
     assert lingtai_entries[0]["description"].strip()
+
+
+def test_top_manual_has_one_owner_routing_table():
+    text = TOP_MANUAL.read_text(encoding="utf-8")
+    assert "## Nested reference catalog" not in text
+    assert text.count("## Routing table") == 1
+    table = text.split("## Routing table", 1)[1]
+    rows = "\n".join(line for line in table.splitlines() if line.startswith("|"))
+    assert rows.count(CHILD_LOCATION) == 1
+    assert rows.count("reference/cli-backends/SKILL.md") == 1
+    for location in (
+        "reference/inspection/SKILL.md",
+        "reference/forensics/SKILL.md",
+        "reference/dispatch-ledger/SKILL.md",
+        "reference/cleanup/SKILL.md",
+        "shell-manual",
+        "lingtai-agent daemon --help",
+    ):
+        assert location in table, location
+    for anchor in (
+        "daemon-manual#max-turns",
+        "daemon-manual#manager-pool-size",
+        "daemon-manual#system-prompt-budget-chars",
+        "daemon-manual#timeout",
+    ):
+        assert text.count(anchor) == 1, anchor
 
 
 def test_router_admits_builtin_sibling_without_moving():
@@ -89,6 +116,12 @@ def test_lingtai_child_routes_to_live_authorities():
         "one-run `mcp` registrations",
         "daemon_common",
         'finish(status="done")',
+        "context_token_limit",
+        "manifest.llm.context_limit",
+        "native LingTai LLM providers",
+        "mimocode",
+        "non-fatal",
+        "hard failure",
     ):
         assert phrase in body, phrase
 

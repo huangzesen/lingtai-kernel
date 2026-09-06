@@ -1462,18 +1462,13 @@ class _ToolCollector:
 
 _DESCRIPTION = (
     "Daemon — dispatch disposable subagents for isolated parallel work. "
-    "Call daemon(action='manual', input={}, reasoning='...') before first use. "
-    "Actions: daemon(action='emanate', input={...}), "
-    "daemon(action='list', input={}), daemon(action='ask', input={\"id\": \"\u0065m-1\", \"message\": \"...\"}), "
-    "daemon(action='check', input={\"id\": \"run-id\"}), daemon(action='reclaim', input={}), "
-    "daemon(action='settings', input={}), daemon(action='manual', input={}). "
-    "Put the complete instruction in each task and treat tools as capability only. "
-    "Every terminal outcome is push-notified exactly once; do not poll for \"is it done\". "
-    "Use check and the durable result/error path because results are bounded. "
-    "For backend=lingtai, route directly to reference/cli-backends/reference/backends/lingtai/SKILL.md; "
-    "external CLI detail is in reference/cli-backends/SKILL.md and daemon-manual. "
-    "Programmatic callers use the lingtai-agent daemon CLI. LingTai runs receive the sole-call compact(action='run', _reason='...') "
-    "reset; compact(action='manual') is read-only."
+    "Read the daemon manual before first use. Put the complete objective, "
+    "authority, safety boundary, collaboration rules, and deliverable in each "
+    "task; tools grant capability only. Terminal outcomes are push-notified, "
+    "so do not poll for completion. After notification, use check and the "
+    "durable result/error paths for full output. LingTai runs may use the "
+    "sole-call compact(action='run', _reason='...') reset; "
+    "compact(action='manual') is read-only."
 )
 
 

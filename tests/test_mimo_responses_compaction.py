@@ -706,6 +706,10 @@ from pathlib import Path as _Path
 
 _REPO_ROOT = _Path(__file__).resolve().parents[1]
 _DAEMON_MANUAL = _REPO_ROOT / "src/lingtai/tools/daemon/manual/SKILL.md"
+_DAEMON_LINGTAI_CHILD = (
+    _REPO_ROOT
+    / "src/lingtai/tools/daemon/manual/reference/cli-backends/reference/backends/lingtai/SKILL.md"
+)
 _DAEMON_TOOL_CONTRACT = _REPO_ROOT / "src/lingtai/tools/daemon/CONTRACT.md"
 
 
@@ -719,6 +723,7 @@ def _context_token_limit_paragraph(text: str) -> str:
     anchors = (
         "- `context_token_limit`:",
         "Per-task `context_token_limit`",
+        "## `context_token_limit`",
     )
     idx = next(text.index(anchor) for anchor in anchors if anchor in text)
     # Grab a generous window from the normative description — enough to span the
@@ -727,8 +732,8 @@ def _context_token_limit_paragraph(text: str) -> str:
     return text[idx: idx + 2500]
 
 
-def test_daemon_manual_context_token_limit_covers_native_mimo():
-    text = _DAEMON_MANUAL.read_text(encoding="utf-8")
+def test_daemon_lingtai_child_context_token_limit_covers_native_mimo():
+    text = _DAEMON_LINGTAI_CHILD.read_text(encoding="utf-8")
     para = _context_token_limit_paragraph(text)
     assert "mimo" in para, "daemon manual context_token_limit prose must mention native mimo"
     assert "Codex" in para, "daemon manual context_token_limit prose must still mention Codex"
@@ -738,8 +743,8 @@ def test_daemon_manual_context_token_limit_covers_native_mimo():
     assert "context_management" in para
 
 
-def test_daemon_manual_context_token_limit_distinguishes_hard_failure():
-    text = _DAEMON_MANUAL.read_text(encoding="utf-8")
+def test_daemon_lingtai_child_context_token_limit_distinguishes_hard_failure():
+    text = _DAEMON_LINGTAI_CHILD.read_text(encoding="utf-8")
     para = _context_token_limit_paragraph(text)
     assert "non-fatal" in para or "non fatal" in para
     assert "HARD failure" in para or "hard failure" in para.lower()
@@ -814,7 +819,7 @@ def test_daemon_contract_docs_do_not_conflate_cli_mimo_with_native_provider():
     (an entirely different daemon capability — see the Scope/backend enum
     section) distinguishable from the native `mimo` LLM provider this
     capability boundary actually applies to."""
-    for path in (_DAEMON_MANUAL, _DAEMON_TOOL_CONTRACT):
+    for path in (_DAEMON_LINGTAI_CHILD, _DAEMON_TOOL_CONTRACT):
         text = path.read_text(encoding="utf-8")
         para = _context_token_limit_paragraph(text)
         assert "manifest.llm.provider" in para or "LLM provider" in para, (

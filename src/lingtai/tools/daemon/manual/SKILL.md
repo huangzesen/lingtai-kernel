@@ -35,29 +35,6 @@ each task's `task`; `tools` grants capability only. The daemon is not a durable
 persona or hidden memory store: leave reviewable work in files and use run
 artifacts for follow-up.
 
-## Nested reference catalog
-
-These are parent-owned drill-down references, not extra top-level skills. Load
-only the page needed for the current operation.
-
-```yaml
-- name: daemon-forensics
-  location: reference/forensics/SKILL.md
-  description: Run folders, daemon.json, artifacts, transcripts, event/token logs, and SIGTERM/143 diagnosis.
-- name: daemon-inspection
-  location: reference/inspection/SKILL.md
-  description: List/check cadence, stall heuristic, reminders, and safe intervention.
-- name: daemon-cli-backends
-  location: reference/cli-backends/SKILL.md
-  description: External backend support, aliases/resume, backend_options, presets, MCP status, and per-backend routes.
-- name: daemon-cleanup
-  location: reference/cleanup/SKILL.md
-  description: Reclaim scope, persistent forensic footprint, consent-gated cleanup, and boundaries.
-- name: daemon-dispatch-ledger
-  location: reference/dispatch-ledger/SKILL.md
-  description: Append-order dispatch membership, list warnings, marker-only recovery, and runtime mismatch diagnosis.
-```
-
 ## Routing table
 
 | Need / keywords | Read |
@@ -70,6 +47,7 @@ only the page needed for the current operation.
 | Dispatch-ledger warnings or runtime identity mismatch | `reference/dispatch-ledger/SKILL.md` |
 | Reclaim, footprint, consent-gated cleanup, or deletion boundary | `reference/cleanup/SKILL.md` |
 | Shell async events or shell-side supervision | `shell-manual` |
+| Programmatic use, CLI/help, or scripts/CI | `lingtai-agent daemon --help` |
 
 The built-in route is intentionally separate from the generic CLI route. The
 external page remains the owner of detailed CLI support, alias/resume behavior,
@@ -135,16 +113,10 @@ Each `tasks[]` item requires `task` and `tools`.
 
 ### Per-task `context_token_limit`
 
-This is a separate provider-compaction threshold: it does not set daemon context
-or window. It applies only when the native LLM provider (`manifest.llm.provider`)
-is Codex or native `mimo`; every other provider and every external CLI backend
-ignores it. It uses the daemon session's own resolved context window. An explicit
-preset uses canonical `manifest.llm.context_limit`; implicit/no-preset uses the
-inherited parent effective window (272,000 fallback). Codex Responses uses
-`context_management` with stateless/full-history replay: compaction failure is
-non-fatal, while native mimo compaction failure is a HARD failure. The external
-CLI backend alias `mimo`/`mimocode` is unrelated. See the Contract and the live
-backend reference for provider boundaries.
+This is a provider-compaction threshold, not a daemon context or window setting.
+For native-provider support, resolved-window ownership, and failure behavior, use
+the built-in LingTai child route in the table above. External CLI backends ignore
+this field.
 
 ## Backend choice and support
 
@@ -172,34 +144,26 @@ failure returns `SETTINGS_UNAVAILABLE`, never partial rows.
 
 ### Max turns
 
-Anchor: `daemon-manual#max-turns`. `max_turns` is the manager's positive integer
-default/ceiling, normally `5000`; `LINGTAI_DAEMON_MAX_TURNS` and owner/setup
-precedence are defined by the Contract. Per-call `emanate.max_turns` may choose
-a smaller positive value up to the schema maximum for one batch.
+Anchor: `daemon-manual#max-turns`. Current value and application belong to
+`daemon.settings`; precedence and setup details belong to the Contract. Per-call
+`emanate.max_turns` may choose a smaller positive value for one batch.
 
 ### Manager pool size
 
-Anchor: `daemon-manual#manager-pool-size`. `manager_pool_size` is a non-negative
-integer, normally `100`; `0` selects the classic per-run path.
-`LINGTAI_DAEMON_MANAGER_POOL_SIZE` is its environment source and applies when
-the manager is rebuilt. Change it only through the authorized owner procedure.
+Anchor: `daemon-manual#manager-pool-size`. Current value and application belong
+to `daemon.settings`; precedence and rebuild details belong to the Contract.
 
 ### System prompt budget chars
 
-Anchor: `daemon-manual#system-prompt-budget-chars`.
-`system_prompt_budget_chars` is a positive character limit, normally `20000`, for
-the complete rendered LingTai prompt. `LINGTAI_DAEMON_SYSTEM_PROMPT_BUDGET_CHARS`
-is its environment source. Over-budget task/skill/MCP context fails rather than
-silently truncating constraints; SHOW never changes it.
+Anchor: `daemon-manual#system-prompt-budget-chars`. Current value and
+application belong to `daemon.settings`; prompt-budget behavior belongs to the
+Contract. SHOW does not mutate it.
 
 ### Timeout
 
-Anchor: `daemon-manual#timeout`. `timeout` is a finite wall-clock seconds
-setting, normally `3600.0`, with operational minimum 5 and no upper bound. Its
-owner value is a finite JSON number from the launcher/capability setup layer,
-not the owner file or environment. The existing setup seam does not enforce that type, range, or finiteness; invalid stored values are not silently repaired
-and may make SHOW or later arithmetic fail closed. Per-call `emanate.timeout` is
-a one-batch override, not a settings mutation.
+Anchor: `daemon-manual#timeout`. Current value and application belong to
+`daemon.settings`; precedence and failure behavior belong to the Contract.
+Per-call `emanate.timeout` is a one-batch override, not a settings mutation.
 
 ## Progress, inspection, and follow-up
 
@@ -247,19 +211,8 @@ or cleanup outside an authorized scope.
 
 ## Programmatic use / CLI
 
-Shell scripts, Python, and CI should use the `lingtai-agent daemon` CLI rather
-than scripting this tool directly. It uses the same envelope and run artifacts;
-`emanate` previews without `--yes`, validates the complete tasks file, and
-requires `--agent-dir` for dispatch. For example:
-
-```text
-lingtai-agent daemon emanate --agent-dir <agent-dir> --tasks <tasks.json>
-lingtai-agent daemon list --agent-dir <agent-dir> [--last N]
-```
-
-`list` and `check` are read-only. `contains` is a case-insensitive filter;
-non-empty `contains` searches prompt-preview text. See the CLI reference for
-command examples and configuration behavior.
+For scripts and CI, use `lingtai-agent daemon --help` for the current command
+surface and options.
 
 ## Maintenance
 

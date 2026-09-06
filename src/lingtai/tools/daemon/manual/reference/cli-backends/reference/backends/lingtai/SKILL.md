@@ -51,6 +51,19 @@ and source — route to the current authority instead of memorizing snapshots.
    `src/lingtai/tools/daemon/CONTRACT.md`; the current tool schema
    description is the caller-facing authority.
 
+## `context_token_limit`
+
+`context_token_limit` is a positive provider-compaction threshold, not a context
+or window setting. It is honored only for native LingTai LLM providers
+`Codex` and `mimo`; other native providers and every external CLI backend ignore
+it. An
+explicit preset resolves the comparison window from canonical
+`manifest.llm.context_limit`; without a preset, use the inherited parent
+effective window. Codex Responses uses `context_management` with
+stateless/full-history replay; compaction failure is non-fatal. Native mimo
+compaction failure is a hard failure. The external `mimo`/`mimocode` CLI alias
+is unrelated.
+
 ## Example: explicit preset, tools, skills, and MCP
 
 ```jsonc
