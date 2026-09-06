@@ -730,3 +730,61 @@ def test_realpath_poll_backoff_commit_fires(monkeypatch):
         assert agent._session.sends == 0
     finally:
         reset_turn_tool_observer(token)
+
+
+def test_realpath_initial_send_drained_pair_fires_at_request_settle_point(monkeypatch):
+    # (D) A receipt-bearing (call, result) pair spliced onto the wire DURING
+    # the initial request send — the adapter's pre-request tc_inbox drain rides
+    # any API request, including the very first one — fires at the initial-send
+    # settle point inside _handle_request (turn.py ~2088).  The response
+    # carries no tool calls, so no _process_response settle point ever runs:
+    # deleting the initial-send scan must turn exactly this test red.
+    _neutralize_turn_meta(monkeypatch)
+    iface = ChatInterface()
+
+    class _DrainingSession(_FakeSession):
+        """A send that splices a drained pair before the API result returns,
+        mirroring pre_request_hook running inside the adapter send."""
+
+        def __init__(self, interface, drain_pair):
+            super().__init__(interface, mode="success")
+            self._drain_pair = drain_pair
+
+        def send(self, message):
+            self.sends += 1
+            if self._drain_pair is not None:
+                call, result = self._drain_pair
+                self.interface.add_assistant_message(content=[call])
+                self.interface.add_tool_results([result])
+                self._drain_pair = None
+            return _FakeResponse(text="done")  # no tool calls
+
+    drained = (
+        ToolCallBlock(id="d1", name="puffo_tool", args={}),
+        ToolResultBlock(id="d1", name="puffo_tool", content=_marker("RD")),
+    )
+    session = _DrainingSession(iface, drained)
+    guard = LoopGuard(max_total_calls=100, dup_free_passes=3, dup_hard_block=8)
+    executor = _FakeExecutor(guard, [])
+    agent = _ProcAgent(iface, executor, session)
+    agent._drain_tc_inbox = lambda: None
+    agent._pre_request = lambda msg: "hello"
+    agent._post_request = lambda msg, result: None
+
+    monkeypatch.setattr(turn_mod, "is_worker_interface_poisoned", lambda a: False)
+    monkeypatch.setattr(turn_mod, "_get_guard_limits", lambda a: (100, 3, 8))
+    monkeypatch.setattr(turn_mod, "_make_tool_executor", lambda a, g: executor)
+    monkeypatch.setattr(turn_mod, "build_meta", lambda a: {})
+    monkeypatch.setattr(turn_mod, "render_meta", lambda a, m: "")
+
+    obs = _Observer()
+    token = bind_turn_tool_observer(obs)
+    begin_admission_witness_scope(agent)
+    try:
+        result = turn_mod._handle_request(agent, SimpleNamespace(type="request"))
+        assert result["text"] == "done"
+        assert session.sends == 1
+        assert [ev.tool_call_id for ev in obs.committed] == ["d1"]
+        assert obs.committed[0].binding == admission_binding("d1", "RD")
+    finally:
+        reset_turn_tool_observer(token)

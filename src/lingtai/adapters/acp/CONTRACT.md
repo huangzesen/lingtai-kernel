@@ -179,6 +179,18 @@ argv, environment, or MCP command from the remote caller.
    and reloading could reuse a retired id and let the watermark admit a stale
    entry — a known benign-prohibited residual in the same fail-closed direction
    (at worst one extra at-most-once fact, which Puffo idempotency absorbs).
+   Settle-point test mapping: every production-reachable settle point — the
+   restore commit, the initial-send drain carrier, the three no-API terminal
+   commits (intercept / cancel / poll-backoff), and the main tool-loop send
+   success and exception points — is pinned by a real-path discriminating test
+   in `tests/test_puffo_admission_witness.py` (deleting the scan at any of
+   them turns a test red). The four tc_wake settle points (dispatch
+   `send([item.result])` success/exception and continue `send(None)`
+   success/exception) are EXEMPT from red-coverage by design: non-correlated
+   turns bind no witness scope, so those scans are lazy no-ops in production —
+   uniform defense-in-depth instrumentation, not reachable behavior. Any
+   change that binds a witness scope over tc_wake turns must add the
+   corresponding red tests in the same change.
 4. `acp-local-stdio.cancel.v1` — `session/cancel` calls only the active
    correlated handle. Cancellation requested before exact terminal settlement
    wins and the original prompt returns `{stopReason: "cancelled"}`. The reader
