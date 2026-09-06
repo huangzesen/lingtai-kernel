@@ -27,10 +27,9 @@ Internal Email addresses are names of directories inside `.lingtai/`, with no
 - `mimo-1` addresses an agent directory;
 - your own agent name addresses a durable self-inbox.
 
-`address` accepts one string or a list. Discover real agents from local
-`.agent.json` metadata and use each file's `agent_name`; do not invent an
-address. A refused target creates no recipient inbox entry and is reported as an
-`email.bounce` system event.
+`address` accepts one string or a list. Discover real agents by globbing `.lingtai/*/.agent.json` and use each file's
+`agent_name`; do not invent an address. A refused target creates no recipient
+inbox entry and is reported as an `email.bounce` system event.
 
 ## `peer` and `abs`
 
@@ -72,5 +71,14 @@ routing address, not a display name.
 
 A mailbox UUID (`email_id`) is local to one working directory. Pass IDs copied
 from your own persistent notification or `check` result to `read`, `dismiss`,
-`reply`, or `reply_all`; never paste a raw ID into mail or public prose. When
-referring to mail to another agent, use subject, sender, and approximate time.
+`reply`, or `reply_all`; never paste a raw ID into mail or public prose. When referring to mail to another agent, use subject, sender, and approximate
+time.
+
+## Adjacent surfaces
+
+This manual owns only the kernel-intrinsic `email` tool. Real internet mail
+(Gmail, Outlook, IMAP/SMTP) belongs to the `imap` or `cloud_mail` MCP addon;
+Telegram, Feishu, WeChat, and WhatsApp belong to their respective MCP addons.
+Recurring agent-side work belongs to a host scheduler through `shell-manual`.
+Do not use Email for an external address: an unknown target is refused without a
+recipient inbox entry and is reported as a bounce.
