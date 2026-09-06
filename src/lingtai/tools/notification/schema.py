@@ -30,18 +30,13 @@ from typing import Any
 from ..tool_family.manual import MANUAL_INPUT_SCHEMA
 
 LARGE_RESULT_DISMISS_ACTION_NOTE = (
-    "Legacy: the kernel no longer raises large_tool_result reminders — large "
-    "results are ranked under _meta.agent_meta.agent_state.current_tool_result_chars and "
-    "compacted via system(action=summarize). Any large_tool_result event still "
-    "present (e.g. persisted before this change or pre-molt) can be dismissed "
-    "as an escape hatch. Dismissal only clears the notification surface; the "
-    "original result stays in chat history and events.jsonl. See "
-    "notification-manual."
+    "Legacy large_tool_result reminders are an escape hatch only: prefer "
+    "context(action='summarize'); any dismiss clears the mirror, not the original "
+    "result. See notification-manual."
 )
 
 LARGE_RESULT_FORCE_NOTE = (
-    "Does not affect large_tool_result reminder dismissal; that escape hatch "
-    "is always allowed and clears only the reminder surface."
+    "The legacy large_tool_result escape hatch always clears only its mirror."
 )
 
 # The canonical action order. This is the single source for the schema's
@@ -67,24 +62,16 @@ NOTIFICATION_DECLARED_ACTIONS = (
 ACTION_ORDER = (*NOTIFICATION_DECLARED_ACTIONS, "settings", "manual")
 
 _CHANNEL_DESCRIPTION = (
-    "Notification channel to act on (e.g. soul, system, mcp.telegram). "
-    "Required for dismiss_channel; for dismiss_event/dismiss_ref it defaults "
-    "to 'system'. For producer-owned channels like email, prefer the "
-    "producer's own verb (email(read/dismiss))."
+    "Target channel; required here, defaults to system for event/ref. Prefer its "
+    "producer verb; generic dismissal clears only this mirror."
 )
 
 _FORCE_DESCRIPTION = (
-    "Optional for dismiss verbs. When true, bypasses a producer-registered "
-    "generic-dismiss guard and the stale-channel-version refusal. Use only "
-    "when knowingly clearing a stale mirror; producer-owned state is never "
-    "changed. " + LARGE_RESULT_FORCE_NOTE
+    "Optional true only after rereading a stale mirror; bypasses generic/stale "
+    "guards, never producer or protected state. " + LARGE_RESULT_FORCE_NOTE
 )
 
-_REASON_DESCRIPTION = (
-    "Optional acknowledgement reason, logged to the event log. Required when "
-    "dismissing the post-molt continuation channel (use "
-    "reason='<continue|defer|obsolete>: ...')."
-)
+_REASON_DESCRIPTION = "Optional ack reason; post-molt requires continue|defer|obsolete: ... ."
 
 _CHECK_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -93,48 +80,25 @@ _CHECK_INPUT_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-_HOOK_NAME_DESCRIPTION = (
-    "Unique hook name within this agent (e.g. 'comm_watcher'). Required for "
-    "add/drop/edit; used to match manifests in .notification/hooks.json."
-)
+_HOOK_NAME_DESCRIPTION = "Hook name; required by add/drop/edit and matched in hooks.json."
 
 _HOOK_CHANNEL_DESCRIPTION = (
-    "Channel the hook publishes into (e.g. 'mcp.comm_watcher'). Must match "
-    "the .notification/<channel>.json file the hook writes. Registering it "
-    "here allowlists it for this agent."
+    "Published channel/file stem; registration allowlists it for this agent."
 )
 
-_HOOK_STRING_FIELD_DESCRIPTION = "Human-readable field on the hook manifest."
+_HOOK_STRING_FIELD_DESCRIPTION = "Hook manifest text field."
 
 _ADD_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "name": {"type": "string", "description": _HOOK_NAME_DESCRIPTION},
         "channel": {"type": "string", "description": _HOOK_CHANNEL_DESCRIPTION},
-        "source": {
-            "type": "string",
-            "description": "Who/what produces the notifications (e.g. 'comm_watcher.py').",
-        },
-        "description": {
-            "type": "string",
-            "description": "What this hook watches and why (one or two sentences).",
-        },
-        "how_to_modify": {
-            "type": "string",
-            "description": "How to change the hook (config file, env var, command).",
-        },
-        "how_to_cancel": {
-            "type": "string",
-            "description": "How to stop the hook (pid/kill, unregister, config toggle).",
-        },
-        "version": {
-            "type": ["string", "null"],
-            "description": "Optional manifest version (default '1.0.0').",
-        },
-        "instructions": {
-            "type": ["string", "null"],
-            "description": "Optional agent-facing handling guidance for this hook's notifications.",
-        },
+        "source": {"type": "string", "description": "Producer/source identifier."},
+        "description": {"type": "string", "description": "What the hook watches."},
+        "how_to_modify": {"type": "string", "description": "How to modify it."},
+        "how_to_cancel": {"type": "string", "description": "How to stop it; drop never kills it."},
+        "version": {"type": ["string", "null"], "description": "Optional version; default 1.0.0."},
+        "instructions": {"type": ["string", "null"], "description": "Optional handling guidance."},
     },
     "required": [
         "name",
@@ -186,19 +150,12 @@ _DELAY_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "channel": {
             "type": "string",
-            "description": (
-                "Allowed notification channel whose consumer delivery is temporarily "
-                "hidden. delay-alarm is an alarm mirror and cannot be delayed."
-            ),
+            "description": "Allowed target; delay-alarm cannot be delayed.",
         },
         "seconds": {
             "type": "integer",
             "minimum": 0,
-            "description": (
-                "Delay duration. 0 cancels the currently delayed channel; a nonzero "
-                "value is bounded by live LINGTAI_NOTIFICATION_DELAY_MAX_SECONDS "
-                "(default 600 seconds)."
-            ),
+            "description": "Seconds; 0 cancels, otherwise live cap LINGTAI_NOTIFICATION_DELAY_MAX_SECONDS (default 600).",
         },
     },
     "required": ["channel", "seconds"],
@@ -281,57 +238,49 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 ACTION_ENUM_DESCRIPTION = (
-    "check: read all notification channels (input={}). Returns a placeholder; " +
-    "the live payload is stamped onto this same result under " +
-    "`_meta.agent_meta.notifications.attention` and " +
-    "`_meta.agent_meta.guidance.transient`. Replace-only — do not call " +
-    "voluntarily after handling; dismiss instead, preferably coalesced with " +
-    "other tool work you already need this turn." +
-
-    "dismiss_channel: clear one notification channel whole (input={'channel': " +
-    "'<name>', ...}). Prefer a producer-specific verb first (e.g. " +
-    "email(read/dismiss)); guarded channels require force=true only for stale " +
-    "mirrors. Does not accept event_id/ref_id — use dismiss_event/dismiss_ref " +
-    "for those." +
-
-    "dismiss_event: remove a single system event by event_id from " +
-    ".notification/system.json (channel defaults to 'system' when null)." +
-
-    "dismiss_ref: remove system event(s) by ref_id from " +
-    ".notification/system.json (channel defaults to 'system' when null)." +
-
-    "add: register an external hook (input={'name', 'channel', 'source', " +
-    "'description', 'how_to_modify', 'how_to_cancel', ...}), writing the " +
-    "manifest to .notification/hooks.json and allowlisting its channel. " +
-    "Agent self-service: add your own hooks." +
-
-    "drop: unregister a hook by name (input={'name': ...}); removes its " +
-    "manifest and revokes the channel from the effective allowlist. Never " +
-    "kills the hook process itself — use the manifest's how_to_cancel." +
-
-    "edit: update one hook's fields by name (input={'name': ..., ...fields}); " +
-    "channel edits re-validate uniqueness." +
-
-    "list: return the registered hook manifests (input={}), showing what is " +
-    "whitelisted and how each hook is modified/cancelled." +
-
-    "delay: temporarily hide one allowed target channel from consumer delivery " +
-    "(input={'channel': '<name>', 'seconds': 0 or a live-configured positive " +
-    "cap}); 0 cancels the current matching delay. Target producer state is " +
-    "never changed; expiry re-exposes it and raises one high-priority " +
-    "delay-alarm mirror. delay-alarm itself cannot be targeted." +
-
-    "settings: show the Notification-owned effective settings as exact " +
-    "key/current/default/configurable/comment rows (input={}); read-only. " +
-    "Read the comment-targeted manual sections for meaning/change procedures." +
-
-    "manual: call notification(action='manual', input={}) to return the " +
-    "installed notification-manual skill body. Strictly read-only."
+    "Actions take their strict arguments in input; nullable optionals mean absent. "
+    "check: first read of current channels (input={}); it returns a placeholder "
+    "whose live payload is stamped under `_meta.agent_meta.notifications.attention` "
+    "and `_meta.agent_meta.guidance.transient`, so dismiss after handling rather "
+    "than checking again just to confirm. "
+    "dismiss_channel: clear one whole mirror (input={'channel': '<name>', ...}); "
+    "use the producer's own verb first when offered. A non-force stale-version or "
+    "producer guard refusal means reread; force=true is only for a confirmed stale "
+    "mirror and never changes producer/protected state. "
+    "dismiss_event: remove one system event by event_id; channel defaults to system. "
+    "dismiss_ref: remove matching system events by ref_id; channel defaults to system. "
+    "add: register a hook manifest and allowlist its channel. "
+    "drop: unregister a hook and revoke its channel; never stop its process. "
+    "edit: update a named hook and revalidate channel uniqueness. "
+    "list: show registered hook manifests. "
+    "delay: hide one allowed consumer channel for seconds (0 cancels; nonzero uses "
+    "the live configured cap); producer state is unchanged and expiry emits one "
+    "delay-alarm mirror, which cannot itself be delayed. "
+    "settings: read-only effective key/current/default/configurable/comment rows; "
+    "follow the linked manual sections for meaning or changes. "
+    "manual: call notification(action='manual', input={}) to return the installed "
+    "notification manual; read-only. "
+    "Post-molt dismissal requires a continue|defer|obsolete reason."
 ) + "\n\n" + LARGE_RESULT_DISMISS_ACTION_NOTE
 
 
 def get_description(lang: str = "en") -> str:
-    return "Notification surface — inspect and acknowledge the agent's notification channels, and manage external-hook registrations. Self-actions, no permissions needed. This is the only tool that exposes notification verbs; the system tool no longer offers notification or dismiss aliases. Every call takes action + input + reasoning; input is the strict argument object for the selected action. Prefer a producer's own read/dismiss (e.g. email) over the generic dismiss verbs here when one exists; check is inspection only, not a clearing operation. Guarded channels require force=true only for known-stale mirrors, and dismissal after a molt needs a continuation reason. add/edit/drop/list manage the hook manifest only — drop never stops the hook's own process. delay suppresses consumer delivery only for one allowed channel (0 cancels) and cannot target delay-alarm. Use notification(action='settings', input={}, reasoning='...') and notification(action='manual', input={}, reasoning='...') for the read-only settings rows and the installed manual — neither changes notification state, and call manual with summarize=false. Context compaction is not here — use context(action='summarize')."
+    return (
+        "Notification is the sole tool for current-channel inspection, atomic "
+        "mirror dismissal, hook registration, and consumer delay. Calls use "
+        "action + input + reasoning; input is the selected action's strict object. "
+        "Start with notification(action='check', input={}, reasoning='...') to "
+        "inspect. Prefer a producer's own read/dismiss when offered: generic "
+        "dismiss clears only the mirror. Reread after a stale refusal; force=true "
+        "is only for a known-stale mirror and never changes producer/protected "
+        "state. Post-molt dismissal needs a continue/defer/obsolete reason. "
+        "Hook drop never stops its process; delay hides consumer delivery only "
+        "(0 cancels), and delay-alarm cannot be targeted. "
+        "notification(action='settings', input={}, reasoning='...') is read-only; "
+        "notification(action='manual', input={}, reasoning='...') returns the "
+        "installed manual. Both are read-only; use context(action='summarize') "
+        "for compaction."
+    )
 
 
 # NOTE: ``get_schema`` is deliberately NOT defined here. The model-facing

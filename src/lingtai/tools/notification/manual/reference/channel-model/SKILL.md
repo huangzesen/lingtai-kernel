@@ -6,7 +6,7 @@ description: >
   kernel sync, voluntary check behavior, and canonical producer state versus
   notification mirrors. Read after notification-manual when interpreting,
   producing, or debugging notification payloads; skip for dismissal policy.
-version: 0.5.1
+version: 0.6.0
 tags: [lingtai, notifications, channels, protocol, sync, delay, alarm, nudge, hooks, whitelist]
 last_changed_at: "2026-09-04T00:00:00Z"
 related_files:
@@ -140,6 +140,69 @@ This separation is deliberate: the filesystem protocol gives the kernel one
 current high-attention surface, while canonical state remains under the
 producer's own schema and lifecycle.
 
+## Hook registration workflow
+
+An external hook follows this sequence:
+
+1. Write a watcher that publishes the standard envelope atomically to an
+   allowlisted `.notification/<channel>.json` path.
+2. Call `notification(action='add', input={...})` with `name`, `channel`,
+   `source`, `description`, `how_to_modify`, and `how_to_cancel`; optional
+   `version` defaults to `1.0.0`, and `instructions` teaches handling.
+3. Read the resulting channel with `check`, then use the producer instruction or
+   narrowest dismiss action. `drop` revokes registration but does not kill the
+   process.
+
+`list` returns manifests in registry order. `edit` changes named fields and
+revalidates channel uniqueness; a null-only edit is a no-op. Corrupt or
+unreadable `hooks.json` makes `list`, `add`, `drop`, and `edit` return a bounded
+load-failed result. Built-in channels and Store-reserved stems (`hooks` and
+`large_result_acks`) cannot be registered.
+
+A blocked present JSON channel emits one deduplicated
+`notification_hook` event with `ref_id: blocked_channel:<channel>` per workdir and
+channel until registration. Kernel-private dotfiles, non-JSON entries, and
+invalid stems are skipped by this scan.
+
+## Delay cap and recovery detail
+
+The finite nonzero delay cap is read live from
+`LINGTAI_NOTIFICATION_DELAY_MAX_SECONDS`; a missing, blank, non-numeric,
+non-positive, or non-finite value falls back to `600` with the existing bounded
+diagnostic. The target file is never rewritten. A nonzero request replaces the
+one prior live request, while `seconds: 0` cancels only the matching target.
+
+The process timer is only a prompt path: coherent synchronization also recovers
+an overdue persisted record. Recovery removes filtering and publishes one
+high-priority latest-only `delay-alarm` mirror with target, requested/actual
+duration, byte-level change, and conservative producer/retained-event
+measurements. Stable request identity and the notification mutation lock prevent
+stale callbacks or restart recovery from duplicating alarms. Malformed or
+unreadable delay state fails open to visible delivery. A `daemon` delay masks
+only its attention token; payload, delivered version, and bounded summary remain
+readable, and independent channels still wake.
+
+## Block-cap and settings detail
+
+The persistent block (`notification_persistent`) and transient attention lane
+share `LINGTAI_NOTIFICATION_MAX_CHARS` (default `10000`, clamped to `2048..10000`).
+Resolution is live environment, then valid closed System-v2
+`notification_max_chars`, then default. Invalid or malformed values contribute no
+layer value. At or under the cap, serialization is byte-identical. Above it, the
+full persistent payload is atomically spilled to
+`logs/notification-overflow-<ts>.json`; the attention lane uses a
+content-addressed `notification-attention-overflow-<digest8>.json` (with a
+collision suffix) and both model copies compact while preserving routing ids.
+Heavy free text is reduced in stages; if an id-only copy cannot fit, a marker-only
+envelope retains the exact spill basename, and a failed spill points back to the
+producer tool. The cap is a context-size control, not delivery accounting.
+
+The SHOW row `notification.max_chars` reports that same effective clamped value.
+To change it, obtain owner approval and use the existing environment launcher or
+closed System-v2 procedure; an environment/launcher change needs the authorized
+refresh or relaunch, while the file layer is hot-read. SHOW itself never writes,
+refreshes, adds an `init.json` field, or creates a Notification settings file.
+
 ## Footprint
 
 The protocol footprint is `.notification/<channel>.json` plus kernel-owned
@@ -147,7 +210,6 @@ notification metadata such as legacy acknowledgement state
 (`.notification/large_result_acks.json`), the hook-manifest registry
 (`.notification/hooks.json`, a single non-channel file invisible to collection),
 and consumer-delay state (`.notification/.delay_state.json`, a private dotfile
-invisible to collection). Inspect it read-only
-before diagnosing a producer. Never delete the directory or bulk-remove files —
-that bypasses the guards and stale checks that only the producer verb or an
-atomic notification action honor.
+invisible to collection). Inspect it read-only before diagnosing a producer.
+Never delete the directory or bulk-remove files — that bypasses the guards and
+stale checks that only the producer verb or an atomic notification action honor.
