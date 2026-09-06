@@ -6,7 +6,7 @@ description: >
   kernel sync, voluntary check behavior, and canonical producer state versus
   notification mirrors. Read after notification-manual when interpreting,
   producing, or debugging notification payloads; skip for dismissal policy.
-version: 0.6.0
+version: 0.7.0
 tags: [lingtai, notifications, channels, protocol, sync, delay, alarm, nudge, hooks, whitelist]
 last_changed_at: "2026-09-06T00:00:00Z"
 related_files:
@@ -31,37 +31,27 @@ A channel is the filename stem in `.notification/<channel>.json`:
 
 The kernel accepts built-in channels including `email`, `system`, `soul`,
 `nudge`, `post-molt`, `tool_loop_guard`, `bash`, `btw`, `cron`, `molt`, `goal`,
-`daemon`, and `delay-alarm`; MCP bridge channels use the `mcp.` prefix. The **effective allowlist**
-is `static ∪ mcp.* ∪ the agent's own registered hook channels`, and it is
-**per-agent, not process-global**: a hook channel is allowed only for the agent
-whose workdir registered it (external hooks register manifests via
-`notification(action='add', ...)`, which appends to
-`.notification/hooks.json` and allowlists the manifest's `channel` for that
-workdir — see the
-parent manual's `Hooks & whitelist` section). Unknown JSON filenames are
-ignored by collection, and kernel publish/dismiss helpers reject names outside
-the effective allowlist, so arbitrary workdir files cannot enter the
-model-visible notification lane. Blocked attempts by unregistered channels are
-now observable: the kernel emits a deduped `notification_hook` system
-warn-and-flag event (`ref_id: blocked_channel:<channel>`) so the agent can
-investigate and register the hook if legitimate.
+`daemon`, and `delay-alarm`; MCP bridge channels use the `mcp.` prefix. The
+**effective allowlist** is `static ∪ mcp.* ∪ the agent's own registered hook
+channels`, and is **per-agent, not process-global**: a hook channel is allowed
+only for the agent whose workdir registered it. External hooks register
+manifests via `notification(action='add', ...)`, which appends to
+`.notification/hooks.json` and allowlists the manifest's `channel`.
 
-The D2 warn-and-flag scan runs only when a present channel file appears for a
-channel that is not on the effective allowlist, and only for stems that can
-actually become channels: kernel-private dotfiles (e.g. `.nudge_state.json`),
-non-`.json` entries, and syntactically invalid stems are skipped, so no
-unresolvable "register this hook" event is emitted for files that could never
-be a channel.
+Unknown JSON filenames are ignored by collection, and kernel publish/dismiss
+helpers reject names outside the effective allowlist, so arbitrary workdir files
+cannot enter the model-visible lane. A blocked present channel is observable:
+the kernel emits one deduplicated `notification_hook` system warn-and-flag event
+(`ref_id: blocked_channel:<channel>`) per workdir and channel until registration.
+The scan skips kernel-private dotfiles (for example `.nudge_state.json`),
+non-`.json` entries, and syntactically invalid stems because they cannot become
+channels.
 
-`nudge` is the formal channel for mechanical, throttled checks: runtime update
-checks publish `data.nudges[]` entries with `kind: kernel_version`, and
-source-freshness checks may publish `kind: source_drift` — which stays local and
-never enters release-migration routing. The sole normal install/update route is
-`https://lingtai.ai/install.sh` (let Shell run its `--help` and follow that), and
-real updates, configuration writes, and refresh require
-explicit human/config-owner authority. Those rules are owned in full by
-`../../../system-manual/reference/runtime-update-checks/SKILL.md`; this manual
-owns only the generic channel protocol.
+`nudge` is the formal channel for throttled checks: runtime update checks publish
+`data.nudges[]` entries with `kind: kernel_version`, and source-freshness checks
+may publish `kind: source_drift`; the latter stays local and never enters
+release-migration routing. Runtime update, configuration, and refresh policy is
+owned by `../../../system-manual/reference/runtime-update-checks/SKILL.md`.
 
 ## Envelope and producer instructions
 
@@ -84,8 +74,8 @@ cleared. Producers own that directive because only they know whether the file is
 a disposable output, a mirror over canonical state, a coalesced event summary,
 or protected source of truth.
 
-External producers that can write the workdir may publish the same envelope to
-an allowlisted `mcp.<server>.json` path. They must use atomic sibling-temp
+External producers that can write the workdir may publish the same envelope to an
+allowlisted `mcp.<server>.json` path. They must use atomic sibling-temp
 replacement so readers never observe a partial JSON file.
 
 ## Voluntary check and model-visible delivery
@@ -95,38 +85,44 @@ canonical live payload; the handler assembles no second channel representation
 and writes no notification state.
 
 When notifications arrive while an agent is IDLE or ASLEEP, the kernel can
-synthesize the same `notification(action='check')` tool-call/result shape —
-same `action`/`input`/`reasoning` envelope, indistinguishable from a read you
-issued yourself — and wake the agent. During ACTIVE work the post-hook moves the
-single live payload onto a suitable dict-shaped tool result only on first
-appearance, material change, or a deliberate check. Delivery fingerprints and
-the live holder belong to kernel synchronization, not to the `manual` action.
+synthesize the same `notification(action='check')` tool-call/result shape—same
+`action`/`input`/`reasoning` envelope, indistinguishable from a read you issued
+yourself—and wake the agent. During ACTIVE work the post-hook moves the single
+live payload onto a suitable dict-shaped tool result only on first appearance,
+material change, or a deliberate check. Delivery fingerprints and the live
+holder belong to kernel synchronization, not to the `manual` action.
 
-## Consumer delay filtering
+## Consumer delay filtering and expiry recovery
 
-The `daemon` target is masked, not filtered: its payload and byte version stay
-visible while its attention entry collapses to a constant token, so daemon
-arrivals stay readable but do not wake until the delay expires.
+The `daemon` target is masked, not filtered: its payload, byte version, and
+bounded summary stay visible while its attention entry collapses to a constant
+token, so daemon arrivals stay readable but do not wake until delay expires.
+Independent channels continue to wake.
 
-`notification(action='delay', input={'channel': ..., 'seconds': 0 or a live configured cap})` is
-not a producer operation. Its private `.notification/.delay_state.json` record
-causes the coherent consumer snapshot, delivery fingerprint, synthetic wake, and
-voluntary `check` projection to omit exactly one allowed target while it is live;
-the target file itself continues receiving and retaining producer updates. A
-nonzero delay replaces the prior one, and `seconds: 0` cancels the matching target
-and makes it visible again. See `notification-manual` → "Consumer delay and
-expiry alarm" for the exact nonzero-cap source, default, and precedence.
+`notification(action='delay', input={'channel': ..., 'seconds': 0 or a live configured cap})`
+is not a producer operation. Its private `.notification/.delay_state.json`
+record causes the coherent consumer snapshot, delivery fingerprint, synthetic
+wake, and voluntary `check` projection to omit exactly one allowed target while
+it is live; the target file continues receiving and retaining producer updates.
+A nonzero delay replaces the prior one, and `seconds: 0` cancels only the
+matching target and makes it visible again. The target file is never rewritten.
 
-The process timer is only a prompt path. Every coherent sync also recovers a
-persisted overdue delay. Recovery stops filtering and publishes one high-priority
-`delay-alarm` mirror in the same read/wake cycle. Its state uses the established
-native notification mutation lock plus atomic sibling replacement, and a stable
-request id makes a stale callback/restart retry overwrite the same latest-only
-alarm rather than append a duplicate. The alarm contains only byte-level change
-comparison plus producer-reported or retained-event measurements; such values are
-not claimed to be exact totals for overwrite/capped payloads. `delay-alarm` is a
-built-in mirror consumers may dismiss, but it cannot itself be delayed. Missing or
-malformed delay state fails toward visible target delivery.
+The finite nonzero cap is read live from
+`LINGTAI_NOTIFICATION_DELAY_MAX_SECONDS`; a missing, blank, non-numeric,
+non-positive, or non-finite value falls back to `600` with the existing bounded
+diagnostic. The process timer is only a prompt path. Every coherent sync also
+recovers a persisted overdue delay: recovery stops filtering and publishes one
+high-priority `delay-alarm` mirror in the same read/wake cycle. Its state uses
+the established native notification mutation lock plus atomic sibling
+replacement, and a stable request id makes a stale callback or restart retry
+overwrite the same latest-only alarm rather than append a duplicate.
+
+The alarm contains only byte-level change comparison plus producer-reported or
+retained-event measurements; these values are not claimed to be exact totals for
+overwrite or capped payloads. `delay-alarm` is a built-in mirror consumers may
+dismiss, but it cannot itself be delayed. Malformed or unreadable delay state
+fails open to visible target delivery. A `daemon` delay masks only its attention
+token; payload, delivered version, and bounded summary remain readable.
 
 ## Canonical producer state versus mirror
 
@@ -164,35 +160,18 @@ A blocked present JSON channel emits one deduplicated
 channel until registration. Kernel-private dotfiles, non-JSON entries, and
 invalid stems are skipped by this scan.
 
-## Delay cap and recovery detail
-
-The finite nonzero delay cap is read live from
-`LINGTAI_NOTIFICATION_DELAY_MAX_SECONDS`; a missing, blank, non-numeric,
-non-positive, or non-finite value falls back to `600` with the existing bounded
-diagnostic. The target file is never rewritten. A nonzero request replaces the
-one prior live request, while `seconds: 0` cancels only the matching target.
-
-The process timer is only a prompt path: coherent synchronization also recovers
-an overdue persisted record. Recovery removes filtering and publishes one
-high-priority latest-only `delay-alarm` mirror with target, requested/actual
-duration, byte-level change, and conservative producer/retained-event
-measurements. Stable request identity and the notification mutation lock prevent
-stale callbacks or restart recovery from duplicating alarms. Malformed or
-unreadable delay state fails open to visible delivery. A `daemon` delay masks
-only its attention token; payload, delivered version, and bounded summary remain
-readable, and independent channels still wake.
-
 ## Block-cap and settings detail
 
 The persistent block (`notification_persistent`) and transient attention lane
 share `LINGTAI_NOTIFICATION_MAX_CHARS` (default `10000`, clamped to `2048..10000`).
 Resolution is live environment, then valid closed System-v2
-`notification_max_chars`, then default. Invalid or malformed values contribute no
-layer value. At or under the cap, serialization is byte-identical. Above it, the
-full persistent payload is atomically spilled to
+`notification_max_chars`, then default. Invalid or malformed values contribute
+no layer value. At or under the cap, serialization is byte-identical. Above it,
+the full persistent payload is atomically spilled to
 `logs/notification-overflow-<ts>.json`; the attention lane uses a
 content-addressed `notification-attention-overflow-<digest8>.json` (with a
-collision suffix) and both model copies compact while preserving routing ids.
+collision suffix), and both model copies compact while preserving routing ids.
+
 Heavy free text is reduced in stages; if an id-only copy cannot fit, a marker-only
 envelope retains the exact spill basename, and a failed spill points back to the
 producer tool. The cap is a context-size control, not delivery accounting.
@@ -211,5 +190,5 @@ notification metadata such as legacy acknowledgement state
 (`.notification/hooks.json`, a single non-channel file invisible to collection),
 and consumer-delay state (`.notification/.delay_state.json`, a private dotfile
 invisible to collection). Inspect it read-only before diagnosing a producer.
-Never delete the directory or bulk-remove files — that bypasses the guards and
+Never delete the directory or bulk-remove files—doing so bypasses the guards and
 stale checks that only the producer verb or an atomic notification action honor.

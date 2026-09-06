@@ -5,7 +5,7 @@ description: >
   `notification` tool: read when interpreting `.notification/<channel>.json`,
   choosing producer-specific handling, or safely dismissing a mirror.
   Large-result/context compaction belongs to `context-manual`, not here.
-version: 0.14.0
+version: 0.15.0
 tags: [lingtai, notifications, channels, dismiss, delay, alarm, settings, manual, force, stale, nudge, hooks, whitelist]
 last_changed_at: "2026-09-06T00:00:00Z"
 related_files:
@@ -26,12 +26,12 @@ maintenance: |
 
 `notification` is the sole agent-callable surface for reading and clearing the
 current `.notification/<channel>.json` mirrors. `system` has no notification or
-dismiss alias; context compaction is `context(action='summarize')`.
+dismiss alias; compaction is `context(action='summarize')`.
 
 ## Quick start
 
-The resident schema is the source of truth for the eleven actions and their
-strict `action` + `input` + `reasoning` envelope. Begin with:
+The resident schema is the source of truth for eleven strict actions in the
+`action` + `input` + `reasoning` envelope. Begin with:
 
 ```text
 notification(action='check', input={}, reasoning='inspect current notifications')
@@ -39,15 +39,16 @@ notification(action='check', input={}, reasoning='inspect current notifications'
 
 `check` is read-only and returns a placeholder whose live payload is attached by
 the kernel. After handling a notification, use the narrowest matching dismiss
-action and do not call `check` merely to confirm the clear. Prefer a producer's
+action and do not call `check` merely to confirm the clear. Follow a producer's
 own read/dismiss verb when `instructions` names one: generic dismissal clears
-the mirror only, never producer state. Read the safety reference before using
-`force=true`, and read the channel-model reference when interpreting payloads,
-hooks, delay, or delivery.
+the mirror only, never producer state. Reread current state after a stale
+refusal; use `force=true` only for a confirmed stale mirror, never for producer
+or protected state. Read the dismissal-safety reference before forcing and the
+channel-model reference when interpreting payloads, hooks, delay, or delivery.
 
 Optional fields are required-but-nullable in the provider schema; `null` means
-omitted. `dismiss_event` and `dismiss_ref` default to `system`; a
-`dismiss_channel` call requires `channel`. A post-molt dismissal requires a
+omitted. `dismiss_channel` requires `channel`; `dismiss_event` and
+`dismiss_ref` default `channel` to `system`. A post-molt dismissal requires a
 non-empty `continue|defer|obsolete: ...` reason. `manual` and `settings` accept
 only `input={}` and are read-only.
 
@@ -57,11 +58,11 @@ only `input={}` and are read-only.
 hides consumer delivery for one allowed target only. `seconds: 0` cancels the
 matching delay; a nonzero call replaces the previous live delay. Producer files
 keep receiving updates. The live cap is
-`LINGTAI_NOTIFICATION_DELAY_MAX_SECONDS` (default `600`); `delay-alarm` cannot
-be targeted. Delaying `daemon` masks attention while keeping its payload and
-summary readable. At expiry or recovery, delivery resumes and one high-priority
-`delay-alarm` mirror records bounded evidence. See
-`reference/channel-model/SKILL.md` for persistence, recovery, and alarm details.
+`LINGTAI_NOTIFICATION_DELAY_MAX_SECONDS` (default `600`); missing, blank,
+non-numeric, non-positive, or non-finite values use that default. `delay-alarm`
+cannot be targeted. At expiry or recovery, delivery resumes and one
+high-priority `delay-alarm` mirror records bounded evidence; persistence and
+recovery details belong to the channel-model reference.
 
 The SHOW row is `notification.delay_max_seconds`: `current` is the effective
 positive integer from the live environment or the default `600`, and invalid
@@ -90,7 +91,9 @@ settings rows.
 
 Notification is a short-result family. Leave the root `summarize` boolean false
 when retrieving `manual`, because exact procedures and constraints matter. Use
-`context(action='summarize')` for tool-result compaction and recovery.
+`context(action='summarize')` for tool-result compaction and recovery; the
+legacy `large_tool_result` reminder is only an escape hatch and never changes
+producer state.
 
 ## Installed manual retrieval
 
@@ -111,8 +114,8 @@ External hooks must be registered with `add` before their channel is accepted.
 The effective allowlist is the built-in set, `mcp.*`, and channels registered by
 this agent's workdir; it is not process-global. `drop` revokes registration but
 never stops the hook process. Use the manifest's `how_to_cancel` to stop it.
-See `reference/channel-model/SKILL.md` for the setup flow, manifest fields,
-registry behavior, and blocked-channel warn-and-flag details.
+The channel-model reference owns the setup flow, manifest fields, registry
+behavior, and blocked-channel warn-and-flag details.
 
 ## Block size cap (persistent and attention lanes)
 
@@ -122,26 +125,14 @@ live environment `LINGTAI_NOTIFICATION_MAX_CHARS`, then valid System-v2
 `notification_max_chars`, then the default; malformed values fall through.
 Oversized payloads are atomically spilled and compacted while preserving routing
 ids, with a marker-only fallback when necessary. This is a context-size control,
-not delivery or access control. Change only through the existing authorized
-environment or closed System-v2 owner procedure; do not add Notification or
-`init.json` settings. See the channel-model reference for spill names,
-compaction order, and recovery behavior.
+not delivery or access control. Spill names, compaction order, and recovery are
+owned by the channel-model reference.
 
-## Nested reference catalog
-
-```yaml
-- name: notification-manual-channel-model
-  location: reference/channel-model/SKILL.md
-  description: |
-    Channel filenames and envelopes, effective per-agent allowlist, external
-    hooks, nudge routing, check/sync delivery, delay/alarm recovery, block caps,
-    settings sources, and producer mirror boundaries.
-- name: notification-manual-dismissal-safety
-  location: reference/dismissal-safety/SKILL.md
-  description: |
-    Producer-first handling, atomic targets, stale-version refusal, force rules,
-    protected channels, post-molt acknowledgement, and legacy reminders.
-```
+The SHOW row `notification.max_chars` reports that same effective clamped value.
+Change only through the existing authorized environment or closed System-v2 owner
+procedure; an environment/launcher change needs the authorized refresh or
+relaunch, while the file layer is hot-read. SHOW itself never writes, refreshes,
+adds an `init.json` field, or creates a Notification settings file.
 
 ## Routing table
 
@@ -150,13 +141,4 @@ compaction order, and recovery behavior.
 | First read; channel names; `.notification/*.json`; envelopes; `check`; delivery; allowlist; hooks; delay; block cap; settings sources | `reference/channel-model/SKILL.md` |
 | Which dismiss action; producer-specific handling; stale mirror; `force`; protected `goal`; post-molt reason; legacy `large_tool_result` | `reference/dismissal-safety/SKILL.md` |
 | Tool-result ranking, digest quality, `context(action='summarize')`, recovery by `tool_call_id` | `../context-manual/reference/summarize-manual/SKILL.md` |
-| Active goal cancellation/completion | `../system-manual/reference/goal-manual/SKILL.md` |
-| Runtime/kernel update nudges | `../system-manual/reference/runtime-update-checks/SKILL.md` |
-
-## Safety boundaries to keep resident
-
-Neither `check`, `settings`, nor `manual` writes notification state or runtime
-configuration. Generic dismissal affects only a mirror. A producer-specific
-verb remains preferred; a non-force stale refusal requires rereading current
-state before any deliberate `force=true`, and force never overrides protected
-source-of-truth channels.
+| Active goal cancellation/completion; runtime/kernel update nudges | `../system-manual/reference/goal-manual/SKILL.md` and `../system-manual/reference/runtime-update-checks/SKILL.md` |

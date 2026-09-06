@@ -3,9 +3,9 @@
 The notification tool exposes ``check``, the three atomic dismiss verbs
 (``dismiss_channel``, ``dismiss_event``, ``dismiss_ref``), read-only settings
 discovery, and the strictly read-only progressive-disclosure action ``manual``.
-``summarize`` is *not* a notification verb — it remains a ``system`` action;
-the root ``summarize`` boolean is the cross-cutting LTP v2 result-post-processing
-control, not an action.
+``summarize`` is *not* a notification verb; compaction is owned by
+``context(action='summarize')``. The root ``summarize`` boolean is the
+cross-cutting LTP v2 result-post-processing control, not an action.
 
 This module holds only data: each action's own canonical strict
 ``input_schema`` (:data:`INPUT_SCHEMAS`) and the canonical English prose.
@@ -35,9 +35,7 @@ LARGE_RESULT_DISMISS_ACTION_NOTE = (
     "result. See notification-manual."
 )
 
-LARGE_RESULT_FORCE_NOTE = (
-    "The legacy large_tool_result escape hatch always clears only its mirror."
-)
+LARGE_RESULT_FORCE_NOTE = ""
 
 # The canonical action order. This is the single source for the schema's
 # ``action`` enum order, the ``input`` disclosure/``allOf`` branch order, and the
@@ -62,16 +60,16 @@ NOTIFICATION_DECLARED_ACTIONS = (
 ACTION_ORDER = (*NOTIFICATION_DECLARED_ACTIONS, "settings", "manual")
 
 _CHANNEL_DESCRIPTION = (
-    "Target channel; required here, defaults to system for event/ref. Prefer its "
-    "producer verb; generic dismissal clears only this mirror."
+    "Target channel; required for whole-channel clear; event/ref default to system. "
+    "Follow its producer verb first; generic clear is mirror-only."
 )
 
 _FORCE_DESCRIPTION = (
-    "Optional true only after rereading a stale mirror; bypasses generic/stale "
-    "guards, never producer or protected state. " + LARGE_RESULT_FORCE_NOTE
+    "Optional true only after rereading a confirmed stale mirror; never producer or "
+    "protected state. " + LARGE_RESULT_FORCE_NOTE
 )
 
-_REASON_DESCRIPTION = "Optional ack reason; post-molt requires continue|defer|obsolete: ... ."
+_REASON_DESCRIPTION = "Optional ack reason; post-molt: continue|defer|obsolete: ... ."
 
 _CHECK_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -80,13 +78,11 @@ _CHECK_INPUT_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-_HOOK_NAME_DESCRIPTION = "Hook name; required by add/drop/edit and matched in hooks.json."
+_HOOK_NAME_DESCRIPTION = "Hook name; matched in hooks.json."
 
-_HOOK_CHANNEL_DESCRIPTION = (
-    "Published channel/file stem; registration allowlists it for this agent."
-)
+_HOOK_CHANNEL_DESCRIPTION = "Published channel stem; registration allowlists it."
 
-_HOOK_STRING_FIELD_DESCRIPTION = "Hook manifest text field."
+_HOOK_STRING_FIELD_DESCRIPTION = "Hook manifest field."
 
 _ADD_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -238,48 +234,40 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 ACTION_ENUM_DESCRIPTION = (
-    "Actions take their strict arguments in input; nullable optionals mean absent. "
-    "check: first read of current channels (input={}); it returns a placeholder "
-    "whose live payload is stamped under `_meta.agent_meta.notifications.attention` "
-    "and `_meta.agent_meta.guidance.transient`, so dismiss after handling rather "
-    "than checking again just to confirm. "
-    "dismiss_channel: clear one whole mirror (input={'channel': '<name>', ...}); "
-    "use the producer's own verb first when offered. A non-force stale-version or "
-    "producer guard refusal means reread; force=true is only for a confirmed stale "
-    "mirror and never changes producer/protected state. "
+    "Strict action selector: each action takes its own object in input; nullable "
+    "optionals mean absent. "
+    "check: read current channels and return the live placeholder. "
+    "dismiss_channel: clear one named mirror. "
     "dismiss_event: remove one system event by event_id; channel defaults to system. "
     "dismiss_ref: remove matching system events by ref_id; channel defaults to system. "
     "add: register a hook manifest and allowlist its channel. "
-    "drop: unregister a hook and revoke its channel; never stop its process. "
+    "drop: unregister a hook; it never stops the process. "
     "edit: update a named hook and revalidate channel uniqueness. "
     "list: show registered hook manifests. "
-    "delay: hide one allowed consumer channel for seconds (0 cancels; nonzero uses "
-    "the live configured cap); producer state is unchanged and expiry emits one "
-    "delay-alarm mirror, which cannot itself be delayed. "
-    "settings: read-only effective key/current/default/configurable/comment rows; "
-    "follow the linked manual sections for meaning or changes. "
+    "delay: hide one allowed consumer channel (0 cancels; nonzero uses the live "
+    "cap); producer state is unchanged and expiry emits one non-delayable alarm. "
+    "settings: read-only effective setting rows. "
     "manual: call notification(action='manual', input={}) to return the installed "
-    "notification manual; read-only. "
-    "Post-molt dismissal requires a continue|defer|obsolete reason."
+    "notification manual; read-only."
 ) + "\n\n" + LARGE_RESULT_DISMISS_ACTION_NOTE
 
 
 def get_description(lang: str = "en") -> str:
     return (
-        "Notification is the sole tool for current-channel inspection, atomic "
-        "mirror dismissal, hook registration, and consumer delay. Calls use "
-        "action + input + reasoning; input is the selected action's strict object. "
-        "Start with notification(action='check', input={}, reasoning='...') to "
-        "inspect. Prefer a producer's own read/dismiss when offered: generic "
-        "dismiss clears only the mirror. Reread after a stale refusal; force=true "
-        "is only for a known-stale mirror and never changes producer/protected "
-        "state. Post-molt dismissal needs a continue/defer/obsolete reason. "
-        "Hook drop never stops its process; delay hides consumer delivery only "
-        "(0 cancels), and delay-alarm cannot be targeted. "
-        "notification(action='settings', input={}, reasoning='...') is read-only; "
-        "notification(action='manual', input={}, reasoning='...') returns the "
-        "installed manual. Both are read-only; use context(action='summarize') "
-        "for compaction."
+        "Notification reads current channel mirrors, manages hook registrations, "
+        "and controls consumer delay. Calls use the strict action + input + "
+        "reasoning envelope; begin with notification(action='check', input={}, "
+        "reasoning='...') to inspect. Its live payload is stamped under "
+        "`_meta.agent_meta.notifications.attention` and "
+        "`_meta.agent_meta.guidance.transient`. Follow producer-specific handling "
+        "before generic dismissal: generic clear is mirror-only; reread after a "
+        "stale refusal, and use force=true only for a confirmed stale mirror, never "
+        "producer or protected state. Post-molt dismissal needs a non-empty "
+        "continue|defer|obsolete: ... reason; drop never stops its process; delay "
+        "hides consumer delivery only (0 cancels), and delay-alarm cannot be "
+        "targeted. notification(action='settings', input={}, reasoning='...') and "
+        "notification(action='manual', input={}, reasoning='...') are read-only; "
+        "use context(action='summarize') for compaction."
     )
 
 
