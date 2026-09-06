@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -195,6 +196,56 @@ def test_router_manual_is_a_routing_table_naming_all_four_domains(tmp_path):
         # the domain manuals it points at.
         assert "file.write" in body and "file.edit" in body
         assert 'context(action="rebuild"' in body
+    finally:
+        agent.stop(timeout=1.0)
+
+
+def test_router_manual_discloses_depth_and_first_call_guard(tmp_path):
+    """The resident router points to depth and keeps the safe first call."""
+    agent = _agent(tmp_path)
+    try:
+        result = _call(agent, "manual")
+        body = result["manual"]
+        assert "reference/settings/SKILL.md" in body
+        assert "reference/network-rules/SKILL.md" in body
+        assert "strict empty `input`" in body
+        assert "manual first" in body
+        assert len(body) < 10000
+        manual_path = Path(result["manual_path"])
+        assert (manual_path.parent / "reference/settings/SKILL.md").is_file()
+        assert (manual_path.parent / "reference/network-rules/SKILL.md").is_file()
+    finally:
+        agent.stop(timeout=1.0)
+
+
+def test_router_keeps_settings_anchors_as_reference_pointers(tmp_path):
+    """R2 keeps stable anchors while moving settings depth to its owner page."""
+    import re
+
+    agent = _agent(tmp_path)
+    try:
+        result = _call(agent, "manual")
+        body = result["manual"]
+        anchors = (
+            "pad", "pad-file", "base-prompt", "base-prompt-file",
+            "covenant", "covenant-file", "comment", "comment-file",
+        )
+        for anchor in anchors:
+            heading = f"### Setting {anchor.replace('-', ' ')}"
+            assert len(re.findall(rf"^{re.escape(heading)}$", body, flags=re.M)) == 1
+            assert len(
+                re.findall(
+                    rf"reference/settings/SKILL\.md#setting-{re.escape(anchor)}\)",
+                    body,
+                )
+            ) == 1
+
+        assert "## Which domain am I in?" not in body
+        settings_reference = (
+            Path(result["manual_path"]).parent / "reference/settings/SKILL.md"
+        ).read_text(encoding="utf-8")
+        assert "key`, `current`, `default`, `configurable`, and `comment`" in settings_reference
+        assert '"schema_version": 1' in settings_reference
     finally:
         agent.stop(timeout=1.0)
 
