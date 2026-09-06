@@ -47,7 +47,9 @@ briefing layered over them. Tend them before every agent-initiated molt:
 - **Skills** — write reusable procedures to
   `.library/custom/<name>/SKILL.md` with `name`, `description`, and `version`
   frontmatter, then rebuild when the catalog must refresh. Share source or
-  artifacts so a peer installs the skill in its own custom library.
+  artifacts so peers install it into their own `.library/custom/<name>/` and
+  refresh; use `../.library_shared/<name>/` only as an explicit opt-in
+  local-network shared root.
 
 For `lingtai` and `knowledge`, hold ordinary updates until the end of the task
 and commit them in one pass; checkpoint early only when a long task could lose
