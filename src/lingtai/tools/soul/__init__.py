@@ -188,18 +188,12 @@ def _handle_flow(runtime) -> dict:
             "enabled": False,
             "env_var": SOUL_FLOW_ENABLED_ENV,
             "message": (
-                "Soul flow is disabled by default on this agent. It is "
-                "opt-in: set the environment variable "
+                "Soul flow is disabled (expected state; opt-in required). Set "
                 f"{SOUL_FLOW_ENABLED_ENV}=1 (also true/yes/on), then "
-                "refresh/restart, to enable periodic and voluntary "
-                "past-self consultation. delay_seconds is only the "
-                "cadence AFTER this opt-in — it is not an off switch, "
-                "and soul(action='config') does not enable flow. "
-                "inquiry, config, voice, and dismiss remain available "
-                "while flow is disabled. Do not retry flow blindly; the "
-                "operator must set the env var first. See soul-manual "
-                "skill for how to enable/disable, troubleshoot, and the "
-                "privacy/cost rationale."
+                "refresh/restart; config changes cadence only and cannot "
+                "enable flow. Do not retry flow blindly. inquiry, config, "
+                "voice, and dismiss remain available. See soul-manual for "
+                "the gate procedure and cost/privacy guidance."
             ),
         }
 
@@ -301,19 +295,16 @@ _DESCRIPTION = (
     "Soul is the agent's inner voice. Use one closed envelope: "
     "soul(action=..., input={...}, reasoning='why'). Actions are inquiry, flow, "
     "config, voice, dismiss, settings, and manual; each has strict action-local "
-    "input. inquiry is on-demand self-reflection and returns its voice in the "
-    "result. flow is mechanical, asynchronous periodic consultation: it is opt-in "
-    "and disabled by default until an operator sets "
-    "LINGTAI_SOUL_FLOW_ENABLED=1 (then refreshes). Disabled flow returns "
-    "status='disabled' before any work; it is expected state, so do not retry "
-    "until the operator changes the environment. config tunes cadence/count only "
-    "and cannot enable or disable flow; "
-    "voice reads or sets the flow-voice profile; dismiss clears its notification. "
-    "config sends both nullable knobs with at least one non-null; voice sends both "
-    "nullable fields, where null/null reads. settings is read-only and manual "
-    "returns the installed guide without a Soul operation. Flow reads current and "
-    "past-self context and may run 1+K LLM calls, so the opt-in protects cost and "
-    "privacy. Keep root summarize=false; see soul-manual for routed detail."
+    "input. inquiry is on-demand self-reflection; flow is mechanical, "
+    "asynchronous periodic consultation and is opt-in, disabled by default until "
+    "an operator sets LINGTAI_SOUL_FLOW_ENABLED=1 and refreshes. Disabled flow "
+    "returns status='disabled' before work; it is expected state, so do not retry "
+    "until the environment changes. config tunes cadence/count only and cannot "
+    "enable or disable flow; voice reads or sets the flow-voice profile; dismiss "
+    "clears its notification; settings is read-only; manual returns the installed "
+    "guide without Soul work. Flow reads current and past-self context and may "
+    "run 1+K LLM calls, so the opt-in protects cost and privacy. Keep root "
+    "summarize=false; see soul-manual for routed detail."
 )
 
 

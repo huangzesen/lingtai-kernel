@@ -137,11 +137,13 @@ def test_compact_description_retains_first_call_safety_and_routes_depth():
         "inquiry is on-demand self-reflection",
         "flow is mechanical, asynchronous periodic consultation",
         "voice reads or sets the flow-voice profile",
-        "config sends both nullable knobs with at least one non-null",
-        "voice sends both nullable fields, where null/null reads",
         "cost and privacy",
     ):
         assert required in description
+    # Strict child schemas own these first-call details; the root prose routes
+    # to the relevant action instead of repeating them a second time.
+    assert "config sends both nullable knobs with at least one non-null" not in description
+    assert "voice sends both nullable fields, where null/null reads" not in description
 
 
 def test_manual_router_discloses_packaged_soul_references():
@@ -153,6 +155,9 @@ def test_manual_router_discloses_packaged_soul_references():
         "reference/consultation.md": "# Soul consultation mechanics",
     }
     assert len(body) < 7000
+    assert "## Actions and routes" in body
+    assert "## Choose a path" not in body
+    assert "## Reference map" not in body
     for relative, heading in routes.items():
         assert relative in body
         reference = manual_dir.joinpath(relative).read_text(encoding="utf-8")
