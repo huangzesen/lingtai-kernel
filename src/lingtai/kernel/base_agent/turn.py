@@ -769,6 +769,135 @@ def _compact_history_before_retry(agent, *, source: str) -> "CompactionStats | N
     return stats
 
 
+# ---------------------------------------------------------------------------
+# Puffo admission witness — settle-point wire-scan.
+#
+# The reliable "a receipt-bearing tool result durably reached the provider
+# context" fact is not the terminal tool_call_update (that fires at tool
+# COMPLETED, before commit).  Instead, at each *settle point* — immediately
+# after a ``send(...)`` has fully settled (returned OR its exception handling,
+# incl. any rollback/restore, has completed) and after each
+# ``commit_tool_results(...)`` returns — we scan the ACTUAL canonical interface
+# entries.  Reading real wire state (not a bookkeeping list of what was passed
+# to ``send``) is load-bearing: the adapter rollback layer sits between the
+# caller and the wire, so a rolled-back entry is naturally absent and never
+# fires, while a survivor of a failed send is present and fires exactly once.
+#
+# Two turn-scoped pieces of state bound the scan (see
+# ``begin_admission_witness_scope``): a WATERMARK (the last interface entry id
+# at turn start — only strictly-newer entries are this turn's) and an EMITTED
+# set (tool-call ids already witnessed this turn — each fires at most once
+# across the turn's multiple settle points).
+# ---------------------------------------------------------------------------
+
+
+def _current_last_entry_id(agent) -> int:
+    """Return the newest interface entry id, or -1 when there is none yet.
+
+    Entry ids are monotonically increasing and never reused (``_next_id`` only
+    ever advances; truncation/removal never rewinds it, and ``from_dict`` seeds
+    it past the max restored id), so this is a stable pre-turn/this-turn
+    boundary.  A positional index would be unreliable because mid-turn removals
+    (``drop_trailing``, ``remove_pair_by_call_id``) shift positions.
+    """
+    chat = getattr(agent, "_chat", None)
+    iface = getattr(chat, "interface", None)
+    if iface is None:
+        return -1
+    entries = getattr(iface, "entries", None) or ()
+    if not entries:
+        return -1
+    return getattr(entries[-1], "id", -1)
+
+
+def begin_admission_witness_scope(agent) -> None:
+    """Open the turn-scoped admission-witness state at the turn boundary.
+
+    Captured once, OUTSIDE the AED retry loop, so a replayed entry cannot
+    double-fire within a turn and pre-turn history is never re-witnessed.
+    """
+    agent._puffo_admission_watermark = _current_last_entry_id(agent)
+    agent._puffo_admission_emitted = set()
+
+
+def end_admission_witness_scope(agent) -> None:
+    """Close the turn-scoped state so scans outside a turn are no-ops."""
+    agent._puffo_admission_emitted = None
+    agent._puffo_admission_watermark = -1
+
+
+def scan_and_emit_committed_facts(agent) -> None:
+    """Emit one committed fact per new, receipt-bearing, un-witnessed result.
+
+    Called at each settle point.  Never touches a poisoned interface (the
+    WorkerStillRunning paths re-raise before reaching any scan; this is a second
+    line of defence).  Rolled-back entries are absent from the wire and so never
+    fire; survivors of a failed send are present and fire exactly once.
+    """
+    emitted = getattr(agent, "_puffo_admission_emitted", None)
+    if emitted is None:
+        return
+    if is_worker_interface_poisoned(agent):
+        return
+    chat = getattr(agent, "_chat", None)
+    iface = getattr(chat, "interface", None)
+    if iface is None:
+        return
+    watermark = getattr(agent, "_puffo_admission_watermark", -1)
+    from ..llm.interface import ToolResultBlock
+    from ..puffo_admission_witness import (
+        admission_binding,
+        extract_admission_receipt,
+    )
+    from ..turn_events import (
+        ToolResultsCommittedEvent,
+        notify_tool_results_committed,
+    )
+
+    try:
+        entries = list(iface.entries)
+    except Exception:
+        return
+    for entry in entries:
+        if getattr(entry, "id", -1) <= watermark:
+            continue
+        if getattr(entry, "role", None) != "user":
+            continue
+        for block in getattr(entry, "content", None) or ():
+            if not isinstance(block, ToolResultBlock):
+                continue
+            block_id = block.id
+            if block_id in emitted:
+                continue
+            raw = extract_admission_receipt(block)
+            if raw is None:
+                # read_inbox / synthesized / malformed / no-receipt: no fact,
+                # and deliberately NOT recorded in ``emitted`` so an in-place
+                # synthesized→real overwrite can still fire later.
+                continue
+            delivered = notify_tool_results_committed(
+                ToolResultsCommittedEvent(
+                    block_id, admission_binding(block_id, raw)
+                )
+            )
+            if delivered:
+                # Only a delivered fact is retired from further settle points.
+                emitted.add(block_id)
+            else:
+                # Non-delivery must be visible, not silent — and NOT recorded in
+                # ``emitted``, so a later settle point retries (Puffo's own
+                # at-most-once idempotency is the backstop). Genuine session
+                # teardown makes the ACP handler return normally (delivered), so
+                # this retry path does not spin on a torn-down session.
+                try:
+                    agent._log(
+                        "puffo_admission_fact_not_delivered",
+                        tool_call_id=block_id,
+                    )
+                except Exception:
+                    pass
+
+
 def _restore_tool_results_after_continuation_failure(
     agent,
     tool_results,
@@ -790,6 +919,9 @@ def _restore_tool_results_after_continuation_failure(
     ):
         return False
     agent._chat.commit_tool_results(tool_results)
+    # Settle point: the restore commit returned, so any receipt-bearing result
+    # it re-committed is durably on the wire.
+    scan_and_emit_committed_facts(agent)
     try:
         agent._save_chat_history(ledger_source=ledger_source)
     except Exception as e:
@@ -1088,6 +1220,11 @@ def _run_loop_body(agent) -> None:
                 tool_observer_token = bind_turn_tool_observer(
                     turn_control.tool_observer
                 )
+                # Open the turn-scoped admission-witness state here, alongside
+                # the observer bind and OUTSIDE the AED retry loop below, so the
+                # watermark separates pre-turn history from this turn's appends
+                # and the ``emitted`` set survives retries (no double-fire).
+                begin_admission_witness_scope(agent)
                 from ..turn_permissions import (
                     bind_turn_permission_broker,
                     clear_turn_permission_broker,
@@ -1713,6 +1850,10 @@ def _run_loop_body(agent) -> None:
             if tool_observer_token is not None:
                 from ..turn_events import reset_turn_tool_observer
                 reset_turn_tool_observer(tool_observer_token)
+                # Close the admission-witness scope with the observer: a scan
+                # after this point is a no-op, so a fact never fires after the
+                # observer that would deliver it is gone.
+                end_admission_witness_scope(agent)
             if permission_broker_token is not None:
                 from ..turn_permissions import reset_turn_permission_broker
                 reset_turn_permission_broker(permission_broker_token)
@@ -1941,6 +2082,10 @@ def _handle_request(agent, msg: Message) -> dict:
         content = f"{prefix}\n\n{content}"
     agent._log("text_input", text=content)
     response = agent._session.send(content)
+    # Settle point: the initial send returned; any receipt-bearing result
+    # spliced onto the wire during it (e.g. a request-start inbox drain) is now
+    # durably present.
+    scan_and_emit_committed_facts(agent)
     agent._last_usage = response.usage
     agent._save_chat_history()
     try:
@@ -2038,6 +2183,8 @@ def _handle_tc_wake(agent, msg: Message) -> None:
                 agent._log("tc_wake_dispatch", source=item.source, call_id=item.call.id)
                 try:
                     response = agent._session.send([item.result])
+                    # Settle point: send returned.
+                    scan_and_emit_committed_facts(agent)
                 except Exception as send_err:
                     from ..llm_utils import WorkerStillRunningError
 
@@ -2056,6 +2203,11 @@ def _handle_tc_wake(agent, msg: Message) -> None:
                     _restore_tool_results_after_continuation_failure(
                         agent, [item.result], ledger_source="tc_wake",
                     )
+                    # Settle point: send's exception handling (incl. any
+                    # rollback/restore) has completed.  A survivor still on the
+                    # wire (adapter did not roll back) fires here; a rolled-back
+                    # entry is absent and does not.
+                    scan_and_emit_committed_facts(agent)
                     raise
                 agent._last_usage = response.usage
                 agent._save_chat_history(ledger_source="tc_wake")
@@ -2121,6 +2273,8 @@ def _handle_tc_wake(agent, msg: Message) -> None:
         try:
             agent._log("tc_wake_continue")
             response = agent._session.send(None)
+            # Settle point: send returned.
+            scan_and_emit_committed_facts(agent)
             agent._last_usage = response.usage
             agent._save_chat_history(ledger_source="tc_wake")
             _process_response(agent, response, ledger_source="tc_wake")
@@ -2151,6 +2305,11 @@ def _handle_tc_wake(agent, msg: Message) -> None:
                     tool_completed=True,
                 )
                 agent._save_chat_history()
+            # Settle point: send(None)'s exception handling has completed.  If
+            # the API call failed with no rollback, the pre-existing tool-result
+            # tail survived on the wire and fires here (once); heal only appends
+            # synthesized results, which carry no receipt.
+            scan_and_emit_committed_facts(agent)
             fields = {"error": str(e)[:300]}
             if isinstance(e, EmptyLLMResponseError):
                 fields.update(e.diagnostic_fields())
@@ -2678,6 +2837,8 @@ def _process_response(agent, response, *, ledger_source: str = "main") -> dict:
         if intercepted:
             if tool_results and agent._chat:
                 agent._chat.commit_tool_results(tool_results)
+                # Settle point: no-API terminal commit returned.
+                scan_and_emit_committed_facts(agent)
             return {
                 "text": intercept_text,
                 "failed": False,
@@ -2697,6 +2858,8 @@ def _process_response(agent, response, *, ledger_source: str = "main") -> dict:
         if agent._cancel_event.is_set():
             if tool_results and agent._chat:
                 agent._chat.commit_tool_results(tool_results)
+                # Settle point: no-API terminal commit returned.
+                scan_and_emit_committed_facts(agent)
             agent._log("turn_cancelled_post_tool",
                        reason="cancel_event_set_after_tool_execute")
             return {"text": "", "failed": False, "errors": []}
@@ -2710,6 +2873,8 @@ def _process_response(agent, response, *, ledger_source: str = "main") -> dict:
         if _check_poll_backoff(agent, response.tool_calls, tool_results):
             if tool_results and agent._chat:
                 agent._chat.commit_tool_results(tool_results)
+                # Settle point: no-API terminal commit returned.
+                scan_and_emit_committed_facts(agent)
                 # Issue #126: save immediately so the in-memory and on-disk
                 # interface agree that tool results are committed. Without
                 # this, a notification heartbeat tick between the return
@@ -2731,6 +2896,9 @@ def _process_response(agent, response, *, ledger_source: str = "main") -> dict:
         in_tool_loop = True
         try:
             response = agent._session.send(tool_results)
+            # Settle point: the carrying send returned; committed tool results
+            # (id > watermark) are durably on the wire.
+            scan_and_emit_committed_facts(agent)
         except Exception as _continuation_exc:
             # The local tools have already executed and returned results; only
             # the post-tool LLM continuation failed. Some adapters append tool
@@ -2743,6 +2911,12 @@ def _process_response(agent, response, *, ledger_source: str = "main") -> dict:
             _restore_tool_results_after_continuation_failure(
                 agent, tool_results, ledger_source=ledger_source,
             )
+            # Settle point: the carrying send's exception handling (incl. any
+            # rollback/restore) has completed.  A survivor still on the wire
+            # (e.g. a drained pair shielded from drop_trailing, or results the
+            # restore re-committed) fires here exactly once; a rolled-back entry
+            # is absent and does not fire.
+            scan_and_emit_committed_facts(agent)
             # Surface the API error to the *still-live* Task Card here: the outer
             # AED catch runs only after ``_handle_request``'s finally has torn
             # down the card context, so its report would no-op. Observe-only and

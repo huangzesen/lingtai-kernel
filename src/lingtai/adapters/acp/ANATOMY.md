@@ -18,6 +18,7 @@ related_files:
   - src/lingtai/kernel/turn_events.py
   - src/lingtai/kernel/turn_permissions.py
   - src/lingtai/kernel/provider_admission.py
+  - src/lingtai/kernel/puffo_admission_witness.py
   - src/lingtai/kernel/tool_executor.py
   - src/lingtai/services/session_mcp.py
   - src/lingtai/kernel/process_match.py
@@ -26,6 +27,7 @@ related_files:
   - src/lingtai/kernel/base_agent/CONTRACT.md
   - tests/test_acp_stdio.py
   - tests/test_puffo_v0_profile.py
+  - tests/test_puffo_admission_witness.py
   - tests/test_driver_authority_adapter.py
   - tests/test_correlated_turns.py
   - tests/test_execution_workspace.py
@@ -61,7 +63,14 @@ co-located [`CONTRACT.md`](CONTRACT.md), and its operator/developer procedure is
   of atomic batches consumed only by a disposable daemon writer. Generation/start
   checks suppress not-yet-started prompt frames; framing/write failures abort the
   transport and active prompt without making stdout teardown authority. Implements
-  behavior [ACP001](BEHAVIORS.md#behavior-acp001).
+  behavior [ACP001](BEHAVIORS.md#behavior-acp001). `_PromptToolObserver`
+  additionally implements `on_tool_results_committed` (Core
+  `../../kernel/turn_events.py`): a *reliable* `tool_call_update` carrying only
+  `_meta.puffo.admission/1 = {toolCallId, binding}`. Unlike `on_tool_lifecycle`
+  it refuses the cosmetic fail-open suppression (per-call publication lock,
+  `_terminal`/`_announced`) and is idempotent via `_committed`, but still honors
+  the same genuine-teardown guard (`_closing`, superseded `_generation`,
+  claimed/replaced active prompt) as the only legitimate non-delivery.
 - `__init__.py` — small public package export for the protocol version and server.
 - `puffo_v0.py` — local operator registry and typed ACP-only turn-origin policy
   for the identity/workspace-bound full-tool `puffo-v0`

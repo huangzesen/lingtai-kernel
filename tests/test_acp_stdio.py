@@ -741,6 +741,74 @@ def test_tool_lifecycle_projects_ordered_private_free_updates_before_terminal():
     assert output.getvalue() == before
 
 
+def _admission_frames(output):
+    frames = []
+    for msg in _messages(output):
+        update = msg.get("params", {}).get("update", {})
+        meta = update.get("_meta", {}) if isinstance(update, dict) else {}
+        if isinstance(meta, dict) and "puffo.admission/1" in meta:
+            frames.append(update)
+    return frames
+
+
+def test_puffo_committed_fact_emits_reliably_idempotently_and_respects_teardown():
+    from lingtai.kernel.turn_events import ToolResultsCommittedEvent
+
+    handle = _Handle("placeholder")
+    agent = _Agent(handle)
+    output = io.StringIO()
+    server = AcpStdioServer(agent, io.StringIO(), output)
+    session_id = _open_session(server, output)
+    _request(server, 5, "session/prompt", {
+        "sessionId": session_id,
+        "prompt": [{"type": "text", "text": "use a tool"}],
+    })
+    observer = agent.submissions[0]["tool_observer"]
+
+    # Drive the tool lifecycle to a terminal, announced state. For a lifecycle
+    # update this marks the call in _terminal/_announced and would suppress any
+    # further lifecycle projection — but the committed fact must NOT be dropped
+    # by that cosmetic suppression.
+    observer.on_tool_lifecycle(
+        ToolLifecycleEvent("tc-1", "puffo_tool", ToolLifecycleState.STARTED)
+    )
+    observer.on_tool_lifecycle(
+        ToolLifecycleEvent("tc-1", "puffo_tool", ToolLifecycleState.COMPLETED)
+    )
+    _wait_for(output, 4)  # initialize + session/new + tool_call + tool_call_update
+
+    binding = "a" * 64
+    observer.on_tool_results_committed(
+        ToolResultsCommittedEvent("tc-1", binding)
+    )
+    time.sleep(0.02)
+    frames = _admission_frames(output)
+    assert len(frames) == 1
+    assert frames[0] == {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": f"{handle.correlation_id}:tc-1",
+        "_meta": {
+            "puffo.admission/1": {"toolCallId": "tc-1", "binding": binding},
+        },
+    }
+
+    # Idempotent: a second committed event for the same toolCallId emits nothing.
+    observer.on_tool_results_committed(
+        ToolResultsCommittedEvent("tc-1", binding)
+    )
+    time.sleep(0.02)
+    assert len(_admission_frames(output)) == 1
+
+    # Genuine teardown is the only legitimate non-delivery.
+    server.close()
+    before = len(_admission_frames(output))
+    observer.on_tool_results_committed(
+        ToolResultsCommittedEvent("tc-2", "b" * 64)
+    )
+    time.sleep(0.02)
+    assert len(_admission_frames(output)) == before
+
+
 def test_denied_tool_projects_one_initial_failed_update_and_close_drops_events():
     handle = _Handle("placeholder")
     agent = _Agent(handle)

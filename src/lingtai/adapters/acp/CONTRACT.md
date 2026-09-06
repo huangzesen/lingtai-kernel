@@ -19,6 +19,7 @@ related_files:
   - src/lingtai/kernel/turn_events.py
   - src/lingtai/kernel/turn_permissions.py
   - src/lingtai/kernel/provider_admission.py
+  - src/lingtai/kernel/puffo_admission_witness.py
   - src/lingtai/kernel/tool_executor.py
   - src/lingtai/services/session_mcp.py
   - src/lingtai/kernel/base_agent/lifecycle.py
@@ -27,6 +28,7 @@ related_files:
   - pyproject.toml
   - tests/test_acp_stdio.py
   - tests/test_puffo_v0_profile.py
+  - tests/test_puffo_admission_witness.py
   - tests/test_driver_authority_adapter.py
   - tests/test_correlated_turns.py
   - tests/test_execution_workspace.py
@@ -143,7 +145,40 @@ argv, environment, or MCP command from the remote caller.
    content, locations, `rawInput`, `rawOutput`, and internal errors never cross
    the wire. Normal output is at most one completed-response
    `agent_message_chunk` followed by `{stopReason: "end_turn"}`; no hidden
-   thoughts or tool internals are projected.
+   thoughts or tool internals are projected. Additionally, the Adapter projects
+   a **Puffo admission committed-fact** as a `tool_call_update` carrying only
+   `_meta.puffo.admission/1 = {toolCallId: <raw Core id>, binding}` (the
+   `toolCallId` field of the update itself is the session-correlated id). It is
+   still metadata-only (no arguments/results/content), and is the *reliable*
+   counterpart to the fail-open lifecycle projection above: Core emits it at a
+   caller settle point once a receipt-bearing tool result is durably present on
+   the canonical wire (see `src/lingtai/kernel/base_agent/`), and the Adapter
+   handler refuses the cosmetic fail-open suppression (per-call publication
+   lock, `_terminal`/`_announced`) used for lifecycle updates. It is idempotent
+   (at most one per `toolCallId` per generation) and the ONLY legitimate
+   non-delivery is genuine session teardown (closing / superseded generation /
+   claimed-or-replaced active prompt — a torn-down session has no wire to
+   publish onto). Three properties bound its meaning: (a) `binding =
+   sha256(toolCallId ‖ 0x00 ‖ raw_receipt)` proves the emitter *possessed the
+   receipt paired with this exact toolCallId* — it does NOT itself prove commit;
+   "committed" rests entirely on the emission-point discipline (a settle point
+   is after a carrying `send(...)` has fully settled, incl. any
+   rollback/restore, or after a `commit_tool_results(...)` returns, scanning
+   real interface state so a rolled-back entry is naturally never witnessed).
+   (b) `read_inbox` results carry no receipt marker, so they are an explicit
+   no-receipt / no-fact exclusion. (c) Residual — if the process crashes after a
+   receipt-bearing result is committed to the wire but before its settle-point
+   scan runs, or AED retry compaction / large-result spill rewrites that block's
+   content (dropping the marker) before it is witnessed, the fact is never
+   emitted; Puffo then fail-closed denies an otherwise-legitimate result. This
+   benign-prohibited outcome is acceptable but must not be silent: Core logs a
+   bounded `puffo_admission_fact_not_delivered` event when a scanned fact has no
+   observer to receive it. The turn-start watermark is a monotonic
+   `ChatInterface` entry id; `from_dict` reseeds `_next_id = max(id)+1`, so a
+   narrow theoretical window exists where deleting a tail entry then serializing
+   and reloading could reuse a retired id and let the watermark admit a stale
+   entry — a known benign-prohibited residual in the same fail-closed direction
+   (at worst one extra at-most-once fact, which Puffo idempotency absorbs).
 4. `acp-local-stdio.cancel.v1` — `session/cancel` calls only the active
    correlated handle. Cancellation requested before exact terminal settlement
    wins and the original prompt returns `{stopReason: "cancelled"}`. The reader
@@ -330,6 +365,15 @@ wire tests pin workspace rooting/escape/isolation, stdio validation, atomic
 publication/rollback, collisions, and close/EOF ownership.
 `tests/test_correlated_turns.py` pins the consumed Core Port's normal, matching
 active cancel, pending-cancel isolation, failure, and shutdown settlement.
+`tests/test_puffo_admission_witness.py` pins the Puffo admission committed-fact:
+receipt extraction rules (structured field vs. plain-text last-marker,
+malformed/absent, synthesized, `read_inbox` no-receipt), the
+`sha256(toolCallId ‖ 0x00 ‖ receipt)` binding, and the settle-point wire-scan
+(commit-interrupted → no fact, success → fact, parallel same-name → two correct
+facts, rolled-back-vs-survivor, per-turn idempotency, and the turn-start
+watermark that prevents cross-turn re-fire); `tests/test_acp_stdio.py`
+additionally pins the reliable ACP emit — no cosmetic suppression, idempotency,
+and teardown non-delivery.
 
 ## Maintenance
 
