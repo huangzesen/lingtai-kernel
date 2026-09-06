@@ -44,9 +44,9 @@ A send writes sender-side outbox/sent state synchronously, then starts one daemo
 mailman thread per recipient. A successful `{status: "sent"}` receipt means the
 attempt was scheduled, not necessarily delivered. `delay` is a non-negative
 number of seconds before the one delivery attempt; the outbox record exists while
-the thread waits. See [Notifications and delivery](notifications-and-delivery/SKILL.md)
+the thread waits. See [Notifications and delivery](../notifications-and-delivery/SKILL.md)
 for liveness and bounce behavior. Identical consecutive sends are guarded as a
-loop; the installed pass count is in [Settings reference](settings-reference/SKILL.md).
+loop; the installed pass count is in [Settings reference](../settings-reference/SKILL.md).
 
 ## Listing and filtering
 
