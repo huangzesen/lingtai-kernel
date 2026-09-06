@@ -4,7 +4,7 @@ description: >
   Read before delegating work, diagnosing a slow/stuck/failed/timed-out
   emanation, or reclaiming on a hunch. Routes daemon call shape, task context,
   settings, backend support, inspection, compaction, and cleanup procedures.
-version: 0.14.0
+version: 0.15.0
 last_changed_at: 2026-09-06T00:00:00Z
 related_files:
 - src/lingtai/tools/daemon/CONTRACT.md
@@ -21,26 +21,24 @@ related_files:
 - src/lingtai/tools/bash/manual/SKILL.md
 - tests/test_daemon_settings.py
 maintenance: |
-  Keep this short router aligned with the daemon Contract and Anatomy. Put
-  backend recipes, artifact forensics, inspection cadence, ledger diagnosis, and
-  cleanup detail in the nested references listed above; update links when those
-  owners move.
+  Keep this as a short router. Put backend recipes, artifact forensics,
+  inspection cadence, ledger diagnosis, and cleanup detail in the nested
+  references; keep links and settings anchors stable.
 ---
 
 # Daemon Manual — Router
 
-`daemon` dispatches disposable subagents (emanations) that share the parent's
-working directory but have isolated sessions and a bounded tool surface. Read
-this manual before the first call. Keep the complete objective, authority,
-safety boundary, collaboration rules, and deliverable in each task's `task`
-field; `tools` only grants capabilities. The daemon is not a durable persona or
-hidden memory store: leave reviewable work in files and use the run artifacts for
-follow-up.
+`daemon` dispatches disposable subagents (emanations) with isolated sessions and
+bounded tools. Read this manual before the first call. Put the complete
+objective, authority, safety boundary, collaboration rules, and deliverable in
+each task's `task`; `tools` grants capability only. The daemon is not a durable
+persona or hidden memory store: leave reviewable work in files and use run
+artifacts for follow-up.
 
 ## Nested reference catalog
 
-These are parent-owned drill-down references, not additional top-level skills.
-Load only the page needed for the current operation.
+These are parent-owned drill-down references, not extra top-level skills. Load
+only the page needed for the current operation.
 
 ```yaml
 - name: daemon-forensics
@@ -51,7 +49,7 @@ Load only the page needed for the current operation.
   description: List/check cadence, stall heuristic, reminders, and safe intervention.
 - name: daemon-cli-backends
   location: reference/cli-backends/SKILL.md
-  description: Backend selection, list semantics, backend_options, presets, MCP status, and per-backend routes.
+  description: External backend support, aliases/resume, backend_options, presets, MCP status, and per-backend routes.
 - name: daemon-cleanup
   location: reference/cleanup/SKILL.md
   description: Reclaim scope, persistent forensic footprint, consent-gated cleanup, and boundaries.
@@ -60,234 +58,212 @@ Load only the page needed for the current operation.
   description: Append-order dispatch membership, list warnings, marker-only recovery, and runtime mismatch diagnosis.
 ```
 
-The authoritative behavioral promises are in
-[`daemon/CONTRACT.md`](../CONTRACT.md); this router teaches procedures without
-copying that contract. For exact backend command/flag surfaces, use
-`reference/cli-backends/SKILL.md` and its per-backend pages.
+## Routing table
+
+| Need / keywords | Read |
+|---|---|
+| First use, safe call shape, task authority, settings, completion, or compact | This router, then the relevant section below |
+| `backend="lingtai"`; built-in/in-process backend; preset, skills, MCP, or `finish` behavior | `reference/cli-backends/reference/backends/lingtai/SKILL.md` directly; no generic CLI page is required |
+| External CLI backend, alias, resume, `backend_options`, native MCP/config, or installed `--help` | `reference/cli-backends/SKILL.md`, then its per-backend page |
+| `list`/`check` cadence, stall, reminder, or intervention | `reference/inspection/SKILL.md` |
+| Run artifacts, events, transcripts, token records, or SIGTERM/143 | `reference/forensics/SKILL.md` |
+| Dispatch-ledger warnings or runtime identity mismatch | `reference/dispatch-ledger/SKILL.md` |
+| Reclaim, footprint, consent-gated cleanup, or deletion boundary | `reference/cleanup/SKILL.md` |
+| Shell async events or shell-side supervision | `shell-manual` |
+
+The built-in route is intentionally separate from the generic CLI route. The
+external page remains the owner of detailed CLI support, alias/resume behavior,
+MCP/config injection, reserved flags, auth hygiene, and per-backend discovery.
 
 ## Call shape and action choice
 
-Every call is the closed LTP-v2 envelope below. `input` contains only the
-selected action's fields; `reasoning` is required; root `summarize` is optional
-and is not action input. The optional root `summarize` boolean replaces the
-former flat `summary` field. Passing another action's field is rejected before
-the engine runs.
+Every call uses the closed LTP-v2 envelope. `input` contains only the selected
+action's fields; `reasoning` is required; root `summarize` is optional and is
+not action input. The optional root `summarize` boolean replaces the former flat `summary` field. An action's other fields are rejected before the engine runs.
 
-| Action | Example | State |
+| Action | Example | Effect |
 |---|---|---|
 | `emanate` | `daemon(action="emanate", input={"tasks": [{"task": "...", "tools": ["file"]}]}, reasoning="...")` | dispatches |
 | `list` | `daemon(action="list", input={"status": "running"}, reasoning="...")` | read-only |
-| `ask` | `daemon(action="ask", input={"id": "em-a1b2", "message": "..."}, reasoning="...")` | follow-up |
-| `check` | `daemon(action="check", input={"id": "em-a1b2"}, reasoning="...")` | read-only |
+| `ask` | `daemon(action="ask", input={"id": "run-id", "message": "..."}, reasoning="...")` | follow-up |
+| `check` | `daemon(action="check", input={"id": "run-id"}, reasoning="...")` | read-only |
 | `settings` | `daemon(action="settings", input={}, reasoning="inspect daemon settings")` | read-only |
 | `reclaim` | `daemon(action="reclaim", input={}, reasoning="stop confirmed work")` | cancels |
 | `manual` | `daemon(action="manual", input={}, reasoning="read procedures")` | read-only |
 
-`list`, `check`, `settings`, and `manual` are read-only; `emanate`, `ask`, and `reclaim` are the side-effectful actions. `manual` is
-always directly callable and does not reach the daemon engine. An emanate
-returns immediately with ids and a batch `group_id`; use each returned id/run id
-for inspection and audit.
+`manual` is directly callable and reaches no daemon engine. An `emanate` returns
+ids and a batch `group_id`; use each id/run id for inspection and audit. `list`, `check`, `settings`, and `manual` are read-only; `emanate`, `ask`, and `reclaim`
+are side-effectful. The terminal distinctions are fixed and cannot be inferred
+from a field borrowed from another action.
 
 ## First dispatch: task context and boundaries
 
 Each `tasks[]` item requires `task` and `tools`.
 
-- **`task`** is the complete parent-controlled instruction: objective, role,
-  constraints, safety posture, collaboration boundaries, tool-use policy, and
-  deliverable. The removed `system_prompt` field has no alias; put its complete
-  instruction here. Tell the daemon what it may read/write, whether shell or
-  network access is allowed, and where detailed output belongs.
-- **`tools`** is the technical capability list for this run, not authorization
-  to exceed `task`. Parent MCP tools are not automatically inherited. Guarded
-  tool calls still pass through the normal `ToolExecutor`/`ToolCallGuard` path.
-- **`skills`** is an optional list of skill directories or direct `SKILL.md`
-  paths. Relative paths resolve against the parent working directory. The
-  runtime parses frontmatter and injects only a compact `name`/`location`/
-  `description` catalog; the worker reads a selected skill path when relevant,
-  rather than receiving its whole body.
-- **`mcp`** is an optional list of complete one-run `stdio`/`http` registrations.
-  Registration names and shape remain visible in prompt context while secret
-  `env`/`headers` values are redacted. LingTai starts task-scoped clients;
-  external CLIs mount only the transports documented in the backend reference.
-  Tool names must be unique across task and plugin registrations.
-- **`plugin`** is an optional list of plugin directories or search roots,
-  resolved relative to the parent working directory. A manifest becomes a
-  compact prompt section and its skills/MCP registrations are merged for the
-  run. Missing or unreadable plugin paths resolve to nothing; malformed input
-  is rejected before dispatch.
-- **`task_files`** is an optional list of `{path, label?, role?}` UTF-8 text
-  inputs under the parent working directory. Dispatch validates containment,
-  encoding, and size, then snapshots bytes content-addressed into the immutable
-  `daemons/_task_files/` store. The worker receives metadata and snapshot paths,
-  never contents or mutable originals; a bad entry refuses the whole batch.
+- **`task`** is the complete parent-controlled objective, authority, constraints,
+  safety posture, collaboration rules, tool-use policy, and deliverable. The
+  removed `system_prompt` field has no alias; put its instruction here.
+- **`tools`** grants technical capability, not permission beyond `task`. Parent
+  MCP tools are not inherited. Guarded calls still pass the normal executor and
+  call-guard path.
+- **`skills`** is an optional list of skill directories or `SKILL.md` paths.
+  Relative paths use the parent working directory; runtime injects a compact
+  frontmatter catalog and the worker reads selected skills when relevant.
+- **`mcp`** is an optional list of complete one-run stdio/http registrations.
+  Names and shape remain visible while secret `env`/`headers` are redacted.
+  LingTai mounts task-scoped clients; exposed tool names must be unique. External
+  CLIs mount only transports documented in the backend reference.
+- **`plugin`** is an optional plugin directory or search-root list. A manifest
+  becomes compact prompt context and merges its skills/MCP; missing or unreadable
+  paths resolve to nothing.
+- **`task_files`** is an optional `{path, label?, role?}` UTF-8 text list under
+  the parent working directory. Dispatch validates containment, encoding, and
+  size, then snapshots bytes into the immutable store; the worker gets metadata
+  and snapshot paths, never mutable originals or contents. A bad entry rejects
+  the whole batch.
 - **`preset`** is an optional authorized `.json`/`.jsonc` path from
-  `system(action="presets")`, using the full returned path rather than a
-  shorthand. Omission inherits the parent's regular tool surface; MCP still
-  needs explicit task registrations. An unauthorized preset is refused before
-  loading, connectivity checks, run-directory creation, or scheduling.
-- **`prompt`** is LingTai-only and is the first ordinary user message, not part
-  of `task`. A nonblank value is preserved byte-for-byte; omitted, empty, or
-  whitespace-only means exactly `Begin the assigned daemon task.`. External CLI
-  tasks reject it and use `task` as their CLI prompt.
-- **`context_token_limit`** is a positive provider-context compaction threshold,
-  not cumulative spend or daemon window size. It applies only to LingTai tasks
-  whose resolved provider is Codex or native `mimo`; other providers and all
-  external CLI backends ignore it. Omission uses this daemon session's resolved
-  window. Codex compaction failure is non-fatal; native MiMo failure is hard.
-  See the Contract for the provider boundary and the live backend reference.
+  `system(action="presets")`; use the full returned path. Omission inherits the
+  parent's regular tools; MCP still needs explicit task registrations. An
+  unauthorized preset is refused before loading or scheduling.
+- **`prompt`** is LingTai-only and is the first ordinary user message. Blank or
+  omitted means exactly `Begin the assigned daemon task.`; external CLIs reject
+  it and use `task` as their prompt.
+- **`backend_options`** is CLI-only passthrough: booleans emit flags, scalars
+  values, lists repeat flags, false/null omit them, and reserved `env` supplies
+  string environment overrides. Unsafe or harness-owned keys fail preflight;
+  options apply at `emanate`, not `ask`. Run the installed CLI's `--help` first.
 
-Before dispatching a CLI task, inspect the installed command's `--help`; do not
-assume a flag from an old example. `backend_options` is a CLI-only passthrough:
-booleans emit flags, scalars emit values, lists repeat flags, and false/null
-omit them. Its reserved `env` object supplies string environment overrides and
-emits no argv flag. Unsafe keys and harness-owned flags fail preflight;
-options apply at `emanate`, not `ask`. See the CLI reference for reserved flags,
-auth hygiene, and command-specific details.
+### Per-task `context_token_limit`
+
+This is a separate provider-compaction threshold: it does not set daemon context
+or window. It applies only when the native LLM provider (`manifest.llm.provider`)
+is Codex or native `mimo`; every other provider and every external CLI backend
+ignores it. It uses the daemon session's own resolved context window. An explicit
+preset uses canonical `manifest.llm.context_limit`; implicit/no-preset uses the
+inherited parent effective window (272,000 fallback). Codex Responses uses
+`context_management` with stateless/full-history replay: compaction failure is
+non-fatal, while native mimo compaction failure is a HARD failure. The external
+CLI backend alias `mimo`/`mimocode` is unrelated. See the Contract and the live
+backend reference for provider boundaries.
 
 ## Backend choice and support
 
-The default `lingtai` backend is an in-process session. `claude-p` (with
-compatibility alias `claude-code`), Codex, OpenCode, Qwen Code, and Kimi Code
-have source-backed native `daemon_common` checkpoint/completion paths as
-specified in the CLI reference. MiMo Code, Oh-My-Pi, Cursor, and DeepSeek keep
-prompt-catalog-only MCP/completion status; they must not be treated as if prompt
-text granted native tools. Hidden interactive Claude is for legacy stored runs,
-not new selection. The backend enum and aliases are schema contracts; do not
-invent a fallback for an unsupported native path.
+`lingtai` is the default in-process backend. `claude-p` (alias `claude-code`),
+Codex, OpenCode, Qwen Code, and Kimi Code have source-backed native
+`daemon_common` checkpoint/completion paths as documented in the CLI reference.
+MiMo Code, Oh-My-Pi, Cursor, and DeepSeek retain prompt-catalog-only
+MCP/completion status; prompt text does not grant native tools. Hidden
+interactive Claude is for legacy stored runs, not new selection. Do not invent
+a fallback for an unsupported native path.
+
+Before relying on an external CLI, inspect its installed `--help`. `tools` in
+the task is ignored by external CLIs; `prompt` is LingTai-only. CLI backend
+support, aliases, resume limits, reserved options, auth, and native MCP
+boundaries belong to `reference/cli-backends/SKILL.md` and its child pages.
 
 ## Settings inventory (SHOW only)
 
 Call `daemon(action="settings", input={}, reasoning="inspect daemon settings")`.
-Success is exactly `{"settings": [...]}` with five fields per row:
-`key`, `current`, `default`, `configurable`, and `comment`. This action has no
-set/reset input and writes no files, environment, launcher state, or run.
-`configurable: true` means an authorized owner procedure exists; it does not
-grant this caller mutation authority. Verify an owner change with a fresh SHOW.
-A serialization or read failure returns `SETTINGS_UNAVAILABLE` rather than
-partial rows; SHOW never mutates configuration.
+Success is exactly `{"settings": [...]}` with row fields `key`, `current`,
+`default`, `configurable`, and `comment`. This action has no set/reset input and
+writes no files, environment, launcher state, or run. `configurable: true` means
+an owner procedure exists; it grants no mutation authority. A serialization/read
+failure returns `SETTINGS_UNAVAILABLE`, never partial rows.
 
 ### Max turns
 
-Anchor: `daemon-manual#max-turns`. `max_turns` is the manager's positive
-integer default/ceiling, normally `5000`; valid `LINGTAI_DAEMON_MAX_TURNS`
-environment, setup, and owner-file precedence is defined by the Contract. A per-call `emanate.max_turns` may
-choose a smaller positive value up to the schema maximum for one batch only.
-Do not set a low cap merely because a task looks simple: exploration, action,
-verification, and truthful completion all consume turns.
+Anchor: `daemon-manual#max-turns`. `max_turns` is the manager's positive integer
+default/ceiling, normally `5000`; `LINGTAI_DAEMON_MAX_TURNS` and owner/setup
+precedence are defined by the Contract. Per-call `emanate.max_turns` may choose
+a smaller positive value up to the schema maximum for one batch.
 
 ### Manager pool size
 
-Anchor: `daemon-manual#manager-pool-size`. `manager_pool_size` is a
-non-negative integer, normally `100`; `0` selects the classic per-run path.
-`LINGTAI_DAEMON_MANAGER_POOL_SIZE` is its environment source. It bounds
-concurrent POSIX central-manager execution children and applies when a manager
-is rebuilt. The owner procedure is configuration/setup, not SHOW.
+Anchor: `daemon-manual#manager-pool-size`. `manager_pool_size` is a non-negative
+integer, normally `100`; `0` selects the classic per-run path.
+`LINGTAI_DAEMON_MANAGER_POOL_SIZE` is its environment source and applies when
+the manager is rebuilt. Change it only through the authorized owner procedure.
 
 ### System prompt budget chars
 
 Anchor: `daemon-manual#system-prompt-budget-chars`.
-`system_prompt_budget_chars` is a positive character limit, normally `20000`,
-for a LingTai daemon's complete rendered prompt. `LINGTAI_DAEMON_SYSTEM_PROMPT_BUDGET_CHARS`
+`system_prompt_budget_chars` is a positive character limit, normally `20000`, for
+the complete rendered LingTai prompt. `LINGTAI_DAEMON_SYSTEM_PROMPT_BUDGET_CHARS`
 is its environment source. Over-budget task/skill/MCP context fails rather than
-silently truncating constraints. Setup and owner-file precedence plus apply
-timing are in the Contract; SHOW never changes it.
+silently truncating constraints; SHOW never changes it.
 
 ### Timeout
 
-Anchor: `daemon-manual#timeout`. `timeout` is the manager's finite wall-clock
-seconds default, normally `3600.0`, with an operational minimum of 5 and no
-upper bound. Its owner value is a finite JSON number from the
-launcher/capability setup layer, not the owner file or environment. The existing
-setup seam does not enforce that type, range, or finiteness; invalid stored
-values are not silently repaired and may make SHOW or later arithmetic fail
-closed. A per-call `emanate.timeout` is a one-batch override, not a settings
-mutation.
+Anchor: `daemon-manual#timeout`. `timeout` is a finite wall-clock seconds
+setting, normally `3600.0`, with operational minimum 5 and no upper bound. Its
+owner value is a finite JSON number from the launcher/capability setup layer,
+not the owner file or environment. The existing setup seam does not enforce that type, range, or finiteness; invalid stored values are not silently repaired
+and may make SHOW or later arithmetic fail closed. Per-call `emanate.timeout` is
+a one-batch override, not a settings mutation.
 
 ## Progress, inspection, and follow-up
 
-Completion is push-notified on the daemon channel for every terminal outcome:
-`done`, `failed`, `cancelled`, and `timeout`. After a successful dispatch, do
-not run a completion-poll loop. Wait for the notification, then call
-`check` and open the durable `result.txt`/error path for full output; previews
-and notification text are bounded. Use `list` for a bounded status sweep or
-`check` for deliberate mid-flight evidence. Read
-`reference/inspection/SKILL.md` before declaring a stall, reclaiming, or resting
-with unverified-healthy work; it sets cadence and the one-shot self-wake rule.
+Every terminal outcome (`done`, `failed`, `cancelled`, `timeout`) is
+push-notified exactly once. Do not poll for "is it done". After notification,
+call `check` and open the durable `result.txt`/error path for full output;
+previews and notification text are bounded. `list` is a bounded ledger sweep,
+not a lifetime folder scan. `check` accepts a live id or exact historical run
+id and returns state, events, paths, and an artifact manifest. Read inspection
+before declaring a stall or reclaiming on a hunch.
 
-`list` reads the append-only dispatch ledger and referenced `daemon.json` state,
-not a lifetime folder scan. Omitted/null `last` means the newest 1000 records;
-an explicit positive value is honored. `check` accepts a live id or exact
-historical run id and returns state, events, paths, and an artifact manifest.
-After refresh/molt, exact run ids still resolve from disk. For malformed tails,
-missing records, recovery markers, or a runtime-identity mismatch, read
-`reference/dispatch-ledger/SKILL.md` and do not repair, repeatedly retry, or
-reclaim on a hunch.
-
-`ask` is backend-specific. LingTai buffers the message in its in-process
-session. A resumable CLI returns quickly with an asynchronous follow-up; a
-second follow-up while one is in flight is busy. An active CLI with proven
-`daemon_common` may instead return a bounded checkpoint-queued receipt, which
-waits for the model's next checkpoint and is not stdin injection or live chat.
-Terminal Qwen/Kimi resume is unsupported, and active backends without common
-MCP retain their busy/unsupported behavior. Inspect the CLI reference before
-relying on resume.
-
-For large batches, use the returned `group_id` for logical audit but use each
-run id for filesystem identity. A Task Card is conditional on the dispatch
-handoff: use it only when Telegram is connected and a card is available; read
-that capability's manual first. Daemon itself creates no watcher.
+For large batches, use `group_id` for logical audit but each run id for filesystem
+identity. A Task Card is conditional on the dispatch handoff: use it only when
+Telegram is connected and a card exists; daemon itself creates no watcher.
 
 ## Compact and completion boundaries
 
-Every LingTai daemon receives the intrinsic `compact`; external CLI backends do
-not. Its `action` is required: `manual` is read-only, while `run` is a repeatable
-non-terminal reset. Invoke `compact(action="run", _reason="...")` as the sole
-assistant-batch tool call with a complete self-contained handoff. The reset
-retains only the compact call/result pair beside a rebuilt system prompt and
-returns exact run/state/history/event paths. Never call the unavailable parent
-`system.summarize`. At high context use, heed the visible countdown warning;
-mechanical compaction retains the latest tool-call/result pair and sends an
-explicit recovery instruction rather than silently continuing. Detailed
-metadata/countdown semantics are in `daemon/CONTRACT.md`.
+Every LingTai daemon receives intrinsic `compact`; external CLIs do not. Its
+`action` is required: `manual` is read-only, while `run` is a repeatable
+non-terminal reset. Call `compact(action="run", _reason="...")` as the sole
+assistant-batch tool call with a complete self-contained handoff. Never call the
+unavailable parent `system.summarize`.
 
-MCP-capable backends also receive built-in `daemon_common`. Use its
-`checkpoint` at useful nonterminal boundaries for bounded state/summary and
-ID-bound parent-message delivery; it is not chat, cancellation, preemption, or
-completion. Before ending, call `finish` exactly once with `done`, `failed`, or
-`incomplete` as appropriate. Only a validated `finish(status="done")` permits
-terminal success. Missing/invalid completion is a missing-finish failure, not
-proof the underlying work is lost: inspect the run trace and physical
-`result.txt` first.
+MCP-capable backends also receive built-in `daemon_common`. Call its
+`checkpoint` at useful nonterminal boundaries; it is not chat, cancellation,
+preemption, or completion. Before ending, call `finish` exactly once. Only
+`finish(status="done")` permits terminal success. Background-and-wait is
+invalid: run validation synchronously with an adequate explicit timeout and
+inspect the result in the same run. Missing/invalid completion is a failure;
+inspect durable artifacts before assuming anything was lost.
 
 ## Safety, Shell events, and footprint
 
-Keep the parent task's authorization and privacy boundaries authoritative. Do
-not give a daemon a broader purpose merely because a tool is available; do not
-use daemon for durable identity, automatic recursion, or hidden context. Stop
-and inspect before `reclaim`: it terminates work in flight, although run folders
-remain as evidence. `reclaim` does not delete artifacts, and there is no
-automatic folder cleanup. Read `reference/cleanup/SKILL.md` before any
-consent-gated deletion or footprint audit; never delete active or needed
-forensic records.
+Keep the parent task's authorization and privacy boundary authoritative. Do not
+use daemon for durable identity, automatic recursion, or hidden context. A
+selected daemon `shell` has a private `<run>/shell-jobs` namespace and no parent
+notification store; read `shell-manual` for async + poll supervision. Do not
+reclaim on a hunch: it terminates work in flight but keeps run folders as
+evidence. There is no automatic cleanup.
 
-A selected `shell` inside a detached LingTai daemon has a private `<run>/shell-jobs`
-namespace and no parent notification store. Its reminder/completion event carries
-only bounded job metadata; the daemon receives fixed guidance to call
-`shell.poll` for exact output at a safe text-only boundary. It never auto-polls,
-waits for a future event, or revives a terminal daemon. Read `shell-manual` for
-shell-side async supervision and reminders.
+Inspection, forensics, dispatch-ledger, cleanup, shell-event, programmatic-use,
+and no-deletion routes remain available through the references above. Never
+permit deletion, global configuration/install changes, account/provider changes,
+or cleanup outside an authorized scope.
 
-## Programmatic use
+## Programmatic use / CLI
 
-Shell scripts, Python, and CI should use `lingtai-agent daemon` rather than
-scripting this tool directly. It uses the same envelope and run artifacts;
+Shell scripts, Python, and CI should use the `lingtai-agent daemon` CLI rather
+than scripting this tool directly. It uses the same envelope and run artifacts;
 `emanate` previews without `--yes`, validates the complete tasks file, and
-requires `--agent-dir` for dispatch. `list` and `check` are read-only. See the
-CLI reference for the command examples and configuration behavior.
+requires `--agent-dir` for dispatch. For example:
+
+```text
+lingtai-agent daemon emanate --agent-dir <agent-dir> --tasks <tasks.json>
+lingtai-agent daemon list --agent-dir <agent-dir> [--last N]
+```
+
+`list` and `check` are read-only. `contains` is a case-insensitive filter;
+non-empty `contains` searches prompt-preview text. See the CLI reference for
+command examples and configuration behavior.
 
 ## Maintenance
 
 Keep this file a router. Put backend command recipes and reserved flags in the
-per-backend references, inspection/forensics in their references, and cleanup
-procedures in cleanup. Keep the action anchors above stable because settings
-rows link to them.
+per-backend references; keep inspection, forensics, ledger, shell, and cleanup
+procedures there. Keep the action and settings anchors stable as deeper owners
+move.
