@@ -695,6 +695,28 @@ def test_info_returns_catalog_snapshot(tmp_path):
     assert "plugin_manual" not in result
 
 
+def test_manual_router_discloses_depth_and_prerequisites(tmp_path):
+    """The first-turn manual stays short while routing safety-critical depth."""
+    agent, _workdir = _mk_agent(tmp_path)
+    result = agent._tool_handlers["plugin"]({
+        "action": "manual", "input": {}, "reasoning": "route plugin guidance",
+    })
+    body = result["plugin_manual"]
+    assert len(body) < 10_000
+    assert body.index("Read this first") < body.index("Reference catalog")
+    assert 'plugin(action="manual", input={}, reasoning=' in body
+    assert 'plugin(action="info", input={}, reasoning=' in body
+    assert "authorized configuration owner" in body
+    assert "./`" in body and "after symlinks" in body
+    assert 'source="plugin:<name>"' in body
+    for reference in (
+        "format-and-containment.md",
+        "registration-and-lifecycle.md",
+        "diagnostics-and-settings.md",
+    ):
+        assert f"reference/{reference}" in body
+
+
 def test_manual_returns_the_installed_body(tmp_path):
     agent, workdir = _mk_agent(tmp_path)
     result = agent._tool_handlers["plugin"]({
@@ -702,8 +724,10 @@ def test_manual_returns_the_installed_body(tmp_path):
     })
     assert result["status"] == "ok"
     assert result["plugin_manual"]
-    assert "declaration is what registers" in result["plugin_manual"]
-    assert "## Plugin registration roots" in result["plugin_manual"]
+    assert "# Plugin capability -- manual router" in result["plugin_manual"]
+    assert "format-and-containment.md" in result["plugin_manual"]
+    assert "registration-and-lifecycle.md" in result["plugin_manual"]
+    assert "diagnostics-and-settings.md" in result["plugin_manual"]
     assert result["manual_path"] == str(
         workdir / ".library" / "intrinsic" / "capabilities" / "plugin" / "SKILL.md"
     )
@@ -1465,15 +1489,23 @@ def test_manual_ships_with_the_package():
     body = manual.read_text(encoding="utf-8")
     assert "name: plugin-manual" in body
     assert "agent-plugins.org" in body
-    # The manual must carry the two-tier mount contract, the boundary
-    # registration stops at, and both halves of the declaration lifecycle.
-    assert "declaration is what registers" in body
-    assert "registered, *not running*" in body
-    assert "## Installing a plugin" in body
-    assert "### Uninstalling" in body
-    assert "### Canonical config key" in body
-    assert "`manifest.plugins` is the **canonical** declaration key" in body
-    assert "## Plugin registration roots" in body
+    # The router carries the two-tier mount contract, prerequisites, safety
+    # boundary, and both halves of the declaration lifecycle while routing
+    # detailed rules to bounded references.
+    assert "registered` is declared" in body
+    assert "registered but not running" in body
+    assert "Read this first" in body
+    assert "Authorized lifecycle" in body
+    assert "`manifest.plugins`" in body
+    assert "format-and-containment.md" in body
+    assert "registration-and-lifecycle.md" in body
+    assert "diagnostics-and-settings.md" in body
+    for reference in (
+        "format-and-containment.md",
+        "registration-and-lifecycle.md",
+        "diagnostics-and-settings.md",
+    ):
+        assert (manual.parent / "reference" / reference).is_file()
 
 
 def test_default_plugin_root_is_scanned_without_declaration(tmp_path):
