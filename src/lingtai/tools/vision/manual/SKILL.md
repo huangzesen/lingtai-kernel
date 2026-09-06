@@ -22,8 +22,9 @@ maintenance: |
 ---
 # Vision manual
 
-This installed, provider-neutral manual is guidance only. The reserved
-`manual` action reads this package body and path; it does not discover, install,
+This installed, provider-neutral manual is guidance only. The static declaration
+owns its `manual="vision"` destination; the reserved action reads this body and
+path, not a host-global or another family's skill. It does not discover, install,
 start, or invoke a backend.
 
 ## Choose an action
