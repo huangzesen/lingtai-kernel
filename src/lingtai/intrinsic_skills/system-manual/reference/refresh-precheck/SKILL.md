@@ -177,7 +177,8 @@ The cache-miss total accumulates **since last molt and survives a refresh** —
 refreshing does not reset it, so do not expect this precheck's refresh to clear
 it. Inspect the live value through `system(action="settings", input={})`; see
 `reference/settings-inventory/SKILL.md` → "Cache-miss budget" for its exact
-source precedence and document shape.
+source precedence and document shape. The owner is `settings/system.json`, the
+fixed fallback is the `2,000,000` default, and Legacy `manifest.cache_miss_budget` is ignored.
 
 ### Step 6 — Newly introduced environment variables (trigger: the change adds an env read)
 

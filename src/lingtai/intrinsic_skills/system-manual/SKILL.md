@@ -1,12 +1,11 @@
 ---
 name: system-manual
 description: >
-  Routes runtime/lifecycle/configuration procedures and deeper operating
-  manuals when resident substrate/procedures guidance is insufficient; route
-  from the table, then open that node.
-version: 1.20.0
-last_changed_at: "2026-09-04T00:00:00Z"
-tags: [lingtai, agent, runtime, procedures, substrate, system, lifecycle, alarm, memory, communication, skills, settings, molt, summarize, nudge, updates, runtime-checks, refresh, preset, llm, adapters, codex, websocket]
+  Short router for runtime, lifecycle, identity, refresh, presets, settings,
+  LLM adapters, and operating procedures; route to the named reference for depth.
+version: 1.21.0
+last_changed_at: "2026-09-06T00:00:00Z"
+tags: [lingtai, agent, runtime, procedures, substrate, system, lifecycle, alarm, memory, communication, skills, settings, molt, summarize, nudge, updates, refresh, preset, llm, adapters, codex, websocket]
 related_files:
 - src/lingtai/prompts/substrate/substrate.md
 - src/lingtai/prompts/procedures/procedures.md
@@ -31,215 +30,177 @@ maintenance: |
 
 # System Manual — Progressive Disclosure Router
 
-`system-manual` is the second layer of LingTai operating guidance. The resident
-`substrate` and `procedures` prompts keep only the short rules every agent must
-hold constantly. This skill routes from those compact rules to the reference node
-that carries the actual detail.
-
-Use this file first when the question is about LingTai's agent runtime, resident
-prompt design, lifecycle, memory, communication, tool routing, system operations,
-runtime trace inspection, runtime/kernel update checks, or nudge handling, then
-open the lower node the router table names.
-
+`system-manual` is the working router for the `system` capability. Read the
+matching row below, then open that reference; do not guess a procedure from this
+index. The resident `substrate` and `procedures` prompts keep only invariant
+rules, while the references own operational depth.
 
 ## Nested reference catalog
 
-`system-manual` owns the nested skill-references below, so the router can
-advertise lower nodes without promoting them to standalone top-level skills.
-The router table is the routing authority; this list is the inventory.
+These nested references are owned by this manual, not standalone skills:
 
 ```yaml
 - name: substrate-manual
   location: reference/substrate-manual/SKILL.md
-  description: |
-    Expanded substrate/runtime model: body/extensions, lifecycle states,
-    `system` actions (including last-resort `system.sleep(delay=...)` alarms),
-    memory layers, MCP/addon ownership, preset tiers, and (§11) `init.json`
-    composition and the preset runtime model.
+  description: Runtime/lifecycle model, alarms, memory, MCP, and init/preset detail (§11).
 - name: procedures-manual
   location: reference/procedures-manual/SKILL.md
-  description: |
-    Expanded action discipline: progressive disclosure, responsiveness,
-    external side-effect authorization, the daemon workflow methodology,
-    depositing work, idle/lifecycle, skill routing, deliverables, and issues.
-- name: sqlite-log-query
-  location: reference/sqlite-log-query/SKILL.md
-  description: |
-    SQLite/`log.sqlite` runtime trace inspection: `lingtai-agent log
-    doctor|query|rebuild`, JSONL source-of-truth rules, read-only SQL safety,
-    the events/chat_entries/token_entries schema, quick-start snippets, SQL
-    recipes (`tool_call_id` lifecycle, tool result stats/percentiles, spilled
-    results), gotchas, and redaction.
-- name: trajectory-mining
-  location: reference/trajectory-mining/SKILL.md
-  description: |
-    Trajectory/anomaly mining workflow built on sqlite-log-query: manifest
-    policy, cheap-model daemon strategy, prompt templates, the finding schema
-    and validation rubric, digest output, routing, and periodic mode.
+  description: Action discipline, authorization, collaboration, routing, and deliverables.
 - name: refresh-precheck
   location: reference/refresh-precheck/SKILL.md
-  description: |
-    Nested system-manual reference: the ordered pre-flight to run BEFORE
-    `system(action="refresh")` (including preset swap/revert), the refresh
-    sequence itself, and the post-refresh verification pass. Covers
-    authorization boundary, allowed-preset catalog, MCP registry/init.json
-    consistency, newly introduced env vars, context-vs-target-context_limit,
-    durable-store and working-tree state, source_drift, and what to check when
-    a refresh fails or comes back with a broken surface.
+  description: Ordered refresh/preset checks, verification, and failure diagnosis.
 - name: runtime-update-checks
   location: reference/runtime-update-checks/SKILL.md
-  description: |
-    Kernel update/nudge lifecycle: runtime and source discovery,
-    `kernel_version` and `source_drift`, heartbeat dispatch,
-    `.notification/nudge.json`, packaged versus editable/source runtimes,
-    installer ownership, refresh boundaries, and read-only diagnosis.
+  description: Runtime provenance, kernel-version nudges, installer ownership, and updates.
 - name: environment-variables
   location: reference/environment-variables/SKILL.md
-  description: |
-    Router to the repo-root `ENVIRONMENT_VARIABLES.md` registry, which owns
-    every LingTai environment variable's purpose, default, accepted values,
-    scope, read point, reload behavior, and invalid-value handling.
-- name: tool-plugin-settings
-  location: reference/tool-plugin-settings/SKILL.md
-  description: |
-    Developer reference for one ToolFamily's optional SHOW-only settings provider.
+  description: Canonical environment registry, timing, and invalid-value rules.
 - name: settings-inventory
   location: reference/settings-inventory/SKILL.md
-  description: |
-    Exact System catch-all SHOW inventory: root/manifest/LLM/environment
-    sources, precedence, defaults, validation, redaction, application timing,
-    authorized external procedures, and explicit non-settings.
-- name: goal-manual
-  location: reference/goal-manual/SKILL.md
-  description: |
-    Goal notifications: protected `.notification/goal.json` as the active-goal
-    source of truth, `/goal` guided setup, idle goal reminders, and
-    cancellation/completion semantics.
-- name: how-to-change-name
-  location: reference/how-to-change-name/SKILL.md
-  description: |
-    Changing a live agent workdir/address on POSIX: suspend, an atomic
-    no-replace rename, and a verified resume.
+  description: System SHOW sources, precedence, defaults, redaction, timing, and changes.
 - name: llm-adapters
   location: reference/llm-adapters/SKILL.md
-  description: |
-    Built-in LLM adapters: named adapter inventory, per-provider
-    configuration/dispatch, the Codex REST vs WebSocket transport opt-in and
-    its environment variables, and provider special behaviors.
+  description: Provider inventory, dispatch, and Codex REST/WebSocket behavior.
+- name: sqlite-log-query
+  location: reference/sqlite-log-query/SKILL.md
+  description: Read-only SQLite/JSONL runtime trace recipes.
+- name: trajectory-mining
+  location: reference/trajectory-mining/SKILL.md
+  description: Trajectory/anomaly mining, validation, and improvement digests.
+- name: goal-manual
+  location: reference/goal-manual/SKILL.md
+  description: Active-goal setup, reminders, cancellation, and completion.
+- name: how-to-change-name
+  location: reference/how-to-change-name/SKILL.md
+  description: Authorized physical workdir/address migration with identity checks.
 - name: external-attach-diagnostic
   location: reference/external-attach-diagnostic/SKILL.md
-  description: |
-    Guarded macOS-only external attach: exact agent-dir/PID incarnation
-    verification, bounded `/usr/bin/sample` stacks, content-free runtime facts,
-    and an exceptional controlled external `mcp.*` burst that does not exercise
-    Store locking.
+  description: Guarded macOS attach and content-free PID/runtime diagnostics.
+- name: tool-plugin-settings
+  location: reference/tool-plugin-settings/SKILL.md
+  description: Optional read-only settings provider guidance for ToolFamily developers.
 ```
 
 ## Router table
 
 | Need / keywords | Read |
 |---|---|
-| Expanded substrate; body/extensions; shell vs daemon vs avatar vs MCP; lifecycle states; ACTIVE/IDLE/STUCK/ASLEEP/SUSPENDED; `system.sleep(delay=...)` last-resort alarm; same-channel communication; basic notifications; memory layers; molt model; idle/soul; preset tiers; `system` operations | `reference/substrate-manual/SKILL.md` |
-| `init.json` composition/owner map; preset runtime model; raw vs resolved `system/manifest.resolved.json`; preset identity/path; TUI/library discovery vs `system(action="presets")` allowed-only catalog; main-agent swap/revert/refresh; daemon `tasks[].preset` explicit/omitted path; external CLI backend preset skip | `reference/substrate-manual/SKILL.md` §11 |
-| Expanded procedures; progressive disclosure; writing skills/knowledge; action discipline; responsiveness; skill routing; HTML deliverables; artifact sharing; issue reporting; when to read which manual | `reference/procedures-manual/SKILL.md` |
-| Tool-result summarization; large-result ranking via agent_meta; progressive disclosure of raw outputs; original-result recovery; summarize vs molt | `context-manual` → `reference/summarize-manual/SKILL.md` |
-| SQLite; `log.sqlite`; LingTai runtime logs; runtime trace inspection; JSONL traces; `lingtai-agent log doctor`; `lingtai-agent log query`; `lingtai-agent log rebuild`; events/chat_entries schema; daemon/chat-history trace indexing; WAL/live-read caveats; SQL recipes; `tool_call_id` lifecycle; tool result stats and percentiles; spilled/large tool results | `reference/sqlite-log-query/SKILL.md` |
-| Trajectory mining; trajectory/anomaly mining; improvement digests; finding schema and validation; cheap-model daemon strategy; mining prompt templates; periodic mining mode | `reference/trajectory-mining/SKILL.md` |
-| Notifications; direct `notification(action='manual', input={})`; check/dismiss_channel/dismiss_event/dismiss_ref/manual; `.notification/<channel>.json`; channel allowlist; the top-level `instructions` field in the `.notification/<channel>.json` envelope; protected channels; generic vs producer dismiss; stale-version/force; legacy `large_tool_result` dismiss | `notification-manual` |
-| About to call `system(action="refresh")`; preset swap/revert pre-flight; "will this refresh break something?"; refresh returned but MCP/tools/LLM look wrong; refresh failed | `reference/refresh-precheck/SKILL.md` |
-| Kernel update lifecycle; runtime/source discovery; `kernel_version` and `source_drift`; heartbeat nudge dispatch; `.notification/nudge.json`; durable state; sync/wake/dismiss mechanics; packaged vs editable/source installs; refresh vs TUI-managed update; verification/troubleshooting | `reference/runtime-update-checks/SKILL.md` |
-| Environment variables; Nudge controls; accepted values; read/reload behavior; invalid-value fallback; security cautions | `reference/environment-variables/SKILL.md` |
-| Add or inspect a ToolFamily SHOW-only settings provider | `reference/tool-plugin-settings/SKILL.md` |
-| Inspect System settings; kernel catch-all ownership; effective init/preset/LLM/env values; setting defaults, precedence, redaction, invalid behavior, timing, exclusions, or authorized external change procedures | `reference/settings-inventory/SKILL.md` |
-| Goal notifications; `.notification/goal.json`; active goal source of truth; goal `instructions`; idle goal reminder; cancel/complete goal | `reference/goal-manual/SKILL.md` |
-| Change an agent workdir basename/address; POSIX suspend → no-replace rename → resume; preserve `agent_id` and true name | `reference/how-to-change-name/SKILL.md` |
-| LLM adapters; named adapter inventory; provider configuration; Codex REST vs WebSocket transport; `LINGTAI_CODEX_TRANSPORT` / `LINGTAI_CODEX_WS` opt-in; provider special behaviors | `reference/llm-adapters/SKILL.md` |
-| Authorized external attach; macOS `/usr/bin/sample`; exact PID/agent-dir incarnation verification; bounded content-free stacks; guarded controlled external `mcp.*` burst; diagnostic privacy | `reference/external-attach-diagnostic/SKILL.md` |
-| Molt mechanics, pad tending, session journals, post-wipe recovery | `context-manual` |
-| Soul tool; read-only Soul settings inventory; soul flow opt-in (`LINGTAI_SOUL_FLOW_ENABLED`); disabled-flow behavior; `delay_seconds` as cadence-not-off-switch; inquiry/config/voice/dismiss; privacy/cost rationale | `soul-manual` |
-| Authoring/publishing skills or changing skill catalog behavior | `skills-manual` |
-| Knowledge-entry layout and private durable memory | `knowledge-manual` |
-| MCP registration/activation/addon ownership | `mcp-manual` |
-| Bash/cron/host scheduling details | `shell-manual` |
-| Daemon lifecycle/inspection/debugging | `daemon-manual` |
-| Avatar spawning/management/escalation | `avatar-manual` |
-| Kernel architecture/code truth | `lingtai-kernel-anatomy`, then cited code |
+| Runtime model, lifecycle states, body/extensions, memory, communication, MCP/addons, alarms, or detailed init/preset composition | `reference/substrate-manual/SKILL.md` |
+| Action discipline, responsiveness, authorization, collaboration, skill routing, or deliverables | `reference/procedures-manual/SKILL.md` |
+| About to refresh, swap/revert a preset, or verify a refresh | `reference/refresh-precheck/SKILL.md` |
+| Kernel update/version nudge, source provenance, installer ownership, or `source_drift` | `reference/runtime-update-checks/SKILL.md` |
+| Environment variable purpose, accepted values, timing, or invalid fallback | `reference/environment-variables/SKILL.md` |
+| `system(action="settings", input={})`, cache budget, runtime policy, effective init/manifest/LLM values, redaction, or owner procedure | `reference/settings-inventory/SKILL.md` |
+| LLM provider/adapter inventory or Codex transport | `reference/llm-adapters/SKILL.md` |
+| Runtime traces, `log.sqlite`, JSONL, `tool_call_id`, `lingtai-agent log doctor`, `lingtai-agent log query`, or `lingtai-agent log rebuild` | `reference/sqlite-log-query/SKILL.md` |
+| trajectory/anomaly mining or improvement digest | `reference/trajectory-mining/SKILL.md` |
+| Active goal and goal notifications | `reference/goal-manual/SKILL.md` |
+| Physical workdir/address rename | `reference/how-to-change-name/SKILL.md` |
+| Authorized external attach or PID-incarnation diagnosis | `reference/external-attach-diagnostic/SKILL.md` |
+| Add or inspect a ToolFamily settings provider | `reference/tool-plugin-settings/SKILL.md` |
+| Molt, summary application, provider replay, soul, notification, MCP, shell, daemon, avatar, skills, or knowledge | Read the owning `context-manual`, `soul-manual`, `notification-manual`, `mcp-manual`, `shell-manual`, `daemon-manual`, `avatar-manual`, `skills-manual`, or `knowledge-manual`. |
 
-## System tool call contract
+## Working contract
 
-When operating the model-facing `system` family, use the exact LTP v2 envelope:
+Call the model-facing family with the closed LTP v2 envelope:
 
 ```json
-{
-  "action": "<one action from the installed schema>",
-  "input": {"<fields for that action only>": "..."},
-  "reasoning": "<short purpose>",
-  "summarize": false
-}
+{"action": "<one action from the installed schema>", "input": {"<fields for that action only>": "..."}, "reasoning": "<short purpose>", "summarize": false}
 ```
 
-The root is closed: `action`, `input`, and `reasoning` are required, `summarize`
-is the optional root result-control, and no other root keys are accepted. Each
-action has its own closed `input`; do not move `address`, `preset`, `force`, or
-`content` between branches. `system(action="summarize")` is not a supported
-action: context hygiene belongs to `context(action="summarize")` and
-`context(action="rebuild")`. The `sleep` input additionally carries the
-required-nullable `delay` field for the last-resort one-shot alarm documented
-in the substrate manual; pass `null` unless that exceptional route applies.
+`action`, `input`, and `reasoning` are required; `summarize` is optional. The
+root and the selected `input` are closed, so keep fields in their own branch.
+`presets` can return a large allowed-only catalog; use `summarize=true` only
+when exact entries are unnecessary. Use `system(action="manual", input={})` to
+fetch this installed manual. The
+`manual` action itself must always use `summarize=false`; do not summarize away
+the procedure you are about to follow. `system(action="summarize")` is not an
+action: context hygiene belongs to `context(action="summarize"|'rebuild'|'molt')`.
 
-`presets` can return a large allowed-only catalog, so use the root
-`summarize=true` only when exact entries are unnecessary. Refresh, sleep, lull,
-suspend, cpr, interrupt, clear, nirvana, both name actions, and errors return
-short receipts; leave `summarize=false` and read them exactly. The `settings`
-action is read-only SHOW and accepts only `input={}`. Its normal success has no
-`status` wrapper and each row has exactly `key`, `current`, `default`,
-`configurable`, and `comment`. The `manual` action itself must always use `summarize=false`,
-otherwise the operating procedure you requested may be summarized away before
-you can follow it.
+### Lifecycle and authorization
 
-The ordered inventory covers System's kernel-level catch-all: effective
-root/manifest inputs, every effective `manifest.llm` axis (there is no LLM
-ToolPlugin), and kernel/LLM environment settings with no other concrete
-ToolPlugin owner. Read
-`reference/settings-inventory/SKILL.md` for every key's source, precedence,
-accepted values, invalid behavior, redaction, application timing, authorized
-external procedure, and explicit non-setting classification. SHOW never
-mutates any of those sources, and any unavailable current source fails the
-whole inventory without partial rows.
+Self actions are `sleep`, `refresh`, `presets`, `name_set`, `name_nickname`,
+`settings`, and `manual`. Peer controls `lull`, `interrupt`, `suspend`, `cpr`,
+and `clear` require `admin.karma=True`; `nirvana` additionally requires
+`admin.nirvana=True` and permanently destroys the target. Availability never
+proves authority. For any peer action, use the exact target working-directory
+address and prefer communication/diagnosis before a forceful lifecycle change.
+
+Normal waiting is IDLE. A positive `sleep` `delay` is only a last-resort,
+one-shot alarm for async work lacking reliable completion notification; null or
+omission means ordinary sleep. Pending notifications refuse ordinary self-sleep
+unless the explicit `force` escape hatch is used. Read the substrate reference
+for alarm state, wake, and failure details.
+
+### Refresh, presets, and installation are different
+
+`refresh` reloads the existing on-disk `init.json`/runtime surface and rebuilds
+configuration, prompts, capabilities, MCP, and LLM state while preserving
+identity and live conversation where supported. It does not download, install,
+upgrade, switch an editable checkout, or repair a mismatched environment. Before
+refreshing, read `reference/refresh-precheck/SKILL.md`; for a kernel-version or
+installation/update question, route to `reference/runtime-update-checks/SKILL.md`
+instead.
+
+For a preset swap, first call `system(action="presets", input={})` and use an
+exact path from its allowed-only result. `refresh` refuses a path outside
+`manifest.preset.allowed`, a `preset` plus `revert_preset` conflict, or a target
+whose context limit cannot hold the current conversation. Use
+`revert_preset=true` to return to `manifest.preset.default`. The substrate
+reference §11 owns the runtime model; the refresh reference owns ordering and
+post-refresh checks. A config/prompt/MCP/capability edit needs refresh to take
+effect; refresh is not a substitute for `context(action="rebuild")`, and neither
+is an installer.
+
+### Identity and settings
+
+`name_set` sets the true name once and immutably; `name_nickname` changes or
+clears the mutable nickname. Both update live identity, `.agent.json`, and the
+protected prompt identity section. Neither edits raw init configuration nor
+renames the physical address/workdir; use `reference/how-to-change-name/SKILL.md`
+for that separately authorized migration.
+
+`settings` is a complete, read-only SHOW. It accepts only `input={}` and returns
+five-field rows (`key`, `current`, `default`, `configurable`, `comment`). It
+never writes, resets, refreshes, or authorizes a change. Follow each row's
+comment to `reference/settings-inventory/SKILL.md` for canonical source,
+precedence, redaction, application timing, and the external owner procedure;
+any unavailable current owner fails the complete inventory. Runtime-policy
+sources include `LINGTAI_CONTEXT_LIMIT`, `LINGTAI_MAX_RPM`,
+`LINGTAI_STREAMING`, `LINGTAI_AED_TIMEOUT`, `LINGTAI_MAX_AED_ATTEMPTS`,
+`LINGTAI_SNAPSHOT_INTERVAL`, and `LINGTAI_ACTIVENESS`; the reference owns their
+accepted values and timing.
+
+### Anchored settings routes
 
 ### Cache-miss budget
 
-This heading preserves the `system-manual#cache-miss-budget` settings-row
-anchor. Query `system(action="settings", input={})`, then read
-`reference/settings-inventory/SKILL.md` → "Cache-miss budget" for the current
-row, owner document, precedence, validation and authorized change procedure.
-SHOW is read-only and grants no change authority.
+This stable `system-manual#cache-miss-budget` anchor routes to the exact
+cache-budget source, validation, precedence, and authorized procedure in
+`reference/settings-inventory/SKILL.md`. SHOW is read-only. The owner file is
+`<agent-workdir>/settings/system.json`; its minimal v1 shape is:
 
-### Runtime policy (v2)
+```json
+{"schema_version": 1, "cache_miss_budget": 2000000}
+```
 
-This heading preserves the `system-manual#runtime-policy-v2` settings-row
-anchor. `reference/settings-inventory/SKILL.md` → "Runtime-policy v2 document
-shape" owns the closed grammar, per-field timing and authorized change
-procedure; do not copy its adjustable values into this router.
+The live `LINGTAI_CACHE_MISS_BUDGET` source wins over that file, then the fixed
+`2,000,000` default. After explicit owner authorization, use the existing File or
+Shell capability to change the source, then call `system(action="settings", input={})` again to verify it. This setting is unrelated to `.notification/system.json`, and
+legacy `manifest.cache_miss_budget` is ignored. The reference owns validation,
+shadowing, timing, and the full procedure.
 
-Use `presets` and the refresh pre-check route before any authorized preset swap
-or refresh.
+## Runtime policy (v2)
 
-## How to choose between resident prompt, this router, and references
+This stable `system-manual#runtime-policy-v2` anchor routes to the closed v2
+document grammar and its application/refresh procedure in
+`reference/settings-inventory/SKILL.md`. Do not copy policy values into this
+router.
 
-- If the resident prompt already answers the question, act.
-- If the resident prompt names a broad system/runtime/procedure topic, read this
-  router to choose the lower reference.
-- If this router names a reference, read that reference before improvising.
-- If a reference points to anatomy/code/tests, descend there for ground truth.
+## Choosing and maintaining this manual
 
-## Maintaining this router
-
-`substrate` describes what an agent *is* and how the runtime behaves;
-`procedures` describes how an agent *acts* — they stay separate on purpose.
-Keep the resident prompt compact and keep this file a router: when resident
-substrate/procedures gain new concepts, add a routing hint here and put the
-detail in a nested reference. When a reference grows too large or needs
-companion scripts and assets, split it into another `reference/<name>/SKILL.md`
-folder and list it in both the nested reference catalog and the router table.
-Keep this file short enough to scan.
+If resident guidance answers the question, act. Otherwise use this router, then
+read the named node before improvising; descend to cited code/tests for ground
+truth. Keep this file a short router. Move new workflows, catalogs, examples,
+field dictionaries, troubleshooting, and protocol detail into the appropriate
+reference instead of expanding the always-sent entry.
