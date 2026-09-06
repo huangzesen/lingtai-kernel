@@ -1,8 +1,8 @@
 ---
 name: web-manual
 description: >
-  One web workflow: search first, browse a known result next, and use one
-  explicit legacy fallback only when static browsing cannot serve the need.
+  Search-to-browse workflow and one explicit legacy fallback for when static
+  browsing is insufficient.
 version: 8.3.0
 last_changed_at: "2026-08-29T00:00:00Z"
 related_files:

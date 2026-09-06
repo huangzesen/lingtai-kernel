@@ -1,7 +1,7 @@
 ---
 name: avatar-manual
 description: |
-  Complete operational guide for the avatar tool — spawning, managing, and communicating with 他我 (alter-ego agents). Read this when: you are about to spawn an avatar; an avatar you spawned goes quiet; you need to decide between avatar, daemon, or bash; or you are an avatar and need to know how to escalate to your parent. Covers spawn types, naming rules, discipline, escalation protocol, and the parent_prompt contract.
+  Read before spawning/managing a persistent avatar, choosing a worker type, or escalating a stalled avatar to its parent.
 version: 1.3.0
 last_changed_at: 2026-09-04T00:00:00Z
 related_files:

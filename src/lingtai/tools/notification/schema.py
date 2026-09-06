@@ -281,17 +281,15 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 ACTION_ENUM_DESCRIPTION = (
-    "check: read all notification channels. Returns a placeholder; the live " +
-    "payload is stamped onto this same result under " +
+    "check: read all notification channels (input={}). Returns a placeholder; " +
+    "the live payload is stamped onto this same result under " +
     "`_meta.agent_meta.notifications.attention` and " +
     "`_meta.agent_meta.guidance.transient`. Replace-only — do not call " +
-    "voluntarily after handling; dismiss instead. Prefer coalescing the " +
-    "dismiss with other tool work you already need this turn when safe; " +
-    "dismiss alone only when there is no useful coalesced work or safety " +
-    "requires it." +
+    "voluntarily after handling; dismiss instead, preferably coalesced with " +
+    "other tool work you already need this turn." +
 
     "dismiss_channel: clear one notification channel whole (input={'channel': " +
-    "'<name>', ...}). Use producer-specific verbs first (for email, use " +
+    "'<name>', ...}). Prefer a producer-specific verb first (e.g. " +
     "email(read/dismiss)); guarded channels require force=true only for stale " +
     "mirrors. Does not accept event_id/ref_id — use dismiss_event/dismiss_ref " +
     "for those." +
@@ -303,38 +301,37 @@ ACTION_ENUM_DESCRIPTION = (
     ".notification/system.json (channel defaults to 'system' when null)." +
 
     "add: register an external hook (input={'name', 'channel', 'source', " +
-    "'description', 'how_to_modify', 'how_to_cancel', ...}). Writes the hook " +
-    "manifest to .notification/hooks.json and allowlists its channel. Agent " +
-    "self-service: add your own hooks." +
+    "'description', 'how_to_modify', 'how_to_cancel', ...}), writing the " +
+    "manifest to .notification/hooks.json and allowlisting its channel. " +
+    "Agent self-service: add your own hooks." +
 
-    "drop: unregister a hook by name (input={'name': ...}). Removes its " +
+    "drop: unregister a hook by name (input={'name': ...}); removes its " +
     "manifest and revokes the channel from the effective allowlist. Never " +
-    "kills the hook process itself \\u2014 use the manifest's how_to_cancel." +
+    "kills the hook process itself — use the manifest's how_to_cancel." +
 
-    "edit: update one hook's fields by name (input={'name': ..., ...fields}). " +
-    "Channel edits re-validate uniqueness." +
+    "edit: update one hook's fields by name (input={'name': ..., ...fields}); " +
+    "channel edits re-validate uniqueness." +
 
-    "list: return the registered hook manifests (input={}). Shows what is " +
+    "list: return the registered hook manifests (input={}), showing what is " +
     "whitelisted and how each hook is modified/cancelled." +
 
     "delay: temporarily hide one allowed target channel from consumer delivery " +
-    "(input={'channel': '<name>', 'seconds': 0 or a live-configured positive cap}). 0 cancels the current " +
-    "matching delay. Target producer state is never changed; expiry re-exposes " +
-    "it and raises one high-priority delay-alarm mirror." +
+    "(input={'channel': '<name>', 'seconds': 0 or a live-configured positive " +
+    "cap}); 0 cancels the current matching delay. Target producer state is " +
+    "never changed; expiry re-exposes it and raises one high-priority " +
+    "delay-alarm mirror. delay-alarm itself cannot be targeted." +
 
-    "settings: show the two Notification-owned effective settings as exact " +
-    "key/current/default/configurable/comment rows (input={}). Read the " +
-    "comment-targeted manual sections for meaning and change procedures; " +
-    "this action never changes configuration." +
+    "settings: show the Notification-owned effective settings as exact " +
+    "key/current/default/configurable/comment rows (input={}); read-only. " +
+    "Read the comment-targeted manual sections for meaning/change procedures." +
 
     "manual: call notification(action='manual', input={}) to return the " +
-    "installed notification-manual skill body. This action is strictly " +
-    "read-only and does not read or change notification state."
+    "installed notification-manual skill body. Strictly read-only."
 ) + "\n\n" + LARGE_RESULT_DISMISS_ACTION_NOTE
 
 
 def get_description(lang: str = "en") -> str:
-    return "Notification surface — read and clear the agent's notification channels, and manage external-hook registrations. Self-actions, no permissions needed.\n\nThis is the only tool that exposes notification verbs; the system tool no longer offers notification or dismiss aliases.\n\nEvery call takes action + input + reasoning; input is the strict argument object for the selected action. Use notification(action='check', input={}, reasoning='...') to read all channels, notification(action='dismiss_channel', input={'channel': '<name>', 'force': null, 'reason': null}, reasoning='...') to clear one channel whole, and dismiss_event / dismiss_ref to remove a single system event by event_id / ref_id. Use notification(action='add', input={'name': ..., 'channel': ..., 'source': ..., 'description': ..., 'how_to_modify': ..., 'how_to_cancel': ...}) to register an external hook, notification(action='drop', input={'name': ...}) to unregister one, notification(action='edit', input={'name': ..., ...}) to update a hook's fields, and notification(action='list', input={}) to view registered hooks. Use notification(action='delay', input={'channel': '<name>', 'seconds': 0 or a live-configured positive cap}, reasoning='...') to temporarily suppress only consumer delivery for one allowed channel (0 cancels); delay-alarm cannot be targeted and expiry raises a high-priority delay-alarm mirror. Use notification(action='settings', input={}, reasoning='...') to show the exact five-field Notification settings rows without changing configuration. Use notification(action='manual', input={}, reasoning='...') to return the installed notification manual; this action is strictly read-only and does not change notification state. To compress a large tool result, use system(action=summarize)."
+    return "Notification surface — inspect and acknowledge the agent's notification channels, and manage external-hook registrations. Self-actions, no permissions needed. This is the only tool that exposes notification verbs; the system tool no longer offers notification or dismiss aliases. Every call takes action + input + reasoning; input is the strict argument object for the selected action. Prefer a producer's own read/dismiss (e.g. email) over the generic dismiss verbs here when one exists; check is inspection only, not a clearing operation. Guarded channels require force=true only for known-stale mirrors, and dismissal after a molt needs a continuation reason. add/edit/drop/list manage the hook manifest only — drop never stops the hook's own process. delay suppresses consumer delivery only for one allowed channel (0 cancels) and cannot target delay-alarm. Use notification(action='settings', input={}, reasoning='...') and notification(action='manual', input={}, reasoning='...') for the read-only settings rows and the installed manual — neither changes notification state, and call manual with summarize=false. Context compaction is not here — use context(action='summarize')."
 
 
 # NOTE: ``get_schema`` is deliberately NOT defined here. The model-facing

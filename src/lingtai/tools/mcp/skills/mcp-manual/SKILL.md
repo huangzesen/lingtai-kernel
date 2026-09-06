@@ -2,42 +2,13 @@
 name: mcp-manual
 description: >
   Router for the `mcp` capability — register, activate, update, deregister,
-  and troubleshoot MCP (Model Context Protocol) servers. Covers both generic
-  third-party MCPs and the six kernel-curated LingTai addons (`imap`,
-  `telegram`, `feishu`, `wechat`, `whatsapp`, `cloud_mail`).
-
-  Reach for this manual when:
-    - The human asks to install, set up, configure, or remove an MCP server.
-      Kernel-curated → the `addons:` + `init.json mcp.<name>` workflow;
-      third-party → the registry route or the legacy `mcp/servers.json` route.
-    - The human asks to set up an `imap` / `telegram` / `feishu` / `wechat` /
-      `whatsapp` / `cloud_mail` addon, or any LingTai email/chat integration.
-      **Step 1 is always** `reference/curated-addons.md`; exact config field
-      names come from the addon docs — do NOT guess them.
-    - You want to know what MCPs you currently have
-      (`mcp(action="info", input={}, reasoning="list registered MCPs")`).
-    - An MCP isn't behaving: registry validation, the `problems` list,
-      refresh-after-edit verification, common boot errors.
-    - You're exploring an unfamiliar third-party MCP and need its docs.
-
-  Covers (progressively, via reference/): the three states (catalog →
-  registry → active); curated vs third-party install paths; the legacy
-  `mcp/servers.json` direct mount route (still functional, ungated); stdio
-  and HTTP server config; where `mcp_registry.jsonl` lives and how to mutate
-  it (`write`/`edit`/`bash` — the `mcp` capability itself is read-only); the
-  `<homepage>` fallback doc field; and how `init.json`'s `addons:` list and
-  `mcp:` activation entries relate to the registry; and the bounded,
-  read-only five-field settings inventory. Replaces the deprecated
-  `lingtai-mcp` skill.
-
-  Does NOT cover the protocol spec. `lingtai-kernel-anatomy
-  reference/mcp-protocol.md` owns the supported SDK/protocol range, the
-  SDK-versus-LingTai ownership split, and the stdio env-injection boundary
-  (`LINGTAI_AGENT_DIR` / `LINGTAI_MCP_NAME`); it routes onward to
-  `src/lingtai/services/LICC_NOTIFICATION_CONTRACT.md` for the LICC v1 inbox
-  callback contract and to `src/lingtai/services/mcp_registry.py` for
-  validator internals. Read this for *what to do*, anatomy for *how it
-  works*.
+  and troubleshoot MCP servers, both third-party and the six kernel-curated
+  addons (`imap`, `telegram`, `feishu`, `wechat`, `whatsapp`, `cloud_mail`).
+  Read before installing/configuring any addon or troubleshooting registry
+  problems; exact addon config field names come from
+  `reference/curated-addons.md` — do NOT guess them. Does NOT cover the MCP
+  protocol spec itself (see `lingtai-kernel-anatomy` →
+  `reference/mcp-protocol.md`).
 version: 3.5.0
 last_changed_at: 2026-08-29T00:00:00Z
 related_files:

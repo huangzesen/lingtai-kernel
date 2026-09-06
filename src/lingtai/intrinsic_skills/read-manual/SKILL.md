@@ -1,6 +1,6 @@
 ---
 name: read-manual
-description: "Deep dive for the `file` tool's read action: pagination, `next_offset` continuation, `line_truncated`, the 100k default / 200k hard cap, and when to switch to bash/grep/sed."
+description: "File pagination, truncation and long-line recovery: `next_offset` continuation, `line_truncated`, default/hard-cap limits, and when to switch to bash/grep/sed instead. Use when ordinary `file.read` cannot expose complete content."
 version: 0.2.0
 tags: [read, files, continuation, truncation, cap, pagination]
 last_changed_at: "2026-07-19T00:00:00Z"

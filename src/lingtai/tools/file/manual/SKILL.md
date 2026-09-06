@@ -1,6 +1,6 @@
 ---
 name: file-manual
-description: "Operational guide for LingTai's built-in `file` tool: read, write, edit, glob, grep, settings, manual; SHOW-only File policy discovery; the UTF-8 policy and explicit non-UTF-8 workflows; safe write/edit discipline; search workflows."
+description: "Read/write/edit/glob/grep guide for LingTai's `file` tool: safe write/edit discipline, explicit non-UTF-8 workflows, SHOW-only File policy, and pagination routing to read-manual."
 version: 0.4.0
 tags: [files, read, write, edit, grep, glob, settings, encoding, utf-8]
 last_changed_at: "2026-08-29T00:00:00Z"

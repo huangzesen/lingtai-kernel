@@ -1,7 +1,7 @@
 ---
 name: soul-manual
 description: |
-  Operational guide for the `soul` tool — your inner voice: the seven-action call shape, read-only settings inventory, flow opt-in gate, cadence, consultation count, and voice procedures. Read it before calling `flow`, changing Soul configuration, or troubleshooting a `status: disabled` result.
+  Read before calling `flow`, changing Soul configuration, or troubleshooting a `status: disabled` result; explains the seven-action call shape, opt-in gate, cadence, and consultation roles.
 version: 1.3.1
 last_changed_at: "2026-09-04T00:00:00Z"
 related_files:

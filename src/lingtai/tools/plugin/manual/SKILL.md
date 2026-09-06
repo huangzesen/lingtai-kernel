@@ -1,33 +1,13 @@
 ---
 name: plugin-manual
 description: >
-  Router for the `plugin` capability — the per-agent Agent Plugins
-  (agent-plugins.org, v1.0.0) catalog and registration snapshot. Covers what a
-  plugin is, the difference between a registered and a merely discovered one,
-  how installing and uninstalling actually work, and how to read a skipped
-  component. Explains the redacted five-field settings inventory and the
-  existing owner procedure it points to.
-
-  Reach for this manual when:
-    - The human asks what plugins this agent has, or asks to install, add, or
-      remove an Agent Plugin.
-    - You want the current snapshot
-      (`plugin(action="info", input={}, reasoning="list plugins")`).
-    - You need the declaration policy without exposing configured local paths
-      (`plugin(action="settings", input={}, reasoning="inspect policy")`).
-    - You are authoring a `plugin.json` or `mcp.json` and need the required
-      fields, the `name` grammar, or the `./`-prefixed path containment rule.
-    - A plugin you expect is missing from `<registered_plugin>`, a skill you
-      expect is missing from the protected Plugin field, or a server you expect is
-      missing from `mcp_registry.jsonl`.
-    - A plugin is listed as `<mount>discovered</mount>` and you need to know why
-      nothing of it is usable.
-
-  Does NOT cover: the general MCP registration contract for hand-written servers
-  (that is the `mcp-manual` skill), authoring Agent Skills (that is the `skills`
-  capability's manual), or the Agent Plugins specification prose itself (fetch
-  https://agent-plugins.org/specification.md with web when you need normative
-  wording this router does not carry).
+  Router for the per-agent Agent Plugins (agent-plugins.org, v1.0.0) catalog:
+  registered vs merely-discovered, install/uninstall mechanics, and
+  skipped-component diagnosis. Read before authoring a `plugin.json` /
+  `mcp.json`, or troubleshooting a plugin/skill/MCP entry missing from its
+  catalog. Does NOT cover generic MCP registration (`mcp-manual`), authoring
+  Agent Skills (`skills-manual`), or the Agent Plugins specification prose
+  itself (agent-plugins.org).
 version: 2.2.0
 last_changed_at: 2026-08-29T00:00:00Z
 related_files:

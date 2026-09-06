@@ -1,7 +1,7 @@
 ---
 name: lingtai-manual
 description: |
-  Signpost and operational guide for the agent's 灵台 identity in system/lingtai.md. Read this before changing identity, choosing forced versus self-evolve behavior, or applying durable identity changes to context.
+  Read before changing character/identity in `system/lingtai.md`, choosing forced versus self-evolve mode, or applying durable identity edits.
 version: 2.0.0
 last_changed_at: 2026-07-28T00:00:00-07:00
 related_files:

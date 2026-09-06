@@ -1,12 +1,9 @@
 ---
 name: lingtai-kernel-anatomy
 description: >
-  Router for LingTai's distributed code navigation system. Use this before
-  navigating, creating, or maintaining kernel ANATOMY.md files. The normative
-  anatomy-of-anatomy now lives at the repository-root ANATOMY.md; this skill
-  explains how an agent enters and descends that graph, how it pairs with the
-  distributed CONTRACT.md interface-definition graph, and what to do when code
-  and navigation disagree.
+  Enter the Python kernel Anatomy/Contract graph before source navigation or
+  maintaining architecture maps; explains how the ANATOMY.md and CONTRACT.md
+  graphs pair, and what to do when code and navigation disagree.
 version: 0.5.0
 last_changed_at: "2026-08-07T00:00:00Z"
 related_files:

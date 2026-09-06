@@ -1,9 +1,9 @@
 ---
 name: system-manual
 description: >
-  Second-layer router for LingTai's progressive-disclosure operating manuals.
-  Read this when resident substrate/procedures are too compact and you need the
-  right lower reference; route from the table, then open that node.
+  Routes runtime/lifecycle/configuration procedures and deeper operating
+  manuals when resident substrate/procedures guidance is insufficient; route
+  from the table, then open that node.
 version: 1.20.0
 last_changed_at: "2026-09-04T00:00:00Z"
 tags: [lingtai, agent, runtime, procedures, substrate, system, lifecycle, alarm, memory, communication, skills, settings, molt, summarize, nudge, updates, runtime-checks, refresh, preset, llm, adapters, codex, websocket]

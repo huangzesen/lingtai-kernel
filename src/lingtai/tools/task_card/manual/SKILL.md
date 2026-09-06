@@ -1,8 +1,9 @@
 ---
 name: task_card-manual
 description: >
-  Manual for the intrinsic `task_card` capability: the declarative Task Card
-  artifact, its renderer watch lifecycle, and the one-card-per-agent contract.
+  Read before managing the declarative Task Card / progress-watch artifact;
+  owns the renderer watch lifecycle, one-card-per-agent contract, and
+  stop/remove semantics.
 last_changed_at: 2026-09-04T00:00:00Z
 related_files:
 - src/lingtai/tools/task_card/__init__.py
