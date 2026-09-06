@@ -153,8 +153,9 @@ _DESCRIPTION = (
     "or troubleshoot MCP servers. `info` only re-reads the registry and returns "
     "health; `settings` shows MCP-owned configuration; `manual` returns the "
     "mcp-manual body. Before registering, deregistering, updating, or "
-    "troubleshooting, read `mcp-manual`, call `info` for the current health "
-    "snapshot, and obtain explicit authorization. Registry changes use "
+    "troubleshooting, read `mcp-manual` (call `manual` for its body), call "
+    "`info` for the current health snapshot, and obtain explicit authorization. "
+    "Registry changes use "
     "write/edit on mcp_registry.jsonl followed by system(action=\"refresh\")."
 )
 
