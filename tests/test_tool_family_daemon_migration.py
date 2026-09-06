@@ -181,18 +181,21 @@ def test_registered_handler_is_the_envelope_dispatcher_not_the_flat_engine(tmp_p
     assert isinstance(handler.__self__, DaemonFamilyDispatcher)
 
 
-def test_registered_description_documents_the_action_separated_call_shape():
-    """The model-facing description must teach the shape actually registered —
-    ``input={...}``, not the legacy flat fields."""
+def test_registered_description_is_a_concise_first_use_contract():
+    """The resident description owns first-use safety, not routing detail."""
     description = get_description()
 
-    for action in _ACTIONS:
-        assert f"daemon(action='{action}'" in description
-    assert 'input={"id": "em-1", "message": "..."}' in description
-    # The pre-migration operational guidance is retained verbatim.
-    assert "push-notified exactly once" in description
-    assert 'do not poll for "is it done"' in description
-    assert "daemon-manual" in description
+    assert len(description) < 943
+    assert "Read the daemon manual before first use" in description
+    assert "complete objective" in description
+    assert "tools grant capability only" in description
+    assert "Terminal outcomes are push-notified" in description
+    assert "do not poll for completion" in description
+    assert "check" in description and "durable result/error" in description
+    assert "compact(action='run'" in description
+    assert "daemon(action='" not in description
+    assert "lingtai-agent" not in description
+    assert "reference/cli-backends" not in description
 
 
 # ---------------------------------------------------------------------------

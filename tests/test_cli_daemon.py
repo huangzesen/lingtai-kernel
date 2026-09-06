@@ -1206,19 +1206,21 @@ def test_facade_service_is_lazy(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_daemon_tool_description_points_programmatic_callers_at_the_cli():
+def test_daemon_tool_description_routes_detail_to_the_manual():
     from lingtai.tools.daemon import get_description
 
-    assert "lingtai-agent daemon" in get_description()
+    description = get_description()
+    assert "Read the daemon manual before first use" in description
+    assert "lingtai-agent daemon" not in description
 
 
-def test_daemon_manual_documents_the_cli():
+def test_daemon_manual_routes_programmatic_use_to_current_help():
     manual = (
         Path(__file__).resolve().parents[1]
         / "src/lingtai/tools/daemon/manual/SKILL.md"
     ).read_text(encoding="utf-8")
     assert "## Programmatic use / CLI" in manual
-    assert "lingtai-agent daemon emanate" in manual
-    assert "lingtai-agent daemon list" in manual
-    assert "[--last N]" in manual
-    assert "non-empty `contains` searches prompt-preview text" in manual
+    assert "lingtai-agent daemon --help" in manual
+    assert "lingtai-agent daemon emanate" not in manual
+    assert "lingtai-agent daemon list" not in manual
+    assert "non-empty `contains` searches prompt-preview text" not in manual

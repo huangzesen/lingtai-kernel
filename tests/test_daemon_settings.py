@@ -272,14 +272,14 @@ def test_every_comment_resolves_to_an_exact_daemon_manual_heading() -> None:
         "### Timeout",
     ):
         assert heading in manual
-    for required in (
-        "LINGTAI_DAEMON_MAX_TURNS",
-        "LINGTAI_DAEMON_MANAGER_POOL_SIZE",
-        "LINGTAI_DAEMON_SYSTEM_PROMPT_BUDGET_CHARS",
-        "launcher/capability setup layer",
-        "finite JSON number",
-        "does not enforce that type, range, or finiteness",
-        "SETTINGS_UNAVAILABLE",
-        "SHOW never",
+    for anchor in (
+        "daemon-manual#max-turns",
+        "daemon-manual#manager-pool-size",
+        "daemon-manual#system-prompt-budget-chars",
+        "daemon-manual#timeout",
     ):
-        assert required in manual
+        assert manual.count(anchor) == 1
+    assert manual.count("`daemon.settings`") == 4
+    assert "precedence and setup details belong to the Contract" in manual
+    assert "SETTINGS_UNAVAILABLE" in manual
+    assert "SHOW does not mutate it" in manual
