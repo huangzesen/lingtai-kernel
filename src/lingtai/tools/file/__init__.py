@@ -255,11 +255,12 @@ def get_description(lang: str = "en") -> str:
         "read/search limits and UTF-8 policy; source, precedence, and "
         "change procedures live only in file-manual. Use "
         "file(action='manual', input={}) once for the installed "
-        "file-manual, which also routes to read-manual for pagination depth "
-        "and a bash/Python metadata workflow for content that cannot page "
-        "cleanly. After the manual result continue the original operation "
-        "instead of repeating manual, because repeated identical manual "
-        "calls are an error loop."
+        "file-manual — read it before non-UTF-8 files or a careful "
+        "search/edit workflow; it also routes to read-manual for "
+        "pagination depth and a bash/Python metadata workflow for content "
+        "that cannot page cleanly. After the manual result continue the "
+        "original operation instead of repeating manual, because repeated "
+        "identical manual calls are an error loop."
     )
 
 
