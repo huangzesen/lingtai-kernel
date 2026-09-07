@@ -8,6 +8,10 @@ related_files:
   - src/lingtai/tools/vision/BEHAVIORS.md
   - src/lingtai/tools/vision/settings.py
   - src/lingtai/tools/vision/manual/SKILL.md
+  - src/lingtai/tools/vision/manual/reference/actions.md
+  - src/lingtai/tools/vision/manual/reference/backends.md
+  - src/lingtai/tools/vision/manual/reference/routing.md
+  - src/lingtai/tools/vision/manual/reference/settings.md
   - src/lingtai/tools/CONTRACT.md
   - src/lingtai/tools/tool_family/CONTRACT.md
   - src/lingtai/kernel/tool_plugin/CONTRACT.md
