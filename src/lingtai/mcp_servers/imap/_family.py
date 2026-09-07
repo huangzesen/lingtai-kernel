@@ -60,7 +60,10 @@ def _email_id_list() -> dict[str, Any]:
             {"type": "string"},
             {"type": "array", "items": {"type": "string"}},
         ],
-        "description": "Email ID(s) — compound key: account:folder:uid",
+        "description": (
+            "Email ID(s) returned by check/search/read; compound key "
+            "account:folder:uid. Reply uses the first ID."
+        ),
     }
 
 
@@ -88,16 +91,27 @@ def _imap_input_schemas() -> dict[str, dict[str, Any]]:
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "List of file paths to attach (absolute or relative to "
-                    "working dir)."
+                    "Attachment paths for send/reply; relative paths use the working "
+                    "dir and absolute paths must stay inside it."
                 ),
             },
         },
         required=["address"],
     )
-    send["properties"]["address"]["description"] = "Target email address(es) for send"
-    send["properties"]["cc"]["description"] = "CC address(es)"
-    send["properties"]["bcc"]["description"] = "BCC address(es)"
+    send["properties"]["address"]["description"] = (
+        "Target recipient address(es) for a real outbound send; verify them "
+        "before delivery."
+    )
+    send["properties"]["subject"]["description"] = "Subject to review before real delivery"
+    send["properties"]["message"]["description"] = (
+        "Body to review before real delivery; the schema accepts an omitted body."
+    )
+    send["properties"]["cc"]["description"] = (
+        "Visible CC recipient(s); verify before real delivery"
+    )
+    send["properties"]["bcc"]["description"] = (
+        "Hidden BCC recipient(s); verify before real delivery"
+    )
 
     check = _object({
         "account": _account_field(),
@@ -134,14 +148,26 @@ def _imap_input_schemas() -> dict[str, dict[str, Any]]:
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "List of file paths to attach (absolute or relative to "
-                    "working dir)."
+                    "Attachment paths for send/reply; relative paths use the working "
+                    "dir and absolute paths must stay inside it."
                 ),
             },
         },
         required=["email_id", "message"],
     )
-    reply["properties"]["cc"]["description"] = "CC address(es)"
+    reply["properties"]["email_id"]["description"] = (
+        "Target email ID from check/search/read; compound account:folder:uid. "
+        "Reply uses the first ID and requires reading it before delivery."
+    )
+    reply["properties"]["subject"]["description"] = (
+        "Optional subject override; otherwise reply threading derives it from the target"
+    )
+    reply["properties"]["message"]["description"] = (
+        "Reply body to review before real delivery"
+    )
+    reply["properties"]["cc"]["description"] = (
+        "Visible CC recipient(s); verify before real delivery"
+    )
 
     search = _object(
         {
@@ -149,8 +175,8 @@ def _imap_input_schemas() -> dict[str, dict[str, Any]]:
             "query": {
                 "type": "string",
                 "description": (
-                    "IMAP search query (e.g. from:addr subject:text unseen "
-                    "since:YYYY-MM-DD)"
+                    "Server-side IMAP search DSL (for example from:addr "
+                    "subject:text unseen since:YYYY-MM-DD); see manual for detail."
                 ),
             },
             "folder": _nullable({
@@ -171,6 +197,10 @@ def _imap_input_schemas() -> dict[str, dict[str, Any]]:
         },
         required=["email_id"],
     )
+    delete["properties"]["email_id"]["description"] = (
+        "Email ID(s) to delete; verify compound IDs because this changes "
+        "server-side mailbox state."
+    )
 
     move = _object(
         {
@@ -179,12 +209,16 @@ def _imap_input_schemas() -> dict[str, dict[str, Any]]:
             "folder": {
                 "type": "string",
                 "description": (
-                    "Destination folder for move. Must be a non-empty name — "
-                    "never defaulted to INBOX."
+                    "Non-empty destination folder; this changes mailbox state and "
+                    "is never defaulted to INBOX."
                 ),
             },
         },
         required=["email_id", "folder"],
+    )
+    move["properties"]["email_id"]["description"] = (
+        "Email ID(s) to move; verify source IDs and destination before changing "
+        "server-side mailbox state."
     )
 
     flag = _object(
@@ -194,12 +228,15 @@ def _imap_input_schemas() -> dict[str, dict[str, Any]]:
             "flags": {
                 "type": "object",
                 "description": (
-                    "Required — dict of flag name to bool, e.g. "
-                    "{\"seen\": true, \"flagged\": false}"
+                    "Non-empty flag-name-to-bool map; e.g. {\"seen\": true, "
+                    "\"flagged\": false}. This changes mailbox state."
                 ),
             },
         },
         required=["email_id", "flags"],
+    )
+    flag["properties"]["email_id"]["description"] = (
+        "Email ID(s) to flag; verify them before changing server-side mailbox state."
     )
 
     folders = _object({"account": _account_field()})
@@ -283,28 +320,17 @@ def imap_schema() -> dict[str, Any]:
     if "oneOf" in input_schema:
         input_schema["anyOf"] = input_schema.pop("oneOf")
     schema["properties"]["action"]["description"] = (
-        "send: send email via IMAP/SMTP (requires address, message; optional "
-        "subject, cc, bcc, attachments). "
-        "check: list recent envelopes from a folder (optional folder, n). "
-        "read: fetch full email by ID list (email_id=[id1, ...]). "
-        "You are encouraged to read multiple relevant or even all unread "
-        "emails and think before acting. "
-        "reply: reply to an email (requires email_id, message; optional cc, "
-        "attachments). "
-        "search: server-side IMAP search (requires query, optional folder). "
-        "delete: delete email(s) by ID (email_id). "
-        "move: move email(s) to another folder (email_id, folder=destination). "
-        "flag: set/clear flags on email(s) (email_id, flags={flag: bool}, e.g. "
-        "flags={'seen': true}). "
-        "folders: list available IMAP folders. "
-        "contacts: list all contacts. "
-        "add_contact: add/update contact (requires address, name; optional "
-        "note). "
-        "remove_contact: remove contact (requires address). "
-        "edit_contact: update contact fields (requires address; optional "
-        "name, note). "
-        "accounts: list configured IMAP accounts and connection status. "
-        "settings: show the redacted five-field IMAP/SMTP settings inventory. "
+        "Strict action-owned input branches for real IMAP/SMTP email. "
+        "Safe first route: use check/search, then read the returned compound "
+        "email_id before deciding whether to reply. send and reply deliver real "
+        "external mail; verify to/cc/bcc recipients and the body first. For an "
+        "external reply, follow the standing policy or confirm the sender is the "
+        "same human who contacted you internally. account defaults when omitted; "
+        "blank check/search folders mean INBOX; move requires a non-empty "
+        "destination. Use returned IDs in account:folder:uid form. delete, move, "
+        "and flag mutate mailbox state; inspect errors and delivery status. "
+        "Call the manual for attachment, search, contacts, accounts, settings, "
+        "configuration, and deeper safety detail. "
         + IMAP_PLUGIN.manual_action_description()
     )
     return schema

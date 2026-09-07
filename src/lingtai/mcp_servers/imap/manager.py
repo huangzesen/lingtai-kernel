@@ -128,21 +128,9 @@ SCHEMA = {
                 "accounts", "manual",
             ],
             "description": (
-                "send: send email via IMAP/SMTP (requires address, message; optional subject, cc, bcc, attachments). "
-                "check: list recent envelopes from a folder (optional folder, n). "
-                "read: fetch full email by ID list (email_id=[id1, ...]). "
-                "You are encouraged to read multiple relevant or even all unread emails and think before acting. "
-                "reply: reply to an email (requires email_id, message; optional cc, attachments). "
-                "search: server-side IMAP search (requires query, optional folder). "
-                "delete: delete email(s) by ID (email_id). "
-                "move: move email(s) to another folder (email_id, folder=destination). "
-                "flag: set/clear flags on email(s) (email_id, flags={flag: bool}, e.g. flags={'seen': true}). "
-                "folders: list available IMAP folders. "
-                "contacts: list all contacts. "
-                "add_contact: add/update contact (requires address, name; optional note). "
-                "remove_contact: remove contact (requires address). "
-                "edit_contact: update contact fields (requires address; optional name, note). "
-                "accounts: list configured IMAP accounts and connection status. "
+                "Strict action-owned IMAP input branches; use check/search then "
+                "read returned IDs before deciding whether to reply. send/reply "
+                "deliver real mail, so verify recipients and body first. "
                 + _skill.manual_action_description(_SKILL_FRONTMATTER, _SKILL_NAME)
             ),
         },
@@ -227,24 +215,19 @@ SCHEMA = {
 }
 
 DESCRIPTION = (
-    "IMAP email client — real email via IMAP/SMTP with multi-account support. "
-    "MCP OWNERSHIP: this MCP belongs to the orchestrator (admin). If you are "
-    "an avatar (your admin block is empty or all admin privileges are false), "
-    "do not attempt to configure or reconfigure this MCP — your orchestrator "
-    "manages it, and if the network needs this MCP to reach you the wiring "
-    "is propagated to your session automatically. "
-    "Every operational response includes account and tcp_alias fields. "
-    "Operational actions: send, check, read, reply, search, delete, move, "
-    "flag, folders, contacts, add_contact, remove_contact, edit_contact, "
-    "accounts. The public family also provides plugin-owned settings and "
-    "manual actions. "
-    "Email IDs use compound key format: account:folder:uid.\n"
-    "REPLY POLICY: "
-    "When a human contacts you via internal email (email tool), reply via internal email. "
-    "When you receive an IMAP email from an external address, do NOT reply unless: "
-    "(1) you have explicit guidance on how to handle IMAP replies, or "
-    "(2) you can confirm the sender is the same human who contacts you via internal email. "
-    "Unknown external senders require confirmation from your human before replying."
+    "Real email via IMAP/SMTP with multi-account support. Safe first route: "
+    "use check/search, then read the returned email_id before deciding whether "
+    "to reply. send and reply deliver real external mail; verify recipients "
+    "including cc/bcc and the body immediately before calling. External replies "
+    "require the standing reply policy or confirmation that the sender is the "
+    "same human who contacted you through an internal channel. Email IDs use "
+    "account:folder:uid; account defaults when omitted, blank check/search "
+    "folders mean INBOX, and move requires a non-empty destination. delete, "
+    "move, and flag mutate mailbox state; inspect errors and delivery status. "
+    "MCP ownership: this addon is managed by the orchestrator; avatars must not "
+    "configure it. Call imap(action=\"manual\", input={}, reasoning=\"read "
+    "IMAP guidance\") for attachments, settings, configuration, contacts, and "
+    "deeper operation detail."
 )
 
 # Public callers receive the strict LTP-v2 family schema. Manager dispatch

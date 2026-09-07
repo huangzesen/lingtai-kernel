@@ -114,6 +114,7 @@ related_files:
   - src/lingtai/mcp_servers/feishu/reference/setup.md
   - src/lingtai/mcp_servers/feishu/server.py
   - src/lingtai/mcp_servers/imap/SKILL.md
+  - src/lingtai/mcp_servers/imap/reference/operation-contract.md
   - src/lingtai/mcp_servers/imap/__init__.py
   - src/lingtai/mcp_servers/imap/__main__.py
   - src/lingtai/mcp_servers/imap/_migrate.py
