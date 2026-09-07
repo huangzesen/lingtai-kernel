@@ -34,12 +34,32 @@ maintenance: |
   bind-time configuration as rows containing exactly `key`, `current`,
   `default`, `configurable`, and `comment`. Input is strictly `{}`. This action
   never sets, resets, validates, re-reads, or writes configuration. Follow each
-  row's exact `comment` section below for meaning and the owner procedure.
-- `vision(action="manual", input={}, reasoning="...")` — this guidance. Its
-  input is strictly empty; it reads the installed manual body/path and performs
-  no config, credential, provider, image, or analyze operation.
+  row's exact `comment` into the top manual's stable setting anchor, then use
+  the settings reference for meaning and the owner procedure.
+- `vision(action="manual", input={}, reasoning="...")` — load the installed
+  top-level Vision manual. Its input is strictly empty; it reads that manual's
+  body/path and performs no config, credential, provider, image, or analyze
+  operation.
 
 `reasoning` is required on every action and is invocation metadata; it never
 becomes part of child input. Optional `summarize` is a root presentation
 control. An unknown action, root field, or cross-action input field is rejected
 before provider, credential, image, or manual-child work.
+
+## Result shapes
+
+- `analyze` success is exactly `{"status": "ok", "analysis": text}`.
+- `check` success is exactly `{"status": "ok", "route": route,
+  "provider": provider, "model": model}`.
+- `list` success is `{"status": "ok", "default": default,
+  "presets": presets, "count": count}`; entries contain route identity, not
+  credentials.
+- `settings` success is `{"settings": [...]}` with only the five row fields
+  above; unavailable truth fails as a fixed no-row result.
+- `manual` success is exactly `{"status": "ok", "action": "manual",
+  "manual": body, "manual_path": path}`; a missing installed manual returns a
+  truthful degraded result rather than another family's guidance.
+
+Setup, authorization, image, provider, or empty-response failures are
+structured errors with sanitized guidance; raw exception contents,
+credentials, and unsanitized endpoints never enter a result.

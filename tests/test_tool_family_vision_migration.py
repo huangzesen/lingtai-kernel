@@ -569,6 +569,36 @@ def test_no_bare_manual_pointer_survives_in_any_vision_owned_surface():
         assert not bare.search(text), f"stale bare manual pointer in {path}"
 
 
+def test_progressive_disclosure_references_are_owned_by_governed_docs():
+    references = (
+        "src/lingtai/tools/vision/manual/reference/actions.md",
+        "src/lingtai/tools/vision/manual/reference/backends.md",
+        "src/lingtai/tools/vision/manual/reference/routing.md",
+        "src/lingtai/tools/vision/manual/reference/settings.md",
+    )
+    for owner in (
+        Path("src/lingtai/tools/vision/ANATOMY.md"),
+        Path("src/lingtai/tools/vision/CONTRACT.md"),
+    ):
+        text = owner.read_text(encoding="utf-8")
+        for reference in references:
+            assert reference in text, f"{owner} does not govern {reference}"
+
+    router = Path("src/lingtai/tools/vision/manual/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    for reference in references:
+        relative = reference.removeprefix("src/lingtai/tools/vision/manual/")
+        assert f"]({relative})" in router, f"manual router omits {relative}"
+
+    actions = Path(references[0]).read_text(encoding="utf-8")
+    assert "## Result shapes" in actions
+    for result_key in ("analysis", "route", "presets", "settings", "manual_path"):
+        assert f'"{result_key}"' in actions
+    assert "comment section below" not in actions
+    assert "this guidance" not in actions
+
+
 def test_family_registers_the_reserved_manual_child_once(tmp_path):
     mgr = _manager(tmp_path)
     assert mgr._family.child_names == (
