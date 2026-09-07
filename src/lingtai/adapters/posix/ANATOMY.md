@@ -148,7 +148,13 @@ co-located owning ANATOMY.md files.
   `_prepare_capsule_socket_path` permits bind/stale-socket reuse only inside a
   real owner-owned mode-0700 directory and refuses symlink, ownership, type, or
   private-mode mismatches before unlink or bind
-  (`src/lingtai/adapters/posix/daemon_manager.py:42-116`).
+  (`src/lingtai/adapters/posix/daemon_manager.py:42-116`). `_ensure_manager`
+  holds one exclusive `fcntl.flock` on `daemon/manager/manager.lock` around
+  `_ensure_manager_locked`'s complete observe/identity/reserve/spawn sequence so
+  concurrent submitters cannot both act on the same pre-lock state; each later
+  caller re-checks the persisted reservation while stale-start recovery remains
+  unchanged
+  (`src/lingtai/adapters/posix/daemon_manager.py:197-273`).
 - `refresh_watcher_entrypoint.main(argv)` is the owned ordinary
   importable/executable module the launched process runs
   (`src/lingtai/adapters/posix/refresh_watcher_entrypoint.py`). It decodes the
