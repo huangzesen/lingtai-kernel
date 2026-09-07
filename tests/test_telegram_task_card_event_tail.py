@@ -532,14 +532,15 @@ def test_second_tool_call_api_delay_is_previous_tool_ts_delta(tmp_path):
 
 def test_divider_renders_compact_per_call_usage_arrows(tmp_path):
     """The group divider carries per-call LLM usage: down arrow = output tokens,
-    up arrow = cache miss, trailing percentage = cache rate. The usage arrives
+    parenthesized count = thinking tokens, up arrow = cache miss, and the
+    trailing percentage = cache rate. The usage arrives
     on the notification_block_injected carrier (real kernel shape), keyed by
     call_id, and is attached to the matching tool row."""
     acct = FakeAccount()
     manager, service = _manager(tmp_path, acct)
     _pre_resident(acct, 555, manager)
 
-    def carrier(call_id, out, miss, rate, context=None):
+    def carrier(call_id, out, miss, rate, context=None, thinking=None):
         token_usage = {
             "current_call": {
                 "output": out,
@@ -547,6 +548,8 @@ def test_divider_renders_compact_per_call_usage_arrows(tmp_path):
                 "cache_rate": rate,
             }
         }
+        if thinking is not None:
+            token_usage["current_call"]["thinking"] = thinking
         if context is not None:
             token_usage["session"] = {"context_tokens": context}
         return json.dumps({
@@ -557,9 +560,9 @@ def test_divider_renders_compact_per_call_usage_arrows(tmp_path):
 
     _write_lines(_events_path(tmp_path), [
         _tool_call_line(call_id="c1", ts=100.0),
-        carrier("c1", 412, 31_000, 0.97716, "junk"),
+        carrier("c1", 412, 31_000, 0.97716, "junk", 0),
         _tool_call_line(call_id="c2", ts=103.4),
-        carrier("c2", 1_234, 512_345, 0.55, 259_800),
+        carrier("c2", 1_234, 512_345, 0.55, 259_800, 56_789),
     ])
 
     manager._poll_event_tail()
@@ -568,8 +571,9 @@ def test_divider_renders_compact_per_call_usage_arrows(tmp_path):
     # The visible tail (last group) carries its own API delay + arrows + rate.
     assert "↻ 3.4s" in rendered
     assert "\u21931.2k" in rendered    # ↓1.2k output tokens
+    assert "(56.8k)" in rendered  # 56.8k thinking/reasoning tokens
     assert "\u2191512.3k" in rendered  # ↑512.3k cache miss
-    assert "↻ 3.4s ↓1.2k ↑512.3k ◌ 259.8k | 55.0%" in rendered
+    assert "↻ 3.4s ↓1.2k (56.8k) ↑512.3k ◌ 259.8k | 55.0%" in rendered
     # Usage is private per-row state: projected for rendering but never
     # leaked into the public window rows.
     assert all("_usage" not in row for row in manager._task_card_event_window())
@@ -607,24 +611,25 @@ def test_pure_text_turn_renders_api_usage_from_llm_response(tmp_path):
             "text": text, "visibility": "public",
         })
 
-    def llm_response(api_call_id, total, cached, out, ts):
+    def llm_response(api_call_id, total, cached, out, thinking, ts):
         return json.dumps({
             "type": "llm_response", "ts": ts, "api_call_id": api_call_id,
             "input_tokens": total, "cached_tokens": cached,
-            "output_tokens": out, "estimated": False,
+            "output_tokens": out, "thinking_tokens": thinking,
+            "estimated": False,
         })
 
     _write_lines(_events_path(tmp_path), [
         diary("first pure text", 100.0, "api_pure_1"),
-        llm_response("api_pure_1", 1_000, 900, 123, 105.0),
+        llm_response("api_pure_1", 1_000, 900, 123, 45, 105.0),
     ])
 
     manager._poll_event_tail()
 
     rendered = [c for c in acct.calls if c[0] == "edit_message"][-1][3]
     assert "first pure text" in rendered
-    # llm_response usage rides the divider: output, cache miss, cache rate.
-    assert "\u2193123" in rendered
+    # llm_response usage rides the divider: output, thinking, cache miss, cache rate.
+    assert "\u2193123 (45)" in rendered
     assert "\u2191100" in rendered   # 1000 - 900 cache miss
     assert "◌ 1.0k | 90.0%" in rendered  # context=input_tokens; rate=900/1000
 
@@ -633,8 +638,8 @@ def test_pure_text_turn_renders_api_usage_from_llm_response(tmp_path):
 def test_divider_context_fallbacks():
     cases = (
         (
-            {"output": 200, "cache_miss": 2_400, "cache_rate": 0.99, "context": "junk"},
-            "↻ 8.5s ↓200 ↑2.4k 99.0%",
+            {"output": 200, "thinking": 0, "cache_miss": 2_400, "cache_rate": 0.99, "context": "junk"},
+            "↻ 8.5s ↓200 (0) ↑2.4k 99.0%",
         ),
         (
             {"output": 200, "cache_miss": 2_400, "context": 259_800},
