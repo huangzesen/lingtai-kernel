@@ -222,8 +222,10 @@ The effective allowlist is checked before storage or notification. When a
 stable bridge message ID exists, it is namespaced by sender and recorded in the
 persistent `inbox_seen.json` replay guard; a redelivery is suppressed. The
 bounded guard retains up to 5000 keys. Messages without a stable upstream ID
-are not deduplicated. File/event components are sanitized, but the message ID
-used for reply/react remains the opaque value supplied by the bridge.
+are not deduplicated; they receive a local archive UUID for storage and
+notification, and that UUID is not a valid reply/react target. File/event
+components are sanitized. When a stable bridge ID exists, reply/react uses that
+opaque bridge-supplied value.
 
 ## SIDE EFFECTS / RISK / ERRORS
 
