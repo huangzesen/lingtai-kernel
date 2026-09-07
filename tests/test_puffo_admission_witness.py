@@ -788,3 +788,37 @@ def test_realpath_initial_send_drained_pair_fires_at_request_settle_point(monkey
         assert obs.committed[0].binding == admission_binding("d1", "RD")
     finally:
         reset_turn_tool_observer(token)
+
+
+def test_witness_binds_over_wire_id_when_observer_namespaces(monkeypatch):
+    # Kernel half of the wire-id contract, decoupled from the raw fallback: when
+    # the turn-bound observer exposes ``wire_tool_call_id`` (the ACP observer
+    # does), the witness computes BOTH the event id and the binding over the
+    # WIRE id, not the raw block id. The other tests exercise the raw fallback
+    # (plain observer); this one pins that the namespacer is actually used when
+    # present, so the fallback cannot silently stand in for it on the real path.
+    _neutralize_turn_meta(monkeypatch)
+    iface = ChatInterface()
+    iface.add_tool_results(
+        [ToolResultBlock(id="c1", name="puffo_tool", content=_marker("R1"))]
+    )
+
+    class _NamespacingObserver(_Observer):
+        def wire_tool_call_id(self, tool_call_id):
+            return f"acp_zzz:{tool_call_id}"
+
+    agent = SimpleNamespace(
+        _chat=SimpleNamespace(interface=iface),
+        _puffo_admission_emitted=set(),
+        _puffo_admission_watermark=-1,
+        _llm_worker_interface_poisoned=False,
+        _log=lambda *a, **k: None,
+    )
+    obs = _NamespacingObserver()
+    token = bind_turn_tool_observer(obs)
+    try:
+        turn_mod.scan_and_emit_committed_facts(agent)
+    finally:
+        reset_turn_tool_observer(token)
+    assert [e.tool_call_id for e in obs.committed] == ["acp_zzz:c1"]
+    assert obs.committed[0].binding == admission_binding("acp_zzz:c1", "R1")

@@ -147,8 +147,12 @@ argv, environment, or MCP command from the remote caller.
    `agent_message_chunk` followed by `{stopReason: "end_turn"}`; no hidden
    thoughts or tool internals are projected. Additionally, the Adapter projects
    a **Puffo admission committed-fact** as a `tool_call_update` carrying only
-   `_meta.puffo.admission/1 = {toolCallId: <raw Core id>, binding}` (the
-   `toolCallId` field of the update itself is the session-correlated id). It is
+   `_meta.puffo.admission/1 = {toolCallId, binding}`. The nested `toolCallId`
+   MUST be byte-identical to the update's own outer `toolCallId` — the
+   session-correlated wire id (`<correlation>:<raw Core id>`). This equality is
+   load-bearing, not cosmetic: the Puffo receiver derives its internal fact id
+   from the outer wire id and rejects the frame unless the nested id matches, so
+   emitting the raw Core id there is a deterministic non-admission. It is
    still metadata-only (no arguments/results/content), and is the *reliable*
    counterpart to the fail-open lifecycle projection above: Core emits it at a
    caller settle point once a receipt-bearing tool result is durably present on
@@ -159,8 +163,19 @@ argv, environment, or MCP command from the remote caller.
    non-delivery is genuine session teardown (closing / superseded generation /
    claimed-or-replaced active prompt — a torn-down session has no wire to
    publish onto). Three properties bound its meaning: (a) `binding =
-   sha256(toolCallId ‖ 0x00 ‖ raw_receipt)` proves the emitter *possessed the
-   receipt paired with this exact toolCallId* — it does NOT itself prove commit;
+   sha256(toolCallId ‖ 0x00 ‖ raw_receipt)` where `toolCallId` is that same
+   correlated outer wire id — the receiver recomputes the binding over the outer
+   id and strictly compares, so the witness maps its kernel-namespace id through
+   the turn-bound observer's wire namespacer BEFORE hashing (correlation comes
+   down to the witness; the raw receipt never rises to the Adapter, preserving
+   the metadata-only event boundary). The wire id has ONE construction site in
+   this tree (`_PromptToolObserver.wire_tool_call_id`); the lifecycle,
+   permission, and admission frames all route through it. That single source is
+   itself load-bearing across the repo boundary: the receiver fills its
+   `_completed_tool_calls` from the lifecycle frame's id and admits the fact only
+   if the admission frame's id is absent from that set, so the two ids must be
+   byte-identical — which holds only because both are produced there. It proves the emitter *possessed the
+   receipt paired with this exact correlated toolCallId* — it does NOT itself prove commit;
    "committed" rests entirely on the emission-point discipline (a settle point
    is after a carrying `send(...)` has fully settled, incl. any
    rollback/restore, or after a `commit_tool_results(...)` returns, scanning

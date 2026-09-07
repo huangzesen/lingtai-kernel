@@ -31,10 +31,17 @@ class ToolResultsCommittedEvent:
 
     Like :class:`ToolLifecycleEvent`, arguments and results are intentionally
     absent: the event carries only the tool-call id and the receipt-possession
-    ``binding`` (``sha256(tool_call_id ‖ 0x00 ‖ raw_receipt)``).  This is the
-    reliable committed-fact signal, emitted at a caller settle point after the
-    receipt-bearing result is present on the wire — distinct from the fail-open
-    terminal ``tool_call_update`` which fires at tool COMPLETED, before commit.
+    ``binding`` (``sha256(tool_call_id ‖ 0x00 ‖ raw_receipt)``).  The raw receipt
+    never leaves the kernel — only its ``binding`` hash does — which is why the
+    binding is computed by the witness (which holds the receipt) rather than by
+    the adapter.  ``tool_call_id`` is the id the binding is bound to and equals
+    the ACP frame's outer ``toolCallId``: the witness maps its kernel-namespace
+    id through the turn-bound observer's wire namespacer before hashing, so the
+    receiver — which recomputes the binding over that same outer id — matches.
+    This is the reliable committed-fact signal, emitted at a caller settle point
+    after the receipt-bearing result is present on the wire — distinct from the
+    fail-open terminal ``tool_call_update`` which fires at tool COMPLETED,
+    before commit.
     """
 
     tool_call_id: str

@@ -851,6 +851,7 @@ def scan_and_emit_committed_facts(agent) -> None:
     )
     from ..turn_events import (
         ToolResultsCommittedEvent,
+        current_turn_tool_observer,
         notify_tool_results_committed,
     )
 
@@ -875,9 +876,24 @@ def scan_and_emit_committed_facts(agent) -> None:
                 # and deliberately NOT recorded in ``emitted`` so an in-place
                 # synthesized→real overwrite can still fire later.
                 continue
+            # The binding must be computed over the SAME id the ACP frame
+            # exposes as its outer ``toolCallId`` — the receiver correlates on
+            # that id and recomputes the binding over it. The kernel is
+            # protocol-neutral, so it asks the turn-bound observer to map the
+            # kernel-namespace id to its wire id (correlation comes DOWN to the
+            # witness; the raw receipt never goes UP to the adapter). Observers
+            # without the mapping (non-ACP, tests) bind over the raw id.
+            observer = current_turn_tool_observer()
+            namespacer = getattr(observer, "wire_tool_call_id", None)
+            wire_id = block_id
+            if callable(namespacer):
+                try:
+                    wire_id = namespacer(block_id)
+                except Exception:
+                    wire_id = block_id
             delivered = notify_tool_results_committed(
                 ToolResultsCommittedEvent(
-                    block_id, admission_binding(block_id, raw)
+                    wire_id, admission_binding(wire_id, raw)
                 )
             )
             if delivered:

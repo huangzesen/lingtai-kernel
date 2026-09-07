@@ -777,24 +777,38 @@ def test_puffo_committed_fact_emits_reliably_idempotently_and_respects_teardown(
     )
     _wait_for(output, 4)  # initialize + session/new + tool_call + tool_call_update
 
+    # The witness maps the kernel-namespace id to the wire id (via the
+    # observer's ``wire_tool_call_id``) BEFORE it computes the binding and
+    # builds the event, so the observer receives an already-wire-namespaced id
+    # and passes it through unchanged as both the outer and nested ids.
+    wire = observer.wire_tool_call_id
     binding = "a" * 64
     observer.on_tool_results_committed(
-        ToolResultsCommittedEvent("tc-1", binding)
+        ToolResultsCommittedEvent(wire("tc-1"), binding)
     )
     time.sleep(0.02)
     frames = _admission_frames(output)
     assert len(frames) == 1
+    # Cross-repo invariant: nested admission id equals the outer wire id (Puffo
+    # rejects otherwise). Regression lock for the nested-vs-outer mismatch.
+    assert (
+        frames[0]["_meta"]["puffo.admission/1"]["toolCallId"]
+        == frames[0]["toolCallId"]
+    )
     assert frames[0] == {
         "sessionUpdate": "tool_call_update",
         "toolCallId": f"{handle.correlation_id}:tc-1",
         "_meta": {
-            "puffo.admission/1": {"toolCallId": "tc-1", "binding": binding},
+            "puffo.admission/1": {
+                "toolCallId": f"{handle.correlation_id}:tc-1",
+                "binding": binding,
+            },
         },
     }
 
     # Idempotent: a second committed event for the same toolCallId emits nothing.
     observer.on_tool_results_committed(
-        ToolResultsCommittedEvent("tc-1", binding)
+        ToolResultsCommittedEvent(wire("tc-1"), binding)
     )
     time.sleep(0.02)
     assert len(_admission_frames(output)) == 1
@@ -803,10 +817,82 @@ def test_puffo_committed_fact_emits_reliably_idempotently_and_respects_teardown(
     server.close()
     before = len(_admission_frames(output))
     observer.on_tool_results_committed(
-        ToolResultsCommittedEvent("tc-2", "b" * 64)
+        ToolResultsCommittedEvent(wire("tc-2"), "b" * 64)
     )
     time.sleep(0.02)
     assert len(_admission_frames(output)) == before
+
+
+def test_puffo_committed_fact_binding_is_derived_over_the_wire_id_end_to_end():
+    """Lock the binding at its real derivation point, not a fixture constant.
+
+    The sibling observer test injects a constant ``binding`` into the event, so
+    it can only lock the serialization passthrough (nested == outer). This test
+    drives the REAL kernel witness (``scan_and_emit_committed_facts``) over a
+    real ``ChatInterface`` holding a receipt-bearing committed result, with the
+    real ``_PromptToolObserver`` bound as the turn observer, and asserts on the
+    serialized ACP frame that the binding equals
+    ``sha256(outer_wire_id ‖ 0x00 ‖ receipt)`` as PRODUCTION derived it — the
+    second cross-repo gate (Puffo recomputes the binding over the outer id).
+    Both the nested-vs-outer mismatch and a binding bound to the wrong id redden
+    this.
+    """
+    from lingtai.kernel.base_agent.turn import scan_and_emit_committed_facts
+    from lingtai.kernel.llm.interface import ChatInterface, ToolResultBlock
+    from lingtai.kernel.puffo_admission_witness import admission_binding
+    from lingtai.kernel.turn_events import (
+        bind_turn_tool_observer,
+        reset_turn_tool_observer,
+    )
+
+    handle = _Handle("placeholder")
+    agent = _Agent(handle)
+    output = io.StringIO()
+    server = AcpStdioServer(agent, io.StringIO(), output)
+    session_id = _open_session(server, output)
+    _request(server, 5, "session/prompt", {
+        "sessionId": session_id,
+        "prompt": [{"type": "text", "text": "use a tool"}],
+    })
+    observer = agent.submissions[0]["tool_observer"]
+    corr = handle.correlation_id
+
+    # A real receipt-bearing committed result on a real interface.
+    receipt = "recv9x8y7z6w"
+    iface = ChatInterface()
+    iface.add_tool_results([
+        ToolResultBlock(
+            id="tc-1", name="puffo_tool",
+            content=f"[puffo:model-visible-read:{receipt}]",
+        )
+    ])
+    witness_agent = SimpleNamespace(
+        _chat=SimpleNamespace(interface=iface),
+        _puffo_admission_emitted=set(),
+        _puffo_admission_watermark=-1,
+        _llm_worker_interface_poisoned=False,
+        _log=lambda *a, **k: None,
+    )
+
+    # Bind the real observer and run the real witness — no hand-built event.
+    token = bind_turn_tool_observer(observer)
+    try:
+        scan_and_emit_committed_facts(witness_agent)
+    finally:
+        reset_turn_tool_observer(token)
+    time.sleep(0.02)
+
+    frames = _admission_frames(output)
+    assert len(frames) == 1
+    outer = frames[0]["toolCallId"]
+    nested = frames[0]["_meta"]["puffo.admission/1"]["toolCallId"]
+    binding = frames[0]["_meta"]["puffo.admission/1"]["binding"]
+    # (a) nested admission id == outer wire id == the correlated id.
+    assert nested == outer == f"{corr}:tc-1"
+    # (b) binding is bound to the OUTER wire id over the real receipt — the
+    # value production derived, not a fixture constant. Puffo recomputes exactly
+    # this over its own copy of the receipt.
+    assert binding == admission_binding(f"{corr}:tc-1", receipt)
 
 
 def test_denied_tool_projects_one_initial_failed_update_and_close_drops_events():

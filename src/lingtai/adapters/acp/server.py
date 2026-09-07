@@ -107,6 +107,26 @@ class _PromptToolObserver:
     def bind_active(self, active: _ActivePrompt) -> None:
         self._active = active
 
+    def wire_tool_call_id(self, tool_call_id: str) -> str:
+        """Map a kernel-namespace tool_call_id to this prompt's wire id.
+
+        THE single construction site for the ``<correlation>:<raw>`` wire id in
+        this tree: lifecycle, permission, and admission frames all route through
+        here, and the kernel witness fetches it from the turn-bound observer to
+        bind the ``puffo.admission/1`` receipt to the SAME string. That single
+        source is load-bearing across the repo boundary: the Puffo receiver
+        fills ``_completed_tool_calls`` from the lifecycle frame's id and admits
+        the committed fact only if its (nested == outer) id is not already
+        there and its binding recomputes over that id, so the lifecycle id and
+        the admission id MUST be byte-identical — which they are only because
+        both are produced here. It also keeps the raw receipt in the kernel:
+        the correlation prefix comes DOWN to the witness rather than the receipt
+        going UP to the adapter (which would breach the metadata-only event
+        boundary).
+        """
+
+        return f"{self._correlation_id}:{tool_call_id}"
+
     def _track_permission(
         self, tool_call_id: str, publication_lock: threading.Lock
     ) -> None:
@@ -130,7 +150,7 @@ class _PromptToolObserver:
 
     def on_tool_lifecycle(self, event: ToolLifecycleEvent) -> None:
         server = self._server
-        tool_call_id = f"{self._correlation_id}:{event.tool_call_id}"
+        tool_call_id = self.wire_tool_call_id(event.tool_call_id)
         with server._state_lock:
             publication_lock = self._publication_locks.get(tool_call_id)
         if publication_lock is not None and not publication_lock.acquire(
@@ -233,7 +253,11 @@ class _PromptToolObserver:
         """
 
         server = self._server
-        tool_call_id = f"{self._correlation_id}:{event.tool_call_id}"
+        # ``event.tool_call_id`` is already the wire id: the witness mapped it
+        # through ``wire_tool_call_id`` before computing the binding
+        # over it, so the outer frame id and the nested admission id are the
+        # same string by construction and the binding is bound to that id.
+        tool_call_id = event.tool_call_id
         with server._state_lock:
             active = self._active
             if (
@@ -253,7 +277,7 @@ class _PromptToolObserver:
                 "toolCallId": tool_call_id,
                 "_meta": {
                     "puffo.admission/1": {
-                        "toolCallId": event.tool_call_id,
+                        "toolCallId": tool_call_id,
                         "binding": event.binding,
                     },
                 },
@@ -276,7 +300,7 @@ class _PromptToolObserver:
     ) -> PermissionDecision:
         return self._server._request_tool_permission(
             observer=self,
-            tool_call_id=f"{self._correlation_id}:{request.tool_call_id}",
+            tool_call_id=self.wire_tool_call_id(request.tool_call_id),
             tool_name=request.tool_name,
             generation=self._generation,
         )
