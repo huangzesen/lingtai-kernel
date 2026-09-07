@@ -57,11 +57,13 @@ log = logging.getLogger("lingtai.mcp_servers.feishu")
 
 
 _SERVER_INSTRUCTIONS = (
-    "lingtai-feishu: Feishu/Lark message client. "
-    "Configure via the LINGTAI_FEISHU_CONFIG env var pointing at a JSON file. "
-    "Inbound messages flow into the host agent's inbox via LICC. "
-    "Setup, config schema, and troubleshooting: "
-    "https://github.com/Lingtai-AI/lingtai-feishu"
+    "lingtai-feishu: Feishu/Lark messaging MCP; inbound messages flow into the "
+    "host agent's inbox via LICC. Use the single strict `feishu` tool with "
+    "{action, input, reasoning, summarize?}; its description gives the action "
+    "inventory and first-call safety boundaries. Call action='manual' for the "
+    "deep packaged message-semantics guidance. Configure via the "
+    "LINGTAI_FEISHU_CONFIG environment variable; setup and troubleshooting are "
+    "available from the server's packaged resources."
 )
 
 
