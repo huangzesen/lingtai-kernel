@@ -50,7 +50,7 @@
   },
   "whatsapp": {
     "name": "whatsapp",
-    "summary": "WhatsApp Cloud API client — official Meta API send/receive with LICC inbox callback.",
+    "summary": "Personal-account WhatsApp Web client via a local whatsapp-web.js bridge with LICC inbox delivery.",
     "transport": "stdio",
     "command": "{python}",
     "args": [

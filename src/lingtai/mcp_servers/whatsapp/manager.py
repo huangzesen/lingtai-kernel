@@ -55,10 +55,13 @@ _SKILL_PATH = WHATSAPP_PLUGIN.skill_path
 SCHEMA = WHATSAPP_SCHEMA
 
 DESCRIPTION = (
-    "WhatsApp MCP: connect a personal WhatsApp account via a local "
-    "whatsapp-web.js bridge (QR-code pairing). Send, read, search, "
-    "reply, react, manage contacts, and receive inbound messages "
-    "pushed into the agent inbox."
+    "Personal-account WhatsApp Web messaging through a local whatsapp-web.js "
+    "bridge (one linked session; not the Meta Cloud API). Send, reply, and "
+    "react perform real external actions; check/read/search inspect bounded "
+    "conversation data, while contacts, pairing, status, and logout cover "
+    "local account operation. Inbound messages may wake the agent through LICC. "
+    "Call action='manual' for message IDs, bridge media, allowlists/settings, "
+    "lifecycle, and safety guidance."
 )
 
 DEFAULT_STORE = "whatsapp"
