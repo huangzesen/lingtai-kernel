@@ -209,6 +209,63 @@ def test_consecutive_correlated_turns_reset_tool_observer(tmp_path, monkeypatch)
     assert current_turn_tool_observer() is None
 
 
+def test_correlated_turn_binds_admission_witness_scope_on_production_path(
+    tmp_path, monkeypatch,
+):
+    """Pin the PRODUCTION admission-witness bind/teardown on the real loop path.
+
+    Every test in ``test_puffo_admission_witness.py`` assembles the witness
+    scope by hand (``begin_admission_witness_scope(agent)``) and then drives
+    ``_process_response`` directly, so none of them traverse the correlated-turn
+    loop where the production bind actually lives (``turn.py`` ~1227) or its
+    teardown (~1856).  Deleting either line therefore leaves that whole suite
+    green while a real ACP turn silently emits zero committed facts:
+    ``scan_and_emit_committed_facts`` early-returns when
+    ``_puffo_admission_emitted is None`` (a fail-silent liveness bug — Puffo
+    never admits).  This test drives the real ``_run_loop`` across two
+    consecutive correlated turns with NO manual ``begin_admission_witness_scope``
+    anywhere, so:
+
+    * deleting the bind (~1227) makes the in-handler scope ``None`` -> red;
+    * deleting the teardown (~1856) leaves the scope open after the loop -> red.
+    """
+    agent = _agent(tmp_path)
+    first = submit_turn(agent, "one", correlation_id="turn-one")
+    second = submit_turn(agent, "two", correlation_id="turn-two")
+    seen = []
+
+    def fake_handle(current, msg):
+        # ``begin_admission_witness_scope`` runs at ~1227, before
+        # ``_handle_message`` at ~1315: on the production path the scope must be
+        # OPEN here every turn (a fresh ``emitted`` set + a watermark).
+        seen.append((
+            msg.content,
+            getattr(current, "_puffo_admission_emitted", "UNSET"),
+            getattr(current, "_puffo_admission_watermark", "UNSET"),
+        ))
+        if msg.content == "two":
+            current._shutdown.set()
+        return {"text": msg.content, "failed": False, "errors": []}
+
+    monkeypatch.setattr(turn, "_handle_message", fake_handle)
+    turn._run_loop(agent)
+
+    assert first.result(timeout=1).outcome is TurnOutcome.NORMAL
+    assert second.result(timeout=1).outcome is TurnOutcome.NORMAL
+    assert [content for content, _, _ in seen] == ["one", "two"]
+    # Both turns saw an OPEN scope opened by the production bind — a fresh
+    # (empty) ``emitted`` set and a watermark.  Deleting the bind turns these
+    # into the ``"UNSET"`` sentinel and reddens the test.
+    for content, emitted, watermark in seen:
+        assert emitted == set(), f"scope not freshly bound for {content!r}: {emitted!r}"
+        assert watermark != "UNSET", f"watermark not set for {content!r}"
+    # After the loop tears the last turn down, the production teardown (~1856)
+    # has closed the scope.  Deleting the teardown leaves the last turn's set()
+    # in place and reddens this.
+    assert getattr(agent, "_puffo_admission_emitted", "UNSET") is None
+    assert getattr(agent, "_puffo_admission_watermark", "UNSET") == -1
+
+
 def test_consecutive_correlated_turns_reset_permission_broker(tmp_path, monkeypatch):
     agent = _agent(tmp_path)
     broker = SimpleNamespace(request_permission=lambda _request: None)

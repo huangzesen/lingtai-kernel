@@ -190,7 +190,17 @@ argv, environment, or MCP command from the remote caller.
    turns bind no witness scope, so those scans are lazy no-ops in production —
    uniform defense-in-depth instrumentation, not reachable behavior. Any
    change that binds a witness scope over tc_wake turns must add the
-   corresponding red tests in the same change.
+   corresponding red tests in the same change. The scope itself — the
+   production `begin_admission_witness_scope` bind and its `end_..._scope`
+   teardown on the correlated-turn loop — is pinned separately by
+   `tests/test_correlated_turns.py::test_correlated_turn_binds_admission_witness_scope_on_production_path`,
+   which drives the real `_run_loop` across two turns with NO hand-assembled
+   scope: deleting the bind makes the in-turn scope absent (fail-silent: every
+   settle-point scan then early-returns and a real ACP turn emits zero facts)
+   and deleting the teardown leaves the scope open after the loop — either
+   reddens it. This closes the gap that the settle-point suite in
+   `test_puffo_admission_witness.py` cannot: those tests assemble the scope by
+   hand, so they stay green if the production bind regresses.
 4. `acp-local-stdio.cancel.v1` — `session/cancel` calls only the active
    correlated handle. Cancellation requested before exact terminal settlement
    wins and the original prompt returns `{stopReason: "cancelled"}`. The reader
