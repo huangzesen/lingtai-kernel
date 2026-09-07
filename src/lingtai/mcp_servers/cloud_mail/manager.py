@@ -46,14 +46,13 @@ _SKILL_BODY = CLOUD_MAIL_PLUGIN.skill_body
 _SKILL_PATH = CLOUD_MAIL_PLUGIN.skill_path
 
 DESCRIPTION = (
-    "Cloud Mail REST email client for a self-hosted Cloud Mail deployment "
-    "(Cloudflare Workers, https://github.com/maillab/cloud-mail). Actions: "
-    "check (recent inbound mail), search (filter by sender/recipient/subject/"
-    "content), read (full content by compound id '<account>:<emailId>'), send "
-    "(requires user credentials in config), accounts (redacted status), "
-    "add_user (admin operation), settings (redacted owner inventory), and "
-    "manual (packaged guidance). "
-    "Inbound mail also arrives automatically in your inbox via polling."
+    "Cloud Mail REST email for a self-hosted deployment. Strict "
+    "action/input/reasoning envelope; actions are check (recent inbound), "
+    "search (filters), read (full content by '<account>:<emailId>'), send "
+    "(requires user credentials; real external email), accounts (redacted "
+    "status), add_user (admin user mutation), settings (read-only redacted "
+    "startup inventory), and manual (packaged guidance). Inbound mail is "
+    "delivered automatically via polling. Use manual for detail."
 )
 
 SCHEMA: dict[str, Any] = {

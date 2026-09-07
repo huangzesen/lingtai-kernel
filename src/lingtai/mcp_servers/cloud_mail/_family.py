@@ -136,13 +136,13 @@ def cloud_mail_schema() -> dict[str, Any]:
                 "type": "string",
                 "enum": list(_ACTIONS),
                 "description": (
-                    "Cloud Mail action. Each action owns a strict input branch. "
-                    "check (recent inbound mail), search (filter by sender/"
-                    "recipient/subject/content), read (full content by compound "
-                    "id '<account>:<emailId>'), send (requires user credentials "
-                    "in config), accounts (redacted status), add_user (create a "
-                    "Cloud Mail user), settings (redacted owner inventory). "
-                    "Call manual "
+                    "Cloud Mail action; each action owns a strict input branch. "
+                    "check lists inbound mail; search filters; read returns full "
+                    "content by '<account>:<emailId>'; send delivers real email "
+                    "with user credentials; accounts returns redacted status; "
+                    "add_user is an admin user mutation; settings is a read-only "
+                    "redacted startup inventory. Inbound mail is polled. Call "
+                    "manual "
                     + CLOUD_MAIL_PLUGIN.manual_action_description()
                 ),
             },
