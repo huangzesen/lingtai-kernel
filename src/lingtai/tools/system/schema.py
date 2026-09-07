@@ -14,9 +14,10 @@ aliases; schema prose is canonical English, language-independent.
 
 The migration moved the six pre-migration flat sibling fields (``reason``,
 ``address``, ``preset``, ``revert_preset``, ``rebuild``, ``items``) into the
-``input`` object of exactly the actions that read them. Their descriptions,
-types, and defaults are carried over verbatim; no action was added, removed,
-renamed, or reordered, and no field changed meaning.
+``input`` object of exactly the actions that read them. Their types, defaults,
+and meanings are unchanged; model-visible descriptions are kept concise and
+route operational depth to ``system-manual``. No action was added, removed,
+renamed, or reordered.
 
 Two fields deserve a note because they are not a straight carry-over of the
 pre-migration *schema*:
@@ -51,40 +52,32 @@ from .plugin import SYSTEM_DECLARED_ACTIONS
 # ``settings`` immediately before ``manual`` in the final model-facing family.
 ACTION_ORDER = (*SYSTEM_DECLARED_ACTIONS, "manual")
 
-# --- Shared field descriptions, carried over verbatim from the flat schema ---
+# --- Concise descriptions for shared fields with unchanged runtime meaning ---
 
 _REASON_DESCRIPTION = (
-    "Reason for sleep, refresh, or clear (logged to the event log; for clear, "
-    "becomes the source tag in the recovery summary)."
+    "Optional reason, recorded in the event log; for clear it becomes the "
+    "recovery source tag."
 )
 
 _ADDRESS_DESCRIPTION = (
-    "Target agent's address (working directory path). Required for interrupt, "
-    "lull, suspend, cpr, clear, nirvana."
+    "Target agent working-directory address; required by this peer-control "
+    "action."
 )
 
 _PRESET_DESCRIPTION = (
-    "Optional preset to swap to before refreshing. A preset is a {LLM, "
-    "capabilities} bundle from your library. Use action='presets' to list. "
-    "Swap is light and reversible. If current context exceeds target preset's "
-    "context_limit, swap is refused — molt first."
+    "Exact preset path from the allowed `presets` result. Refresh refuses an "
+    "unauthorized path or one whose context limit cannot hold this conversation; "
+    "read the system-manual pre-check first."
 )
 
 _REVERT_PRESET_DESCRIPTION = (
-    "Optional. Pass true with action='refresh' to swap back to your default "
-    "preset (manifest.preset.default — typically the one your agent was "
-    "created with). Cannot be used together with the 'preset' argument. "
-    "Useful as a 'home button' after experimenting with another preset, "
-    "without needing to remember your default's name. Errors if no default is "
-    "configured."
+    "With refresh, return to `manifest.preset.default`. Mutually exclusive with "
+    "a non-empty preset; errors when no default is configured."
 )
 
 _FORCE_DESCRIPTION = (
-    "Optional for action='sleep'. When true, go to sleep even though unread "
-    "notifications are already waiting on disk. The default (false) refuses "
-    "the transition instead, so mail that arrived during this same turn is "
-    "not silently slept through. Use only when you knowingly want to sleep "
-    "anyway."
+    "Sleep despite pending notifications. The default false refuses the "
+    "transition; use true only when that pending attention is intentionally deferred."
 )
 
 def _address_input_schema() -> dict[str, Any]:
@@ -132,11 +125,10 @@ _SLEEP_INPUT_SCHEMA: dict[str, Any] = {
             "type": ["number", "null"],
             "exclusiveMinimum": 0,
             "description": (
-                "Optional finite positive seconds until one ordinary system "
-                "notification alarm. Use only as a last-resort for async work "
-                "without a reliable completion notification, not as normal "
-                "waiting (use IDLE). An early wake does not cancel it; a later "
-                "sleep delay replaces it. Null omits it; no maximum is imposed."
+                "Finite positive seconds for the one-shot system alarm; use only "
+                "as a last-resort when async work has no reliable completion "
+                "notification. Normal waiting is IDLE. Null omits it; an early "
+                "wake does not cancel it and a later delay replaces it."
             ),
         },
     },
@@ -163,9 +155,8 @@ _NAME_SET_INPUT_SCHEMA: dict[str, Any] = {
         "content": {
             "type": "string",
             "description": (
-                "Your chosen true name (真名). Set ONCE and immutable "
-                "thereafter — a second name_set is refused. Use name_nickname "
-                "for a changeable display name."
+                "True name (真名), set once and immutable. Use name_nickname for a "
+                "changeable display name; a second name_set is refused."
             ),
         },
     },
@@ -179,8 +170,8 @@ _NAME_NICKNAME_INPUT_SCHEMA: dict[str, Any] = {
         "content": {
             "type": "string",
             "description": (
-                "Your chosen nickname (别名) — mutable, unlike the true name. "
-                "Pass an empty string to clear it."
+                "Mutable nickname (别名), unlike the true name; an empty string "
+                "clears it."
             ),
         },
     },
@@ -206,59 +197,52 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     "manual": MANUAL_INPUT_SCHEMA,
 }
 
-# The per-action prose the model reads to choose an action. Carried over
-# verbatim from the pre-migration flat ``action`` enum description, with the
-# argument references restated in the ``input`` shape they now take.
+# Concise per-action prose the model reads to choose an action. Runtime meaning
+# and argument ownership stay unchanged; operational depth routes to
+# ``system-manual`` instead of remaining in the resident declaration.
 ACTION_ENUM_DESCRIPTION = (
-    "refresh: rebuild from init.json — same identity, preserved conversation, "
-    "reloading MCP, capabilities, addons, LLM, and prompt sections. See "
-    "system-manual.\n\n"
-    "presets: list available presets with tags, connectivity, capabilities. "
-    "See system-manual.\n\n"
-    "sleep: go to sleep until mail wakes you (self only). Normal waiting uses "
-    "reliable completion notifications and IDLE; delay is only a last-resort "
-    "one-shot alarm for async work lacking one — an early wake does not "
-    "cancel it, and a later delay replaces it.\n\n"
-    "lull: put another agent to sleep (karma).\n\n"
-    "suspend: freeze another agent (karma).\n\n"
-    "cpr: resuscitate a suspended agent (karma).\n\n"
-    "interrupt: cancel another agent's turn (karma).\n\n"
-    "clear: force molt on another agent (karma). See system-manual.\n\n"
-    "nirvana: permanently destroy an agent (karma + nirvana privilege). See "
-    "system-manual.\n\n"
-    "name_set: set your true name (真名) — input={'content': '<name>'}. "
-    "Once-only and immutable; a second name_set is refused.\n\n"
-    "name_nickname: set or change your display name (别名) — "
-    "input={'content': '<nickname>'}, mutable; an empty string clears it. "
-    "Neither name action renames your address or working directory — that "
-    "is an operator migration, see system-manual.\n\n"
-    "settings: read the effective System-owned settings (input={}). See "
-    "system-manual for meaning and the authorized change procedure.\n\n"
-    "Context hygiene is NOT here — use context(action='summarize') or "
-    "context(action='rebuild').\n\n"
-    "manual: return the installed system-manual skill (input={}) without "
-    "changing runtime state."
+    "Choose one action; put only that action's fields in input.\n\n"
+    "refresh: reload the existing runtime from init.json; optional preset is "
+    "an exact path from presets, and revert_preset returns to the configured "
+    "default. Read system-manual before swapping or refreshing.\n\n"
+    "presets: list the allowed preset paths and their runtime metadata.\n\n"
+    "sleep: sleep yourself until a wake event; normal waiting uses reliable "
+    "completion notifications and IDLE. A positive delay is only a last-resort "
+    "alarm for async work without one.\n\n"
+    "lull: put another agent to sleep (karma).\n"
+    "suspend: stop another agent (karma).\n"
+    "cpr: resuscitate a suspended or stopped agent (karma).\n"
+    "interrupt: cancel another agent's turn (karma).\n"
+    "clear: force another agent's molt (karma).\n"
+    "nirvana: permanently destroy another agent (karma + nirvana privilege); "
+    "read the manual first.\n\n"
+    "name_set: set your true name (真名) once; a second set is refused.\n"
+    "name_nickname: set or clear your mutable nickname (别名). Neither name "
+    "action renames the address or working directory.\n\n"
+    "settings: read the complete System-owned settings inventory (input={}); "
+    "it is read-only.\n"
+    "manual: return the installed system-manual (input={}) without changing "
+    "runtime state.\n\n"
+    "Notification reads/dismissals belong to notification; context hygiene "
+    "belongs to context(action='summarize'|'rebuild'|'molt')."
 )
 
 
 def get_description(lang: str = "en") -> str:
     return (
-        "Runtime inspection, lifecycle control, synchronization, and "
-        "inter-agent management.\n\n"
-        "Self-actions (no permissions needed): sleep, refresh, presets, "
-        "name_set, name_nickname, settings, manual.\n"
-        "Karma actions (require admin.karma=True): lull, interrupt, suspend, "
-        "cpr, clear.\n"
-        "Nirvana (requires admin.karma=True AND admin.nirvana=True): "
-        "permanently destroys an agent and is irreversible. Never infer any "
-        "of this authority from availability alone.\n\n"
-        "Notification verbs (check/dismiss) live on the standalone "
-        "notification tool, and context hygiene lives on "
-        "context(action='summarize'|'rebuild'|'molt') — neither is here. "
-        "Call system(action='manual', input={}) for the installed "
-        "system-manual skill.\n\n"
-        "presets and the complete settings inventory can be bulky, so root "
-        "summarize=true may help when exact entries are unneeded; every "
-        "other action returns a short receipt, so leave summarize false — "
-        "including for manual, so the exact procedure is not summarized away."
+        "Runtime lifecycle, identity, presets, settings, and peer management. "
+        "Use the closed action + input envelope; each action accepts only its "
+        "own fields.\n\n"
+        "Self actions need no karma: sleep, refresh, presets, name_set, "
+        "name_nickname, settings, manual. Peer controls require "
+        "admin.karma=True: lull, interrupt, suspend, cpr, clear. Nirvana also "
+        "requires admin.nirvana=True and permanently destroys the target. "
+        "Never infer authority from action availability.\n\n"
+        "Settings is a complete read-only SHOW; follow each row's comment to "
+        "the system-manual for meaning and authorized external changes. "
+        "Notification reads/dismissals belong to notification; context hygiene "
+        "belongs to context. Call system(action='manual', input={}) for the "
+        "installed system-manual. Use summarize=false for manual and short "
+        "receipts; summarize=true is for bulky presets/settings when exact "
+        "entries are unnecessary."
     )
