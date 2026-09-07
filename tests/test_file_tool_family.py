@@ -375,6 +375,22 @@ def test_read_manual_is_a_nested_reference_not_an_action():
     assert "read-manual" in body, "file-manual must point at the nested read reference"
 
 
+def test_file_disclosure_router_keeps_first_call_guard_and_exact_read_route():
+    """The concise entry still teaches safe defaults and names the deep owner."""
+    description = get_description()
+    for required in (
+        "file_path", "offset", "limit", "max_chars", "100 000", "2000",
+        "truncated", "next_offset", "remaining_lines_estimate", "line_truncated",
+        "UTF-8", "text-only", "context(action='rebuild'", "file-manual",
+    ):
+        assert required in description
+
+    manual = Path("src/lingtai/tools/file/manual/SKILL.md").read_text(encoding="utf-8")
+    assert "[read-manual](../../../intrinsic_skills/read-manual/SKILL.md)" in manual
+    assert "A JSON `null` optional value means" in manual
+    assert "Neither action reloads or changes the current system" in manual
+
+
 # ---------------------------------------------------------------------------
 # Failure modes: unknown action, cross-action input, per-action errors
 # ---------------------------------------------------------------------------

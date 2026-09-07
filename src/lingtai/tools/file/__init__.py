@@ -37,19 +37,19 @@ _READ_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "file_path": {
             "type": "string",
-            "description": "Absolute path to the file to read; a relative path resolves under the agent working directory.",
+            "description": "Absolute or workdir-relative path.",
         },
         "offset": {
             "type": ["integer", "null"],
-            "description": "Line number to start from (1-based), or null for the default 1.",
+            "description": "1-based line; null=1.",
         },
         "limit": {
             "type": ["integer", "null"],
-            "description": "Max lines to read, or null for the default 2000.",
+            "description": "Lines; null=2000.",
         },
         "max_chars": {
             "type": ["integer", "null"],
-            "description": "Per-call character budget for read content, or null for the default 100 000. Values above the non-configurable runtime hard cap are clamped to 200 000.",
+            "description": "Chars/call; null=100 000; max=200 000.",
         },
     },
     "required": ["file_path", "offset", "limit", "max_chars"],
@@ -61,9 +61,9 @@ _WRITE_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "file_path": {
             "type": "string",
-            "description": "Absolute path to the file to write; parent directories are created automatically.",
+            "description": "Absolute or workdir-relative path.",
         },
-        "content": {"type": "string", "description": "Full content to write."},
+        "content": {"type": "string", "description": "Full UTF-8 text."},
     },
     "required": ["file_path", "content"],
     "additionalProperties": False,
@@ -72,12 +72,12 @@ _WRITE_INPUT_SCHEMA: dict[str, Any] = {
 _EDIT_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "file_path": {"type": "string", "description": "Absolute path to the file to edit."},
-        "old_string": {"type": "string", "description": "The exact text to find and replace."},
-        "new_string": {"type": "string", "description": "The replacement text."},
+        "file_path": {"type": "string", "description": "Absolute or workdir-relative path."},
+        "old_string": {"type": "string", "description": "Exact UTF-8 text."},
+        "new_string": {"type": "string", "description": "Replacement UTF-8 text."},
         "replace_all": {
             "type": ["boolean", "null"],
-            "description": "Replace all occurrences, or null for the default false.",
+            "description": "All matches; null=false.",
         },
     },
     "required": ["file_path", "old_string", "new_string", "replace_all"],
@@ -87,18 +87,18 @@ _EDIT_INPUT_SCHEMA: dict[str, Any] = {
 _GREP_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "pattern": {"type": "string", "description": "Regex pattern to search for."},
+        "pattern": {"type": "string", "description": "Regex."},
         "path": {
             "type": ["string", "null"],
-            "description": "File or directory to search in, or null for the agent working directory.",
+            "description": "File/dir; null=workdir.",
         },
         "glob": {
             "type": ["string", "null"],
-            "description": "File glob filter (e.g. '*.py'), or null for the default '*' (no filter).",
+            "description": "Filter; null/*=none.",
         },
         "max_matches": {
             "type": ["integer", "null"],
-            "description": "Maximum matches to return, or null for the default 200.",
+            "description": "Matches; null=200.",
         },
     },
     "required": ["pattern", "path", "glob", "max_matches"],
@@ -108,10 +108,13 @@ _GREP_INPUT_SCHEMA: dict[str, Any] = {
 _GLOB_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "pattern": {"type": "string", "description": "Glob pattern (e.g. '**/*.py'); use '**/' for recursive search."},
+        "pattern": {
+            "type": "string",
+            "description": "Glob pattern (for example '**/*.py'); use '**/' recursively.",
+        },
         "path": {
             "type": ["string", "null"],
-            "description": "Directory to search in, or null for the agent working directory.",
+            "description": "Directory; null=workdir.",
         },
     },
     "required": ["pattern", "path"],
@@ -236,31 +239,26 @@ def _build_family(host: "ToolPluginHost | None") -> ToolFamily:
 
 def get_description(lang: str = "en") -> str:
     return (
-        "Unified file capability over one working tree. Use "
-        "file(action='read', input={'file_path': '/abs/path', 'offset': "
-        "null, 'limit': null, 'max_chars': null}) to read numbered lines of "
-        "a text file; a successful read can still be truncated, so check "
-        "truncated, next_offset, remaining_lines_estimate, and "
-        "line_truncated and continue from next_offset until done. Use "
-        "file(action='write', ...) to create or "
-        "overwrite a whole file and file(action='edit', ...) for an exact "
-        "string replacement in an existing file — both mutate the working "
-        "tree and return a receipt, but neither reloads the current system "
-        "prompt; after changing a durable prompt source, call "
-        "context(action='rebuild', input={}, ...) only when it must take "
-        "effect now. Use file(action='glob', ...) to find files by pattern "
-        "and file(action='grep', ...) to search file contents by regex. "
-        "Text files only — this tool cannot read binary, images, or audio. "
-        "Use file(action='settings', input={}) to show the exact "
-        "read/search limits and UTF-8 policy; source, precedence, and "
-        "change procedures live only in file-manual. Use "
-        "file(action='manual', input={}) once for the installed "
-        "file-manual — read it before non-UTF-8 files or a careful "
-        "search/edit workflow; it also routes to read-manual for "
-        "pagination depth and a bash/Python metadata workflow for content "
-        "that cannot page cleanly. After the manual result continue the "
-        "original operation instead of repeating manual, because repeated "
-        "identical manual calls are an error loop."
+        "One text-only file capability over the agent working directory. "
+        "Choose file(action='read', input={'file_path': '/abs/path', "
+        "'offset': null, 'limit': null, 'max_chars': null}) for numbered UTF-8 "
+        "lines; null uses defaults (offset 1, limit 2000, max_chars 100 000), "
+        "and a capped result has truncated/next_offset/remaining_lines_estimate "
+        "metadata (a single long line may set line_truncated). Continue from "
+        "next_offset; see "
+        "read-manual for depth. Choose file(action='write', ...) to create or "
+        "overwrite text, or file(action='edit', ...) for exact replacement; "
+        "both mutate the durable tree and return receipts, but never reload or "
+        "hot-load the current system prompt (use context(action='rebuild', input={}, ...) only "
+        "when an explicit prompt activation is needed). Choose "
+        "file(action='glob', ...) for names and file(action='grep', ...) for "
+        "regex content. Choose file(action='settings', input={}) for the "
+        "read-only policy inventory, or file(action='manual', input={}) once "
+        "for file-manual, which routes non-UTF-8/search-edit workflows and "
+        "the exact read-manual pagination guidance. After the manual result, "
+        "continue the original operation; repeating the same manual call is an "
+        "error loop. Relative paths stay under the agent working directory; "
+        "binary, image, and audio content is out of scope."
     )
 
 
