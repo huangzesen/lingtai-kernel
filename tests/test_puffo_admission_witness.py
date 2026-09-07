@@ -822,3 +822,57 @@ def test_witness_binds_over_wire_id_when_observer_namespaces(monkeypatch):
         reset_turn_tool_observer(token)
     assert [e.tool_call_id for e in obs.committed] == ["acp_zzz:c1"]
     assert obs.committed[0].binding == admission_binding("acp_zzz:c1", "R1")
+
+
+def test_witness_retries_and_does_not_emit_raw_frame_when_namespacer_raises(
+    monkeypatch,
+):
+    # A wire_tool_call_id that RAISES must be treated as non-delivery, NOT
+    # degraded to a raw-bound frame. A raw-bound frame would look delivered
+    # (notify returns True) while the receiver deterministically rejects it,
+    # permanently retiring the fact with no retry and no signal on either side
+    # — the one case worse than a visible non-delivery. Property: no committed
+    # frame is delivered, the fact is NOT recorded in ``emitted`` (so a later
+    # settle point retries), and a bounded not-delivered event is logged.
+    _neutralize_turn_meta(monkeypatch)
+    iface = ChatInterface()
+    iface.add_tool_results(
+        [ToolResultBlock(id="c1", name="puffo_tool", content=_marker("R1"))]
+    )
+
+    class _RaisingNamespacer(_Observer):
+        def wire_tool_call_id(self, tool_call_id):
+            raise RuntimeError("namespacer boom")
+
+    logs = []
+    agent = SimpleNamespace(
+        _chat=SimpleNamespace(interface=iface),
+        _puffo_admission_emitted=set(),
+        _puffo_admission_watermark=-1,
+        _llm_worker_interface_poisoned=False,
+        _log=lambda name, **fields: logs.append((name, fields)),
+    )
+    obs = _RaisingNamespacer()
+    token = bind_turn_tool_observer(obs)
+    try:
+        turn_mod.scan_and_emit_committed_facts(agent)
+        # No raw-bound frame was delivered.
+        assert obs.committed == []
+        # The fact was NOT retired — a later settle point will retry it.
+        assert "c1" not in agent._puffo_admission_emitted
+        # The failure is visible under its OWN event name — a namespacer defect
+        # is not the expected session-teardown non-delivery and must not share
+        # that code.
+        assert any(
+            name == "puffo_admission_wire_namespacer_failed" for name, _ in logs
+        )
+        assert not any(
+            name == "puffo_admission_fact_not_delivered" for name, _ in logs
+        )
+        # A second settle-point scan indeed retries (still no frame, still not
+        # retired) rather than having silently dropped the fact.
+        turn_mod.scan_and_emit_committed_facts(agent)
+        assert obs.committed == []
+        assert "c1" not in agent._puffo_admission_emitted
+    finally:
+        reset_turn_tool_observer(token)

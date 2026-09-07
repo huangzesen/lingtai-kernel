@@ -885,12 +885,41 @@ def scan_and_emit_committed_facts(agent) -> None:
             # without the mapping (non-ACP, tests) bind over the raw id.
             observer = current_turn_tool_observer()
             namespacer = getattr(observer, "wire_tool_call_id", None)
-            wire_id = block_id
             if callable(namespacer):
                 try:
                     wire_id = namespacer(block_id)
                 except Exception:
-                    wire_id = block_id
+                    # A namespacer that RAISES must not silently degrade to the
+                    # raw id: a raw-bound frame looks delivered (notify returns
+                    # True) yet the receiver deterministically rejects it, so
+                    # emitting it and retiring the fact into ``emitted`` would
+                    # lose one admission with no retry and no signal on either
+                    # side — the one case worse than a visible non-delivery.
+                    # Leave the fact un-emitted so a later settle point retries,
+                    # and do NOT send a raw-bound frame. Use a DISTINCT event
+                    # from the non-delivery one: a namespacer raising is a code
+                    # defect that reproduces every turn and needs a fix, not the
+                    # expected session-teardown non-delivery — the two demand
+                    # opposite operator responses, so they must not share a code.
+                    # Bound: this logs once per settle point within the turn that
+                    # created the entry (later turns skip it — its id is below the
+                    # next turn's watermark), so the count is bounded by the
+                    # settle-point count, not unbounded; retrying is still correct
+                    # because a transiently-broken namespacer then self-heals.
+                    try:
+                        agent._log(
+                            "puffo_admission_wire_namespacer_failed",
+                            tool_call_id=block_id,
+                        )
+                    except Exception:
+                        pass
+                    continue
+            else:
+                # Observers without the mapping (non-ACP, unit fakes) bind over
+                # the raw id. The real ACP path always has the namespacer — the
+                # wire-id derivation test reddens if it is ever absent — so this
+                # branch cannot silently reproduce the raw-id defect there.
+                wire_id = block_id
             delivered = notify_tool_results_committed(
                 ToolResultsCommittedEvent(
                     wire_id, admission_binding(wire_id, raw)
