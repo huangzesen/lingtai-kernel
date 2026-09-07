@@ -374,7 +374,23 @@ def upsert(agent, kind: str, body: dict) -> None:
     _clear_dismissal(agent, fingerprint)
     if legacy_fingerprint != fingerprint:
         _clear_dismissal(agent, legacy_fingerprint)
-    _modify(agent, lambda entries: _replace_kind(entries, kind, entry))
+
+    def _publish_unless_dismissed(entries: list) -> list:
+        # Runs inside the Store's `nudge` channel transaction — the same
+        # compare-update `dismiss_channel` uses to clear the channel — so the
+        # cheap pre-check above is repeated here, serialized with any dismissal
+        # that landed in between. This is a read-only check (the Store mutator
+        # stays pure): a still-future dismissal wins and the entries are
+        # returned unchanged, leaving its record in force.
+        now = time.time()
+        if (
+            _dismissed_until(agent, fingerprint) > now
+            or _dismissed_until(agent, legacy_fingerprint) > now
+        ):
+            return entries
+        return _replace_kind(entries, kind, entry)
+
+    _modify(agent, _publish_unless_dismissed)
 
 
 def remove(agent, kind: str) -> None:
@@ -675,9 +691,7 @@ def _save_policy_state(agent, state: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
-def _dismissed_until(agent, fingerprint: str) -> float:
-    state = _load_policy_state(agent)
-    record = (state.get("dismissed") or {}).get(fingerprint)
+def _record_until(record: object) -> float:
     if not isinstance(record, dict):
         return 0.0
     try:
@@ -686,10 +700,24 @@ def _dismissed_until(agent, fingerprint: str) -> float:
         return 0.0
 
 
+def _dismissed_until(agent, fingerprint: str) -> float:
+    state = _load_policy_state(agent)
+    return _record_until((state.get("dismissed") or {}).get(fingerprint))
+
+
 def _clear_dismissal(agent, fingerprint: str) -> None:
+    """Drop ``fingerprint``'s dismissal record only once it has expired.
+
+    A record still in force can only have been written after ``upsert``'s
+    pre-check passed (otherwise the pre-check would have returned), i.e. by a
+    dismissal that interleaved with this upsert. That dismissal wins, so the
+    record is left untouched for the in-transaction re-check to honour.
+    """
     state = _load_policy_state(agent)
     dismissed = state.get("dismissed")
     if not isinstance(dismissed, dict) or fingerprint not in dismissed:
+        return
+    if _record_until(dismissed.get(fingerprint)) > time.time():
         return
     dismissed.pop(fingerprint, None)
     _save_policy_state(agent, state)

@@ -203,9 +203,12 @@ excluded from snapshot, fingerprint, dismissal, and the heartbeat hot path.
   decide from the current payload inside compare-update; daemon event/ref removal
   tombstones only matching event keys, preserves same-run siblings, and never
   rewrites another daemon's file.
-  Force uses
-  `UNCONDITIONAL`, while non-force dismiss uses the delivered fingerprint entry
-  including explicit absence.
+  A channel owner may also consult owner-private read-only state inside that
+  mutator when the read acquires no additional lock, performs no write, and is
+  required to serialize the owner's decision with the channel commit; mutator
+  writes and Store re-entry remain forbidden. Force uses `UNCONDITIONAL`, while
+  non-force dismiss uses the delivered fingerprint entry including explicit
+  absence.
 - `.notification/.store.lock` is compatibility coordination metadata, not
   notification state or authority. POSIX scoped writers acquire it shared for one
   release while legacy writers retain their old exclusive whole-store lock; this

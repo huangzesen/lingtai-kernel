@@ -48,6 +48,37 @@ def test_global_policy_defaults_and_invalid_values(monkeypatch):
     assert len(policy.invalid_values) == 2
 
 
+def test_clear_dismissal_preserves_future_and_removes_only_expired(monkeypatch, tmp_path):
+    from lingtai.kernel import nudge as nudge_module
+
+    agent = _Agent(tmp_path)
+    clock = [1_000.0]
+    monkeypatch.setattr("lingtai.kernel.nudge.time.time", lambda: clock[0])
+    state_path = tmp_path / ".notification" / ".nudge_state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "dismissed": {
+                    "future": {"kind": "example", "until": 1_001.0},
+                    "expired": {"kind": "example", "until": 999.0},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    nudge_module._clear_dismissal(agent, "future")
+    after_future = json.loads(state_path.read_text(encoding="utf-8"))
+    assert set(after_future["dismissed"]) == {"future", "expired"}
+
+    nudge_module._clear_dismissal(agent, "expired")
+    after_expired = json.loads(state_path.read_text(encoding="utf-8"))
+    assert after_expired["dismissed"] == {
+        "future": {"kind": "example", "until": 1_001.0}
+    }
+
+
 def test_emitted_finding_describes_effective_global_policy(monkeypatch, tmp_path):
     agent = _Agent(tmp_path)
     monkeypatch.setenv("LINGTAI_NUDGE_ENABLED", "on")

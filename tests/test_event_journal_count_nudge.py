@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import os
+import threading
+import time
 from pathlib import Path
 
 import pytest
 
 from lingtai.kernel import nudge as nudge_mod
+from lingtai.kernel.notifications import dismiss_channel
 from lingtai.kernel.nudge import ENTRY_CHANNEL_STORAGE_SIZE
 from lingtai.kernel.nudge import event_journal_count
 from tests._notification_store_helpers import notification_store_for, snapshot_notifications
@@ -177,6 +181,98 @@ def test_unavailable_open_is_quiet_no_finding(monkeypatch, tmp_path: Path) -> No
     event_journal_count.check(agent)
 
     assert _entries(tmp_path) == []
+
+
+def test_dismissal_racing_an_already_authorized_upsert_does_not_republish_same_fingerprint(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Same-fingerprint dismissal/upsert TOCTOU race.
+
+    Nothing about the finding changes: same kind, title, detail, source and
+    ``nudge_channel``; same effective 24h policy; the persisted threshold
+    observation is untouched. A heartbeat evaluation re-upserts that unchanged
+    finding. Its upsert checks ``_dismissed_until`` (no dismissal yet), passes,
+    and is then paused at the Nudge-owned store-update seam. Meanwhile the agent
+    dismisses the visible finding through the real Notification path, which
+    records a *future* dismissal for the exact same fingerprint and clears the
+    channel. When the paused upsert resumes it must not republish the finding
+    the agent just dismissed: the channel stays empty and the future dismissal
+    record stays in force.
+    """
+    kind = "event_journal_line_count"
+    agent = _Agent(tmp_path)
+    _events_path(tmp_path)
+    monkeypatch.setattr(
+        event_journal_count,
+        "_count_newline_records",
+        lambda _: event_journal_count._THRESHOLD_RECORDS,
+    )
+    event_journal_count.check(agent)
+    (displayed,) = _entries(tmp_path)
+    assert displayed["kind"] == kind
+    assert displayed["policy"]["repeat_after_dismiss"] == "24h"
+    fingerprint = nudge_mod._finding_fingerprint(kind, displayed)
+    state_path = tmp_path / ".notification" / ".nudge_state.json"
+
+    reached_store_update = threading.Event()
+    release_store_update = threading.Event()
+    original_modify = nudge_mod._modify
+    worker_ident: list[int] = []
+    armed = [True]
+
+    def paused_modify(agent_, mutate):
+        # One-shot: pause only the worker's first (upsert) store update. Every
+        # other call — including any from the main thread — delegates at once.
+        if armed[0] and worker_ident and threading.get_ident() == worker_ident[0]:
+            armed[0] = False
+            reached_store_update.set()
+            if not release_store_update.wait(timeout=10):
+                raise RuntimeError("worker upsert was never released")
+        return original_modify(agent_, mutate)
+
+    monkeypatch.setattr(nudge_mod, "_modify", paused_modify)
+
+    worker_errors: list[BaseException] = []
+
+    def run_evaluation() -> None:
+        worker_ident.append(threading.get_ident())
+        try:
+            event_journal_count.evaluate(agent)
+        except BaseException as exc:  # propagated to the test thread below
+            worker_errors.append(exc)
+
+    worker = threading.Thread(target=run_evaluation, name="race-upsert")
+    worker.start()
+    try:
+        assert reached_store_update.wait(timeout=10), "worker upsert never reached the store seam"
+
+        # Worker has already passed its dismissal check; now the agent dismisses.
+        result = dismiss_channel(agent, "nudge", invoked_by="notification", force=True)
+        assert result["status"] == "ok"
+        assert result["cleared"] is True
+        assert _entries(tmp_path) == []
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        record = state["dismissed"][fingerprint]
+        assert record["kind"] == kind
+        assert record["until"] > time.time()
+    finally:
+        release_store_update.set()
+        worker.join(timeout=10)
+    assert not worker.is_alive()
+    if worker_errors:
+        raise worker_errors[0]
+
+    state_after = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state_after["dismissed"][fingerprint]["until"] > time.time()
+    reappeared = [
+        nudge_mod._finding_fingerprint(str(entry.get("kind") or ""), entry)
+        for entry in _entries(tmp_path)
+    ]
+    assert reappeared == [], (
+        "an already-authorized upsert republished the same fingerprint "
+        f"{fingerprint} right after the agent dismissed it with a future "
+        "repeat expiry still in force"
+    )
 
 
 def test_counter_uses_physical_newlines_without_json_interpretation(tmp_path: Path) -> None:
