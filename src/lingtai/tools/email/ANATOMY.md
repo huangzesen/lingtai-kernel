@@ -22,6 +22,10 @@ related_files:
   - src/lingtai/tools/email/glossary-zh.md
   - src/lingtai/tools/email/glossary-wen.md
   - src/lingtai/tools/email/manual/SKILL.md
+  - src/lingtai/tools/email/manual/reference/actions-and-storage/SKILL.md
+  - src/lingtai/tools/email/manual/reference/addressing-and-replies/SKILL.md
+  - src/lingtai/tools/email/manual/reference/notifications-and-delivery/SKILL.md
+  - src/lingtai/tools/email/manual/reference/settings-reference/SKILL.md
 maintenance: |
   Keep related_files as repo-relative paths to real files. Include neighboring
   ANATOMY.md files so the anatomy graph stays connected rather than isolated;

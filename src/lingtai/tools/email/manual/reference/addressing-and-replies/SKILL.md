@@ -56,12 +56,15 @@ output. Text output is a private diary, not a communication channel. If the
 original sender is unavailable and a channel pivot is unavoidable, explain that
 pivot in the message before sending elsewhere.
 
-`reply` preserves `in_reply_to` and addresses the sender. `reply_all` retains the
-original recipient set (excluding self) so CC participants are not silently
-dropped. The manager resolves a reply target in this order: embedded
-`_return_route`, an absolute `from`, then a bare peer `from`. It refuses an
-ambiguous peer route that would resolve to the responder's own workdir while the
-original identity names a different agent.
+`reply` addresses the resolved sender. `reply_all` also carries the original
+`to` and `cc` recipients except self and the primary reply target, so CC
+participants are not silently dropped. Unless explicitly overridden, both derive
+a `Re: ` subject from the original subject (or its first body line when absent).
+They do not persist an `in_reply_to` field or thread ID; continuity comes from
+recipient selection and the derived subject. The manager resolves a reply target
+in this order: embedded `_return_route`, an absolute `from`, then a bare peer
+`from`. It refuses an ambiguous peer route that would resolve to the responder's
+own workdir while the original identity names a different agent.
 
 ## Sender display and local IDs
 

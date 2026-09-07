@@ -36,7 +36,14 @@ email(action="send", input={
 
 `address` is a bare peer name (or an authorized absolute path in `abs` mode).
 `cc` is visible to recipients; `bcc` is stored in the sender's copy but hidden
-from recipients. `attachments` contains file paths. `message` is capped at
+from recipients. `attachments` contains source file paths. Each recipient
+adapter validates every path before creating that recipient's inbox entry; a
+missing or non-file path leaves no partial recipient inbox entry. Accepted files
+are copied into the message's recipient-local `attachments/` directory before
+atomic publication, and `message.json` records those snapshot paths. Duplicate
+basenames receive `-1`, `-2`, ... suffixes before the extension. Email enforces
+no attachment-size or source-root-containment limit, so callers must select only
+explicitly authorized files. This is separate from `message`, which is capped at
 50,000 Unicode characters at send time; oversize bodies are rejected with the
 limit and actual size rather than truncated.
 
@@ -85,9 +92,10 @@ sender, subject, and body and rejects invalid regexes. It does not accept
 - `dismiss` takes a list of IDs and marks handled inbox mail read without
   returning bodies. Prefer it after handling a body already in persistent
   notification context.
-- `reply` takes one ID and a message, preserves thread linkage, and addresses
-  the sender. `reply_all` keeps the original recipients except self. Both obey
-  the root manual's same-channel rule.
+- `reply` and `reply_all` take one ID and a message and route from the original
+  mail. Recipient selection, subject derivation, and the absence of persistent
+  thread metadata are owned by [Addressing and replies](../addressing-and-replies/SKILL.md#same-channel-reply-discipline).
+  Both obey the root manual's same-channel rule.
 - `archive` moves inbox IDs to `mailbox/archive`; it removes them from the read
   set as part of the move. `delete` permanently removes IDs from inbox or
   archive and refuses `sent`.

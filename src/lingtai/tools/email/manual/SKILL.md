@@ -56,11 +56,11 @@ Leave it false for receipts, contacts, settings, and `manual`.
 
 | Action | Use | Required input / critical note |
 |---|---|---|
-| `send` | Start a new internal thread | `address`, `message`; body max 50,000 characters |
+| `send` | Start new internal mail | `address`, `message`; body max 50,000 characters |
 | `check` | List mail | Optional `folder`, `n`, and structured `filter` |
 | `read` | Fetch source-of-truth mail | `email_id` list; marks inbox IDs read |
 | `dismiss` | Clear handled mail without fetching bodies | `email_id` list; marks inbox IDs read |
-| `reply` / `reply_all` | Continue a thread | `email_id` list (one ID) and `message`; use the arrival channel |
+| `reply` / `reply_all` | Answer existing mail | `email_id` list (one ID) and `message`; use the arrival channel |
 | `search` | Regex search | `query`; optional `folder` |
 | `archive` | Move inbox mail out of the inbox | `email_id` list |
 | `delete` | Permanently remove mail | `email_id` list; inbox/archive only, never `sent` |

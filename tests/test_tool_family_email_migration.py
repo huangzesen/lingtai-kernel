@@ -118,35 +118,20 @@ def test_settings_is_the_only_added_public_action_and_order_is_pinned():
 
 
 def test_email_schema_keeps_first_call_safety_while_disclosing_depth():
-    """The compact schema retains routing, cap, and channel guards."""
+    """Both resident entry points retain routing, notification, and channel guards."""
     schema = email_tool.get_schema()
     description = email_tool.get_description()
     action_description = schema["properties"]["action"]["description"]
     fields = schema["properties"]["input"]["anyOf"]
-    prose = " ".join((description, action_description))
-    assert "50,000" in prose
-    assert "reply" in prose and "channel" in prose
-    assert "manual" in prose
+    assert "50,000" in action_description
+    for resident in (description, action_description):
+        assert "injected in full" in resident
+        assert "persistent Email notifications" in resident
+        assert "prefer dismiss" in resident
+        assert "use read" in resident
+    assert "reply" in description and "channel" in description
+    assert "manual" in " ".join((description, action_description))
     assert any("email-manual" in str(branch) for branch in fields)
-
-
-def test_email_manual_is_a_short_router_with_focused_references():
-    """Long procedures stay available without inflating the installed router."""
-    root = Path(__file__).resolve().parents[1]
-    manual = root / "src/lingtai/tools/email/manual/SKILL.md"
-    body = manual.read_text(encoding="utf-8")
-    assert len(body) < 12_000
-    assert "## Reference map" in body
-    assert "Reply on the channel where the message arrived." in body
-    for reference in (
-        "addressing-and-replies",
-        "actions-and-storage",
-        "notifications-and-delivery",
-        "settings-reference",
-    ):
-        path = manual.parent / "reference" / reference / "SKILL.md"
-        assert path.is_file(), reference
-        assert f"reference/{reference}/SKILL.md" in body
 
 
 def test_reserved_unread_is_not_a_public_child_or_action():

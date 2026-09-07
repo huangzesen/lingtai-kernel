@@ -15,6 +15,10 @@ related_files:
   - src/lingtai/tools/email/ANATOMY.md
   - src/lingtai/tools/email/BEHAVIORS.md
   - src/lingtai/tools/email/manual/SKILL.md
+  - src/lingtai/tools/email/manual/reference/actions-and-storage/SKILL.md
+  - src/lingtai/tools/email/manual/reference/addressing-and-replies/SKILL.md
+  - src/lingtai/tools/email/manual/reference/notifications-and-delivery/SKILL.md
+  - src/lingtai/tools/email/manual/reference/settings-reference/SKILL.md
   - src/lingtai/kernel/tool_plugin/CONTRACT.md
   - src/lingtai/tools/CONTRACT.md
   - src/lingtai/tools/tool_family/CONTRACT.md

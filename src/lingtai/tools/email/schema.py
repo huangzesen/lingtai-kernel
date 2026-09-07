@@ -22,7 +22,9 @@ def get_description(lang: str = "en") -> str:
             "with only the selected action's fields in input. Cross-action fields are rejected "
             "before mailbox I/O. Reply on the channel the message arrived on (prefer reply or "
             "reply_all); never reply in text output. Address senders by sender_nickname, else "
-            "sender_name. Call email(action='manual', input={}) for the email-manual router.")
+            "sender_name. Unread bodies are injected in full into persistent Email notifications; "
+            "prefer dismiss after handling and use read for source records or attachments. Call "
+            "email(action='manual', input={}) for the email-manual router.")
 
 
 def get_schema(lang: str = "en") -> dict:
@@ -40,10 +42,13 @@ def get_schema(lang: str = "en") -> dict:
                 "description": ("Choose one action; put only its fields in input. send: new internal "
                                 "message (address/message required; body max 50,000 characters). "
                                 "check: list/filter mail. read: fetch IDs and mark read; dismiss: "
-                                "mark handled IDs read without returning bodies. reply/reply_all: "
-                                "reply in-thread. search: regex lookup. archive/delete: move or "
-                                "remove inbox/archive mail. contacts actions manage the address book. "
-                                "settings is read-only. manual returns this manual without mailbox I/O."),
+                                "mark handled IDs read without returning bodies. Unread bodies are "
+                                "injected in full into persistent Email notifications: prefer dismiss "
+                                "after handling; use read for source records or attachments. "
+                                "reply/reply_all: answer existing mail. search: regex lookup. "
+                                "archive/delete: move or remove inbox/archive mail. contacts actions "
+                                "manage the address book. settings is read-only. manual returns this "
+                                "manual without mailbox I/O."),
             },
             "address": {
                 "oneOf": [

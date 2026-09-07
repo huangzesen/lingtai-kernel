@@ -383,8 +383,10 @@ ACTION_ENUM_DESCRIPTION = (
     "Choose one action; put only that action's fields in input. send: new internal "
     "message (address and message required; body max 50,000 characters). check: "
     "list/filter mail. read: fetch mailbox IDs and mark them read; dismiss: mark "
-    "handled IDs read without returning bodies. reply/reply_all: reply in-thread "
-    "on the arrival channel. search: regex lookup. archive/delete: move or remove "
+    "handled IDs read without returning bodies. Unread bodies are injected in full "
+    "into persistent Email notifications: prefer dismiss after handling; use read "
+    "for source records or attachments. reply/reply_all: answer existing mail on "
+    "the arrival channel. search: regex lookup. archive/delete: move or remove "
     "inbox/archive mail. contacts actions manage the address book. settings is "
     "read-only. manual returns this manual without mailbox I/O."
 )
