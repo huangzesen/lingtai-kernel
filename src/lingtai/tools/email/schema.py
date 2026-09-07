@@ -17,7 +17,14 @@ from .primitives import mode_field
 
 
 def get_description(lang: str = "en") -> str:
-    return "LingTai email protocol within your .lingtai/ network — NOT real internet email (for Gmail/Outlook use the imap tool). Addresses are bare paths under .lingtai/ with no @ signs (e.g. human for the operator). Every call takes action + input + reasoning; input is the strict argument object for the selected action, so each action's own fields live there (email_id for read/dismiss/reply, query for search, filter/n for check, address/message for send) and a field from another action is refused at dispatch. Reply discipline: always reply on the channel the message arrived on; prefer reply over send. Never reply via text output — that is your private diary, not a comms channel. Always address people by sender_nickname if set, else sender_name. Call email(action='manual', input={}) to return the installed email-manual skill."
+    return ("Internal .lingtai mailbox only — not internet email (use the imap tool for Gmail/Outlook). "
+            "Use bare agent/path addresses; the closed envelope is action + input + reasoning, "
+            "with only the selected action's fields in input. Cross-action fields are rejected "
+            "before mailbox I/O. Reply on the channel the message arrived on (prefer reply or "
+            "reply_all); never reply in text output. Address senders by sender_nickname, else "
+            "sender_name. Unread bodies are injected in full into persistent Email notifications; "
+            "prefer dismiss after handling and use read for source records or attachments. Call "
+            "email(action='manual', input={}) for the email-manual router.")
 
 
 def get_schema(lang: str = "en") -> dict:
@@ -32,109 +39,118 @@ def get_schema(lang: str = "en") -> dict:
                     "contacts", "add_contact", "remove_contact", "edit_contact",
                     "manual",
                 ],
-                "description": 'send: send with optional cc/bcc (requires address, message; message body max 50,000 chars because unread bodies are injected in full into persistent notifications). check: list mailbox with preview of each email (up to 500 chars). read: fetch inbox emails by ID list (email_id=[id1, id2, ...]) AND marks each as read; ordinary unread content is already injected in notification_persistent.email, so prefer dismiss when you only need to clear handled mail. dismiss: same read-state effect as read but returns no bodies — preferred after handling content visible in persistent notification. reply: reply to email (requires email_id, message). reply_all: reply to all recipients. search: regex search mailbox. archive/delete: move/remove from inbox or archive. contacts/add_contact/remove_contact/edit_contact manage contacts. manual returns the installed email-manual skill without reading or changing mailbox state.',
+                "description": ("Choose one action; put only its fields in input. send: new internal "
+                                "message (address/message required; body max 50,000 characters). "
+                                "check: list/filter mail. read: fetch IDs and mark read; dismiss: "
+                                "mark handled IDs read without returning bodies. Unread bodies are "
+                                "injected in full into persistent Email notifications: prefer dismiss "
+                                "after handling; use read for source records or attachments. "
+                                "reply/reply_all: answer existing mail. search: regex lookup. "
+                                "archive/delete: move or remove inbox/archive mail. contacts actions "
+                                "manage the address book. settings is read-only. manual returns this "
+                                "manual without mailbox I/O."),
             },
             "address": {
                 "oneOf": [
                     {"type": "string"},
                     {"type": "array", "items": {"type": "string"}},
                 ],
-                "description": 'Target address(es) for send',
+                "description": 'Bare name/path for send; string or list.',
             },
             "cc": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": 'CC addresses — visible to all recipients',
+                "description": 'Visible CC addresses.',
             },
             "bcc": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": 'BCC addresses — hidden from other recipients',
+                "description": 'Hidden BCC addresses.',
             },
             "attachments": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": 'File paths to attach (for send)',
+                "description": 'Attachment paths for send.',
             },
-            "subject": {"type": "string", "description": 'Email subject line'},
-            "message": {"type": "string", "description": 'Email body (max 50,000 chars; longer internal emails are rejected because unread bodies are injected in full into persistent notifications).'},
+            "subject": {"type": "string", "description": 'Subject.'},
+            "message": {"type": "string", "description": 'Body; max 50,000 characters.'},
             "email_id": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": 'List of email IDs for read. For reply/reply_all, pass a single-element list.',
+                "description": 'Own mailbox ID list; replies use one ID.',
             },
             "n": {
                 "type": "integer",
-                "description": 'Max recent emails to show (for check, default 10)',
+                "description": 'Max messages for check; default 10.',
                 "default": 10,
             },
             "query": {
                 "type": "string",
-                "description": 'Regex pattern for search (matches from, subject, message)',
+                "description": 'Regex query over sender, subject, and body.',
             },
             "folder": {
                 "type": "string",
                 "enum": ["inbox", "sent", "archive"],
-                "description": "Folder for check/search/read/delete. Default: inbox for check, both for search. Note: 'sent' is read-only — delete only works on inbox or archive.",
+                "description": "Folder; check inbox/search both; sent is read-only.",
             },
             "delay": {
                 "type": "integer",
-                "description": 'Delay in seconds before delivery (default: 0). Use for scheduled or deferred sends.',
+                "description": 'Delivery delay in seconds; default 0.',
             },
             "mode": mode_field(lang),
             "type": {
                 "type": "string",
                 "enum": ["normal"],
-                "description": "Email type (for send). Defaults to 'normal'.",
+                "description": 'Send type; default normal.',
             },
             "name": {
                 "type": "string",
-                "description": "Contact's human-readable name (for add_contact, edit_contact)",
+                "description": "Contact name.",
             },
             "note": {
                 "type": "string",
-                "description": 'Free-text note about the contact (for add_contact, edit_contact)',
+                "description": "Contact note.",
             },
             "filter": {
                 "type": "object",
-                "description": 'Optional filter object for check. Pass filter={sort, from, subject, contains, after, before, unread_only, has_attachments, truncate} to narrow and control results.',
+                "description": "Optional check filters; see email-manual for fields and defaults.",
                 "properties": {
                     "sort": {
                         "type": "string",
                         "enum": ["newest", "oldest"],
-                        "description": "'newest' (default) or 'oldest'.",
+                        "description": "Sort newest (default) or oldest.",
                     },
                     "from": {
                         "type": "string",
-                        "description": 'Filter by sender (case-insensitive substring match).',
+                        "description": "Case-insensitive sender substring.",
                     },
                     "subject": {
                         "type": "string",
-                        "description": 'Filter by subject (case-insensitive substring match).',
+                        "description": "Case-insensitive subject substring.",
                     },
                     "contains": {
                         "type": "string",
-                        "description": 'Filter by message body content (case-insensitive substring match).',
+                        "description": "Case-insensitive body substring.",
                     },
                     "after": {
                         "type": "string",
-                        "description": 'Only show emails after this ISO 8601 timestamp (e.g. 2026-04-01T00:00:00Z).',
+                        "description": "Only messages after an ISO 8601 timestamp.",
                     },
                     "before": {
                         "type": "string",
-                        "description": 'Only show emails before this ISO 8601 timestamp.',
+                        "description": "Only messages before an ISO 8601 timestamp.",
                     },
                     "unread_only": {
                         "type": "boolean",
-                        "description": 'Only show unread emails.',
+                        "description": "Only unread messages.",
                     },
                     "has_attachments": {
                         "type": "boolean",
-                        "description": 'Only show emails that have attachments.',
+                        "description": "Only messages with attachments.",
                     },
                     "truncate": {
                         "type": "integer",
-                        "description": 'Max characters for message preview (default 500). Set to 0 for full message body.',
+                        "description": "Preview characters; default 500, 0 means full body.",
                         "default": 500,
                     },
                 },

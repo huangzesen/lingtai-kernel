@@ -27,7 +27,7 @@ def mode_field(lang: str = "en") -> dict:
     return {
         "type": "string",
         "enum": ["peer", "abs"],
-        "description": "Address mode for send. Almost always leave this unset — the default 'peer' is correct for every agent in your own .lingtai/ network. peer (default): treat 'address' as a bare agent name (working-directory basename) of someone in your network — the human, fellow agents, your own avatars, anyone listed in your brief or who has mailed you; the system resolves the name against your network folder (the parent of your own working directory). abs: treat 'address' as a literal absolute filesystem path to another agent's working directory in a different, explicitly authorized .lingtai/ network on the same machine (cross-project messaging, bridge agents), e.g. /Users/alice/projectB/.lingtai/外援. Both modes require the same fresh-heartbeat/valid-.agent.json handshake — abs does not bypass it. See email-manual.",
+        "description": "Address mode for send; usually omit it. peer (default) resolves a bare name in your own .lingtai/ network. abs accepts a literal absolute workdir only for an explicitly authorized cross-network recipient. Both require valid .agent.json and a fresh heartbeat; abs does not bypass delivery checks. See email-manual.",
     }
 
 

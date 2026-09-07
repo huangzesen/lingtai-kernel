@@ -117,6 +117,23 @@ def test_settings_is_the_only_added_public_action_and_order_is_pinned():
     assert list(email_tool.DECLARATION.public_actions) == _PUBLIC_ACTIONS
 
 
+def test_email_schema_keeps_first_call_safety_while_disclosing_depth():
+    """Both resident entry points retain routing, notification, and channel guards."""
+    schema = email_tool.get_schema()
+    description = email_tool.get_description()
+    action_description = schema["properties"]["action"]["description"]
+    fields = schema["properties"]["input"]["anyOf"]
+    assert "50,000" in action_description
+    for resident in (description, action_description):
+        assert "injected in full" in resident
+        assert "persistent Email notifications" in resident
+        assert "prefer dismiss" in resident
+        assert "use read" in resident
+    assert "reply" in description and "channel" in description
+    assert "manual" in " ".join((description, action_description))
+    assert any("email-manual" in str(branch) for branch in fields)
+
+
 def test_reserved_unread_is_not_a_public_child_or_action():
     schema = email_tool.get_schema()
     assert "unread" not in schema["properties"]["action"]["enum"]
