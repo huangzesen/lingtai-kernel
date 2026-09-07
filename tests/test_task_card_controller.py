@@ -135,26 +135,57 @@ def test_description_routes_to_manual_and_file_contract():
 
 
 def test_description_manual_and_contract_encourage_proactive_use():
-    """The schema, manual, and Contract Behavior all teach when to (not) use it."""
+    """The schema, short router, and Contract Behavior all teach when to (not) use it."""
     use_fragments = ["long-running", "multi-step", "parallel"]
-    skip_fragments = ["single-step", "ritual", "truthful"]
+    schema_safety_fragments = ["ritual", "truthful"]
+    manual_safety_fragments = ["single-step", "ritual", "truthful"]
 
     desc = get_description()
-    for fragment in use_fragments + skip_fragments:
+    for fragment in use_fragments + schema_safety_fragments:
         assert fragment in desc, f"{fragment!r} missing from get_description()"
 
     root = Path(__file__).resolve().parents[1]
     manual_body = (root / "src/lingtai/tools/task_card/manual/SKILL.md").read_text(
         encoding="utf-8"
     )
-    for fragment in use_fragments + skip_fragments:
+    for fragment in use_fragments + manual_safety_fragments:
         assert fragment in manual_body, f"{fragment!r} missing from manual/SKILL.md"
 
     contract_body = (root / "src/lingtai/tools/task_card/CONTRACT.md").read_text(
         encoding="utf-8"
     )
-    for fragment in use_fragments + skip_fragments:
+    for fragment in use_fragments + manual_safety_fragments:
         assert fragment in contract_body, f"{fragment!r} missing from CONTRACT.md"
+
+
+def test_manual_routes_focused_references_and_keeps_first_call_guard():
+    root = Path(__file__).resolve().parents[1]
+    manual_path = root / "src/lingtai/tools/task_card/manual/SKILL.md"
+    manual = manual_path.read_text(encoding="utf-8")
+    for relative in (
+        "reference/lifecycle.md",
+        "reference/settings.md",
+        "reference/notifications.md",
+    ):
+        reference = manual_path.parent / relative
+        assert reference.is_file(), relative
+        assert f"]({relative})" in manual, f"manual does not route to {relative}"
+        assert reference.read_text(encoding="utf-8").startswith("---")
+
+    description = get_description().lower()
+    for fragment in (
+        "renderer",
+        "working directory",
+        "non-empty stdout",
+        "taskcard/taskcard.md",
+        "taskcard/status",
+        "one watch",
+        "stop",
+        "remove",
+    ):
+        assert fragment in description, fragment
+    start_input = get_schema()["properties"]["input"]["anyOf"][0]
+    assert "renderer_path" in start_input["required"]
 
 
 def test_start_writes_body_before_active_and_reports_exact_paths(agent, manager, monkeypatch):
