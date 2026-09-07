@@ -33,9 +33,12 @@ from .resources import resource_text
 log = logging.getLogger("lingtai.mcp_servers.whatsapp")
 
 _SERVER_INSTRUCTIONS = (
-    "lingtai-whatsapp: personal-account WhatsApp client via a local whatsapp-web.js "
-    "bridge. Configure via LINGTAI_WHATSAPP_CONFIG. Pair by scanning the QR code "
-    "returned by the get_qr action (phone: WhatsApp Settings -> Linked Devices)."
+    "lingtai-whatsapp: one personal-account WhatsApp Web session via a local, "
+    "unofficial whatsapp-web.js bridge (not the Meta Cloud API). Configure via "
+    "LINGTAI_WHATSAPP_CONFIG and pair with the QR returned by get_qr (phone: "
+    "WhatsApp Settings -> Linked Devices). send/reply/react are real external "
+    "side effects; verify targets and call action='manual' for detailed safety, "
+    "media, settings, and lifecycle guidance."
 )
 
 _PROFILE_MIME = "application/json"

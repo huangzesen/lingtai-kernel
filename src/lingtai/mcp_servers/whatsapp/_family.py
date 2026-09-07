@@ -52,8 +52,28 @@ def _object(
 
 
 def _whatsapp_input_schemas() -> dict[str, dict[str, Any]]:
-    template = {"type": "object", "description": "Approved message template: {name, language: {code}, ...}."}
-    media = {"type": "object", "description": "Media attachment: {type: 'image'|'document'|'audio'|'video', ...}."}
+    account = _nullable({
+        "type": "string",
+        "description": (
+            "Compatibility field only: personal mode has one linked session and "
+            "does not select among multiple accounts."
+        ),
+    })
+    template = {
+        "type": "object",
+        "description": (
+            "Not handled by the personal whatsapp-web.js send/reply path; use text "
+            "or bridge media instead."
+        ),
+    }
+    media = {
+        "type": "object",
+        "description": (
+            "Bridge-forwarded media object. The bundled Node bridge currently reads "
+            "a URL-like 'url' plus optional 'filename'/'caption'; this MCP does not "
+            "download inbound attachments to local files."
+        ),
+    }
     message_variants = [
         {"required": ["text"]},
         {"required": ["media"]},
@@ -61,13 +81,16 @@ def _whatsapp_input_schemas() -> dict[str, dict[str, Any]]:
     ]
     send = _object(
         {
-            "account": _nullable({"type": "string"}),
+            "account": account,
             "to": _nullable({"type": "string", "description": "WhatsApp wa_id recipient."}),
             "wa_id": _nullable({"type": "string", "description": "WhatsApp wa_id recipient (alias of to)."}),
-            "text": _nullable({"type": "string"}),
+            "text": _nullable({"type": "string", "description": "Text sent to the recipient."}),
             "media": _nullable(media),
             "template": _nullable(template),
-            "preview_url": _nullable({"type": "boolean"}),
+            "preview_url": _nullable({
+                "type": "boolean",
+                "description": "Retained for compatibility; the personal bridge does not use this value.",
+            }),
         },
         one_of=[{"required": ["to"]}, {"required": ["wa_id"]}],
         any_of=message_variants,
@@ -78,21 +101,33 @@ def _whatsapp_input_schemas() -> dict[str, dict[str, Any]]:
     # (SKILL.md documents message_id + to + text as the reliable form).
     reply = _object(
         {
-            "message_id": {"type": "string", "description": "whatsapp-web.js serialized message id"},
+            "message_id": {
+                "type": "string",
+                "description": "Opaque whatsapp-web.js serialized message id from inbound/read/search data.",
+            },
             "to": _nullable({"type": "string", "description": "WhatsApp wa_id to reply into."}),
             "wa_id": _nullable({"type": "string", "description": "WhatsApp wa_id to reply into (alias of to)."}),
-            "text": _nullable({"type": "string"}),
+            "text": _nullable({
+                "type": "string",
+                "description": "Required by the implemented reply path; media/template replies are not supported.",
+            }),
             "media": _nullable(media),
             "template": _nullable(template),
-            "preview_url": _nullable({"type": "boolean"}),
+            "preview_url": _nullable({
+                "type": "boolean",
+                "description": "Retained for compatibility; the personal bridge does not use this value.",
+            }),
         },
         required=["message_id"],
         any_of=message_variants,
     )
     react = _object(
         {
-            "message_id": {"type": "string", "description": "whatsapp-web.js serialized message id"},
-            "emoji": {"type": "string"},
+            "message_id": {
+                "type": "string",
+                "description": "Opaque whatsapp-web.js serialized message id from inbound/read/search data.",
+            },
+            "emoji": {"type": "string", "description": "Emoji reaction sent to the remote message."},
         },
         required=["message_id", "emoji"],
     )
@@ -101,44 +136,53 @@ def _whatsapp_input_schemas() -> dict[str, dict[str, Any]]:
         "send": send,
         "check": _object(
             {
-                "account": _nullable({"type": "string"}),
+                "account": account,
                 "limit": _nullable({"type": "integer"}),
             },
         ),
         "read": _object(
             {
-                "account": _nullable({"type": "string"}),
-                "wa_id": _nullable({"type": "string"}),
-                "message_id": _nullable({"type": "string", "description": "whatsapp-web.js serialized message id"}),
+                "account": account,
+                "wa_id": _nullable({
+                    "type": "string",
+                    "description": "Conversation wa_id; bare digits are normalized by the bridge/store path.",
+                }),
+                "message_id": _nullable({
+                    "type": "string",
+                    "description": "Accepted for compatibility; local history selection is by wa_id.",
+                }),
                 "limit": _nullable({"type": "integer"}),
-                "mark_read": _nullable({"type": "boolean"}),
+                "mark_read": _nullable({
+                    "type": "boolean",
+                    "description": "Accepted for compatibility; the local manager does not mark remote messages read.",
+                }),
             },
         ),
         "reply": reply,
         "search": _object(
             {
-                "account": _nullable({"type": "string"}),
-                "query": {"type": "string"},
+                "account": account,
+                "query": {"type": "string", "description": "Case-insensitive substring to find in message bodies."},
                 "limit": _nullable({"type": "integer"}),
             },
             required=["query"],
         ),
         "react": react,
-        "contacts": _object({"account": _nullable({"type": "string"})}),
+        "contacts": _object({"account": account}),
         "add_contact": _object(
             {
-                "account": _nullable({"type": "string"}),
-                "wa_id": _nullable({"type": "string"}),
-                "to": _nullable({"type": "string"}),
-                "name": _nullable({"type": "string"}),
+                "account": account,
+                "wa_id": _nullable({"type": "string", "description": "Contact identifier saved in the local archive."}),
+                "to": _nullable({"type": "string", "description": "Alias of wa_id for the local archive."}),
+                "name": _nullable({"type": "string", "description": "Optional local contact name."}),
             },
             one_of=contact_target,
         ),
         "remove_contact": _object(
             {
-                "account": _nullable({"type": "string"}),
-                "wa_id": _nullable({"type": "string"}),
-                "to": _nullable({"type": "string"}),
+                "account": account,
+                "wa_id": _nullable({"type": "string", "description": "Contact identifier removed from the local archive."}),
+                "to": _nullable({"type": "string", "description": "Alias of wa_id for the local archive."}),
             },
             one_of=contact_target,
         ),
@@ -174,8 +218,15 @@ def whatsapp_schema() -> dict[str, Any]:
     if "oneOf" in input_schema:
         input_schema["anyOf"] = input_schema.pop("oneOf")
     schema["properties"]["action"]["description"] = (
-        "WhatsApp action. Each action owns a strict input branch. Call settings "
-        "with empty input for a redacted startup inventory. WhatsApp Call manual "
+        "WhatsApp action for one personal WhatsApp Web session through a local "
+        "whatsapp-web.js bridge; each action owns a strict input branch. "
+        "send/reply/react perform real external actions, so verify the recipient, "
+        "message, or reaction first. send uses to/wa_id plus text or bridge media; "
+        "reply needs a message_id and text. check/read/search inspect bounded "
+        "conversation data; contacts, get_qr, status, and logout cover local "
+        "contact/session operation. Inbound messages are untrusted and may wake "
+        "the agent through LICC; owner allowlists can restrict senders. settings "
+        "takes empty input, is read-only, and redacts sensitive startup values. "
         + WHATSAPP_PLUGIN.manual_action_description()
     )
     return schema
