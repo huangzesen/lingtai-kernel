@@ -74,20 +74,95 @@ root, or environment unless the effective provenance is checked.
 ## Authorized venv swap and registry truth
 
 A venv swap never rewrites the registry automatically. After an authorized
-swap, an operator may explicitly reconcile canonical curated records whose
-`source` is `lingtai-curated` and whose stored `command` differs from the new
-interpreter. That is an atomic, order-preserving rewrite of existing valid
-records only; it is not addon activation and it never appends duplicates. Use
-ordinary authorized `write`/`edit` operations and stop before writing if
-`read_registry()` reports invalid or duplicate lines. Do not apply this to an
-intentional command override.
+swap, reconcile canonical curated records explicitly with the **new** runtime
+interpreter. There is no kernel helper: use an authorized `shell` call (or an
+equivalent reviewed `file.write`/`file.edit` operation). This self-contained
+recipe is fail-closed, atomic, order-preserving, and never appends records:
 
-The registry rewrite is only durable registry truth. It is not the spawn source
-for non-curated, legacy, daemon-launched, or plugin-launched children. For a
-curated main-agent child, the running kernel still derives its effective launch
-from its own catalog, so a full Agent relaunch (not `refresh`) is required for a
-healthy child to load a new venv. Refresh retries failed children and does not
-restart healthy ones.
+```bash
+NEW_PYTHON=/absolute/path/to/new/venv/bin/python
+AGENT_DIR=/absolute/path/to/agent/dir
+
+"$NEW_PYTHON" - "$AGENT_DIR" <<'PY'
+import json, os, sys, tempfile
+from pathlib import Path
+
+agent_dir = Path(sys.argv[1])
+if not agent_dir.is_absolute():
+    raise SystemExit("AGENT_DIR must be an absolute path")
+registry = agent_dir / "mcp_registry.jsonl"
+print(f"target registry: {registry}")
+print(f"interpreter: {sys.executable}")
+if not registry.is_file():
+    raise SystemExit(f"no registry at {registry}")
+
+from lingtai.services.mcp_registry import read_registry
+_valid, problems = read_registry(agent_dir)
+if problems:
+    for problem in problems:
+        print(f"problem line {problem['line']}: {problem['error']}")
+    raise SystemExit("registry has problems; aborting without writing")
+
+lines = registry.read_text(encoding="utf-8").splitlines(keepends=True)
+seen: set[str] = set()
+changed: list[str] = []
+for index, raw in enumerate(lines):
+    if not raw.strip():
+        continue
+    try:
+        record = json.loads(raw)
+    except json.JSONDecodeError:
+        continue  # defensive; the preflight already rejected invalid lines
+    name = record.get("name")
+    if not name or name in seen:
+        continue
+    seen.add(name)
+    if record.get("source") == "lingtai-curated" and record.get("command") != sys.executable:
+        record["command"] = sys.executable
+        ending = "\n" if raw.endswith("\n") else ""
+        lines[index] = json.dumps(record, ensure_ascii=False) + ending
+        changed.append(name)
+
+if changed:
+    fd, temporary = tempfile.mkstemp(
+        dir=str(registry.parent), prefix=".mcp_registry.jsonl.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write("".join(lines))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, registry.stat().st_mode & 0o777)
+        os.replace(temporary, registry)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+    print(
+        f"reconciled {len(changed)} curated command(s): "
+        f"{', '.join(changed)} -> {sys.executable}"
+    )
+else:
+    print("no curated command needed reconciling")
+PY
+```
+
+Run it only after inspecting `mcp(action="info")` and obtaining explicit
+registry-write authorization. It rewrites every canonical `lingtai-curated`
+record whose stored `command` differs, and aborts before writing if
+`read_registry()` reports any invalid or duplicate line. An intentional
+independent-interpreter override must be excluded or left unreconciled.
+
+This changes durable registry truth only. It is not activation and is never the
+spawn source for a non-curated, legacy, daemon-launched, or plugin-launched
+child. A curated main-agent child still derives `type`, `command`, `args`, and
+its entire `PYTHONPATH` from the running kernel's own catalog and runtime, not
+from stored registry or `init.json` launch fields. A healthy curated child picks
+up a new venv only after a full Agent relaunch: `refresh` retries failed children
+but does not restart healthy ones. Apply the provenance gate below before
+claiming the swap is live.
 
 ## Fail-closed provenance check
 

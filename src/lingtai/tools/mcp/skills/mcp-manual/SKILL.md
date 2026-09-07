@@ -150,14 +150,30 @@ These rows exclude the registry, identity files, legacy `mcp/servers.json`,
 curated private config/session data, Task Cards, agent identity, and live
 process state. Registry membership still gates top-level `init.mcp` activation.
 
-## Authorized changes and cleanup
+## Cleanup / Footprint
 
-For update or deregistration, edit the matching `mcp_registry.jsonl` record with
-`write`/`edit` only after authorization, then refresh. Removing a registry
-record does not stop a running process; remove its `init.json` activation too
-when deactivating. Follow the route table for the shared dry-run footprint and
-audit/apply procedure; never delete credentials or active registry state as a
-cleanup shortcut.
+MCP leaves `mcp_registry.jsonl`, optional `mcp/servers.json`, and
+`.mcp_inbox/<name>/...` event files. Curated addons may own additional stores;
+read their manual before including them. Never delete credentials, message or
+audit records, active registry/process state, or recovery evidence blindly.
+
+Load the [shared inspection recipe](../../../skills/manual/reference/cleanup-footprint-contract.md#shared-footprint-check-recipe)
+and combine it with this MCP-owned selection; the default check writes and
+deletes nothing:
+
+```python
+agent = Path.cwd()  # relevant agent directory, not a repository root
+items = [p for p in (agent / "mcp_registry.jsonl", agent / "mcp", agent / ".mcp_inbox") if p.exists()]
+rows, total = footprint_check(items, tool="mcp", top_n=None)
+```
+
+Run the check after adding/removing servers, when `.mcp_inbox` grows, and before
+sharing a project. Show the dry-run report and obtain explicit user consent
+before any archive or deletion; without consent, stop. Prefer an authorized
+registry/activation edit followed by `system(action="refresh")` over deleting
+state. Any separately selected audit/apply step records timestamp, tool, mode,
+candidate count/bytes/path summary, and approval in `logs/cleanup.jsonl`; do not
+call that audit write read-only.
 
 Runtime/venv swap and child provenance are in
 [`reference/runtime-and-identity.md`](reference/runtime-and-identity.md). Curated
