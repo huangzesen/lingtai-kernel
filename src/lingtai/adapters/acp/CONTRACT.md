@@ -196,9 +196,14 @@ argv, environment, or MCP command from the remote caller.
    `tests/test_correlated_turns.py::test_correlated_turn_binds_admission_witness_scope_on_production_path`,
    which drives the real `_run_loop` across two turns with NO hand-assembled
    scope: deleting the bind makes the in-turn scope absent (fail-silent: every
-   settle-point scan then early-returns and a real ACP turn emits zero facts)
-   and deleting the teardown leaves the scope open after the loop — either
-   reddens it. This closes the gap that the settle-point suite in
+   settle-point scan then early-returns and a real ACP turn emits zero facts),
+   deleting the teardown leaves the scope open after the loop, and hoisting the
+   bind out of the loop ("bind once per session") hands turn two turn one's
+   scope object — a per-turn re-bind probe reddens that last case. That probe
+   pins that the bind RUNS afresh each turn, not that the watermark's numeric
+   boundary is recomputed correctly; the value-level non-refire property is
+   pinned separately by `test_puffo_admission_witness.py::test_iv_two_turn_watermark_no_refire`
+   (real interface, hand-assembled scope). This closes the gap that the settle-point suite in
    `test_puffo_admission_witness.py` cannot: those tests assemble the scope by
    hand, so they stay green if the production bind regresses.
 4. `acp-local-stdio.cancel.v1` — `session/cancel` calls only the active
