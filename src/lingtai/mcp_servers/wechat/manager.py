@@ -85,20 +85,16 @@ _HISTORY_INDEX_VERSION = 1
 SCHEMA = _family.WECHAT_SCHEMA
 
 DESCRIPTION = (
-    "WeChat client — interact with WeChat users via iLink Bot API. "
-    "MCP OWNERSHIP: this MCP belongs to the orchestrator (admin). If you are "
-    "an avatar (your admin block is empty or all admin privileges are false), "
-    "do not attempt to configure or reconfigure this MCP — your orchestrator "
-    "manages it, and if the network needs this MCP to reach you the wiring "
-    "is propagated to your session automatically. "
-    "Supports text, images, voice, video, and files. "
-    "Use 'send' for outgoing messages (text and/or media_path). "
-    "'check' to see recent conversations with unread counts. "
-    "'read' to read messages from a user. "
-    "'reply' to respond to a message. "
-    "'search' to find messages by keyword or regex. "
-    "'contacts' to manage saved contacts. "
-    "'accounts' to list configured WeChat accounts."
+    "WeChat via the iLink Bot API for text and media messaging plus inbound "
+    "LICC delivery. Actions: send (user_id with text and/or media_path), check "
+    "(conversations and unread counts), read (merged inbox/sent history), "
+    "reply (message_id and text), search (regex), contacts, add_contact, "
+    "remove_contact, accounts, settings (read-only startup snapshot), and "
+    "manual (progressive-disclosure guide). send/reply reach real users: verify "
+    "the user_id and content, and do not replay a provider-accepted request. "
+    "Media can have a partial outcome. Login/configuration belongs to the "
+    "orchestrator's owner setup flow; only one poller may run per bot account. "
+    "Avatar sessions must not reconfigure this MCP."
 )
 
 

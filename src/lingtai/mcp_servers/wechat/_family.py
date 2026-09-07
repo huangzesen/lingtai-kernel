@@ -166,19 +166,16 @@ def wechat_schema() -> dict[str, Any]:
     if "oneOf" in inputs:
         inputs["anyOf"] = inputs.pop("oneOf")
     schema["properties"]["action"]["description"] = (
-        "send: send a message to a WeChat user "
-        "(user_id, text; optional media_path for file/image/voice/video). "
-        "check: list recent conversations with unread counts. "
-        "read: read messages from a user (user_id; optional limit). "
-        "reply: reply to a specific message "
-        "(message_id from read results, text). "
-        "search: search inbox messages by regex "
-        "(query; optional user_id). "
+        "send: deliver text and/or media_path to user_id. "
+        "check: list conversations and unread counts. "
+        "read: read merged inbox/sent history (user_id; optional limit). "
+        "reply: send text for a read message_id. "
+        "search: regex-search inbox messages (query; optional user_id). "
         "contacts: list saved contacts. "
         "add_contact: save a contact (user_id, alias). "
-        "remove_contact: remove a contact (alias or user_id). "
-        "accounts: list configured WeChat accounts. "
-        "settings: show the active read-only WeChat configuration inventory. "
+        "remove_contact: remove by alias or user_id. "
+        "accounts: list configured account details. "
+        "settings: show the read-only startup configuration inventory. "
         + WECHAT_PLUGIN.manual_action_description()
     )
     return schema
