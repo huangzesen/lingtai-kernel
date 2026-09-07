@@ -1,187 +1,127 @@
 ---
 name: cloud-mail-mcp-manual
 description: |
-  Progressive-disclosure usage manual for the Cloud Mail REST email MCP tool.
-  Read this when you need detail beyond the one-line action descriptions:
-  check/search filters, the compound id (account:emailId) for read, send (needs
-  user credentials), plain vs HTML bodies, accounts/add_user basics, redacted
-  owner-only settings/startup diagnosis, and external-email side-effect
-  caveats. Pulled on demand via action='manual'; you do not need to call it
-  before every send. Calls use the strict LTP-v2
-  action/input/reasoning/summarize envelope.
-version: 1.2.0
-last_changed_at: "2026-08-29T00:00:00Z"
+  Progressive-disclosure usage manual for Cloud Mail REST email actions. Read
+  it when action filters/ids, setup/authentication, polling/settings, or
+  side-effect detail is needed. Returned by action='manual'; nested references
+  are packaged but not embedded. Calls use the strict LTP-v2 envelope.
+version: 1.3.0
+last_changed_at: "2026-09-07T00:00:00Z"
 related_files:
-- src/lingtai/mcp_servers/cloud_mail/manager.py
+- src/lingtai/mcp_servers/ANATOMY.md
 - src/lingtai/mcp_servers/cloud_mail/_family.py
-- src/lingtai/mcp_servers/cloud_mail/plugin.py
-- src/lingtai/mcp_servers/cloud_mail/settings.py
-- src/lingtai/mcp_servers/cloud_mail/server.py
 - src/lingtai/mcp_servers/cloud_mail/client.py
+- src/lingtai/mcp_servers/cloud_mail/manager.py
+- src/lingtai/mcp_servers/cloud_mail/plugin.py
+- src/lingtai/mcp_servers/cloud_mail/server.py
+- src/lingtai/mcp_servers/cloud_mail/settings.py
+- src/lingtai/mcp_servers/cloud_mail/reference/actions.md
+- src/lingtai/mcp_servers/cloud_mail/reference/setup.md
+- tests/test_cloud_mail_addon.py
+- tests/test_cloud_mail_curated_mcp_plugin.py
+- tests/test_cloud_mail_toolfamily_ltpv2.py
 maintenance: |
-  Tracks the MCP server's manager/config/settings behavior; update when the
-  server's setup, redaction policy, or API surface changes.
+  Tracks the Cloud Mail MCP's resident action contract and its routed action and
+  setup references. Update this router and the nested references when the
+  manager, settings provider, launcher, or public action surface changes.
 ---
 
 # Cloud Mail MCP — usage manual (progressive disclosure)
 
-Inbound mail also arrives automatically in your inbox via per-account polling,
-so you don't have to poll `check` yourself.
+Cloud Mail is a REST client for a self-hosted Cloud Mail deployment, not IMAP or
+SMTP. Inbound mail is polled automatically and delivered to the host agent's
+inbox via LICC; you normally do not poll `check` just to receive notifications.
+This file is the model-facing router. Load only the packaged reference that
+matches the question:
 
-Setup, config file/schema, credential and auth model, and watermark state are
-owned by the `mcp-manual` skill (`reference/curated-addons.md`, §Cloud Mail
-setup). Read it before editing config; do not guess field names.
+| Need | Read |
+|---|---|
+| Action inputs/results, compound ids, filters, content, and side effects | [`reference/actions.md`](reference/actions.md) |
+| Config shape, authentication, polling/watermarks, settings, and startup diagnosis | [`reference/setup.md`](reference/setup.md) |
+
+The references are packaged sidecars and are not embedded in the `manual`
+action result. They contain operational depth without making every ordinary
+call carry it.
 
 ## HOW TO CALL IT — the envelope
 
-`cloud_mail` is a single strict LTP-v2 tool family. Every call takes a closed
-root `{action, input, reasoning, summarize?}` — `action`, `input`, and
-`reasoning` are required; `summarize` is optional and never nested under
-`input`. `input` is the strict argument object **for the selected action
-only**; a key from another action's branch is rejected before anything is
-read or sent. Actions are exactly `check`, `search`, `read`, `send`,
-`accounts`, `add_user`, `settings`, `manual`. `settings` is inserted
-immediately before `manual` by the curated-plugin opt-in contract. Do not use a
-flat/legacy shape, `_reasoning`, aliases, or a generic dispatcher.
+`cloud_mail` is one strict LTP-v2 tool family. Every call has the closed root
+`{action, input, reasoning, summarize?}`: `action`, `input`, and `reasoning` are
+required; `summarize` is optional, root-level, and never nested under `input`.
+`input` accepts only the branch for the selected action, and validation rejects
+unknown or cross-action keys before manager I/O. The actions are exactly
+`check`, `search`, `read`, `send`, `accounts`, `add_user`, `settings`, and
+`manual`; `settings` is immediately before `manual`. Do not use a flat/legacy
+shape, `_reasoning`, aliases, or a generic dispatcher.
 
 ```python
-cloud_mail(action="check", input={"limit": 10}, reasoning="check for new mail")
-cloud_mail(action="read", input={"id": "cloudmail:1234"}, reasoning="read the request")
+cloud_mail(action="check", input={"limit": 10}, reasoning="check recent mail")
+cloud_mail(action="read", input={"id": "cloudmail:1234"}, reasoning="read this mail")
 cloud_mail(action="send", input={"address": "user@example.com", "message": "done"},
            reasoning="report completion")
-cloud_mail(action="settings", input={}, reasoning="inspect effective owner settings")
+cloud_mail(action="settings", input={}, reasoning="inspect owner settings")
 ```
 
-**`summarize` guidance for this family.** `check`, `search`, and `read` are
-**bulky-result** actions — mailbox listings and full email bodies can be long,
-so `summarize=true` is reasonable when you only need the gist. Leave it false
-when you need exact email ids, addresses, or verbatim body text, because you
-will act on those literally. `send`, `accounts`, `add_user`, and `settings` are
-**short-result**: their results are small and meant to be read exactly, so
-leave `summarize` false. Call `manual` itself with `summarize=false` so
-procedure and constraints are not summarized away.
+## ACTIONS — first-call inventory
 
-## EMAIL IDS
+- **`check`** lists recent inbound mail. Optional input is `account`, `limit`,
+  `to_email`, `send_email`, `subject`, `time_sort`, and `type`.
+- **`search`** filters the public email list. Optional input is `account`,
+  `to_email`, `send_email`, `send_name`, `subject`, `content`, `time_sort`,
+  `num`, `size`, `type`, and `is_del`. Use the returned ids; filters are LIKE
+  matches.
+- **`read`** returns one full email. Use a returned compound `id` in the form
+  `<account>:<emailId>`, or provide `account` with numeric/string `email_id`.
+- **`send`** requires `address` (a recipient string or list). Supply plain text
+  through `message`/`text` and/or HTML through `html`/`content_html`; optional
+  fields are `account`, `subject`, `name`, and `send_account_id`. User
+  credentials are required and attachments are not supported.
+- **`accounts`** returns redacted per-account status; it does not return
+  passwords or tokens.
+- **`add_user`** requires `email` and `password`, with optional `account` and
+  `role_name`; it is an admin operation that changes the Cloud Mail user set.
+- **`settings`** is a strict-empty, read-only startup inventory. **`manual`**
+  returns this packaged guide and its metadata on demand.
 
-- `read` fetches the full content of one email by compound id
-  `id='<account>:<emailId>'`, or by `account` plus a numeric `email_id`. Use the
-  ids returned by `check`/`search`; do not construct them by hand.
+`check`, `search`, and `read` can return bulky listings or full bodies. Keep
+exact ids and body text when a later action depends on them: this family does
+not currently promise result summarization. Read `manual` exactly so its
+procedure and constraints remain available.
 
-## READING: check / search
+## SETTINGS SHOW
 
-- `check`: list recent inbound emails (optional `limit`, plus the same filters
-  as search).
-- `search`: filter the public email list by `to_email`, `send_email`,
-  `send_name`, `subject`, `content`, `time_sort` (`asc`/`desc`), and paginate
-  with `num`/`size`. Filters are LIKE matches.
-
-## SEND
-
-- `send` requires user credentials in config (it logs in, then posts to
-  `/email/send`). Provide `address` (recipient or list), and a body via
-  `message`/`text` (plain) and/or `html`/`content_html` (HTML). Optional
-  `subject`, `name` (sender display name), `send_account_id` (override sender).
-- Attachments are NOT supported in this first pass.
-
-## ACCOUNTS / ADD_USER
-
-- `accounts`: redacted per-account status (no tokens/passwords).
-- `add_user`: create a Cloud Mail user (`email`, `password`; optional
-  `role_name`). Admin operation — use deliberately.
-
-## SETTINGS
-
-`settings` is read-only progressive disclosure. It accepts exactly `input={}`
-and returns exactly two rows, in order: `config_path`, then `accounts`. Every
-successful row contains only `key`, `current`, `default`, `configurable`, and
-`comment`; there is no set/reset or other mutation operation. Both rows are
-sensitive, so both `current` and `default` render as `<redacted>`, while
-`comment` points back to the exact sections below.
-
-`configurable=true` means an authorized owner can use the existing File/Shell,
-`init.json`, and curated-MCP lifecycle procedures described here and in
-`mcp-manual`; it does not grant this SHOW action write authority. After an
-authorized change, perform a full Cloud Mail relaunch and call
-`cloud_mail(action="settings", input={}, reasoning="verify owner settings")`
-again. Editing the document alone does not change the running manager.
-
-If the successfully loaded config path or constructed manager is unavailable,
-the provider raises and the whole action returns only
-`{"status":"failed","error_code":"SETTINGS_UNAVAILABLE","message":"settings inventory is unavailable"}`.
-No partial row, path, account detail, or startup exception is returned. The
-strict `settings` action/input envelope is still checked first, and `manual`
-remains available when startup failed.
+`settings` accepts exactly `input={}` and returns exactly two rows, in order:
+`config_path`, then `accounts`. Each successful row has only `key`, `current`,
+`default`, `configurable`, and `comment`. Both rows are sensitive and render
+`<redacted>` for `current` and `default`; there is no set/reset or other mutation operation.
+`configurable=true` does not grant this action write authority. Follow [`reference/setup.md`](reference/setup.md) and the shared
+`mcp-manual` curated-addon procedure for authorized owner changes, then perform
+a full Cloud Mail relaunch and call SHOW again.
 
 ### Config path
 
-- **Meaning/current/default:** `config_path` is the exact resolved path whose
-  JSON document was successfully loaded for the running manager. It is an
-  applied startup snapshot, not a fresh environment reread. There is no
-  meaningful default because Cloud Mail cannot start without an authored
-  configuration reference.
-- **Accepted values and resolution:** the canonical environment key is
-  `LINGTAI_CLOUD_MAIL_CONFIG`. Supply a nonempty JSON-file path; `~` expands,
-  an absolute path is used directly, and a relative path resolves against
-  `LINGTAI_AGENT_DIR` or the process cwd.
-- **Source/precedence/timing:** the curated launcher's
-  `mcp.cloud_mail.env.LINGTAI_CLOUD_MAIL_CONFIG` value is the sole source, so
-  there is no fallback precedence. The successful resolved path is captured at
-  manager construction; a change applies only after a full Cloud Mail relaunch.
-- **Sensitivity/authorization:** the row is fully redacted because even the
-  path can reveal private local layout and selects a credential-bearing file.
-  Only an authorized owner should change it.
-- **Change procedure:** follow `mcp-manual` → `reference/curated-addons.md`
-  “The four-step setup.” Use the existing File/Shell procedure to edit the
-  `cloud_mail` activation's environment value in the agent's `init.json`; do
-  not add command/args/type for a curated addon. Confirm the target is a private
-  valid JSON file, fully relaunch Cloud Mail through the existing lifecycle
-  procedure, then call the `settings` action again with empty input.
+`config_path` is the exact resolved path successfully loaded at startup from
+`LINGTAI_CLOUD_MAIL_CONFIG`. It is an applied snapshot, not a fresh environment
+reread, and is fully redacted because it can reveal private machine layout.
 
 ### Accounts document
 
-- **Meaning/current/default:** `accounts` is the configuration document
-  selected by `config_path`. Successful manager construction supplies only the
-  opaque current marker `"configured"`; the provider never traverses, copies,
-  counts, or stringifies account records. There is no meaningful default.
-- **Source/precedence/timing:** the referenced owner document is the sole
-  source, with no environment or built-in fallback. Its active value is the
-  running manager's startup snapshot; any authorized edit takes effect only
-  after a full Cloud Mail relaunch.
-- **Accepted outer shape:** use canonical `{accounts: [...]}` with a nonempty
-  list, or the retained flat single-account shape containing `base_url`. Each
-  account requires `base_url`; alias falls back to `admin_email` and then
-  `base_url`.
-- **Accepted account values:** `poll_interval` is parsed as
-  `float(value or 30)`; supply a positive finite value because the current
-  parser does not reject non-positive or non-finite floats.
-  `notify_existing` defaults false, but any supplied truthy value enables it,
-  so use a JSON boolean rather than a nonempty string such as `"false"`.
-  An absent/falsey `allowed_senders` permits all senders; when supplied, use a
-  JSON string list. A truthy non-iterable fails startup, and a string is
-  currently iterated by character, so do not substitute a scalar. Missing or
-  unreadable paths, invalid JSON, an empty/invalid outer shape, a missing
-  `base_url`, or an unconvertible poll interval prevents manager startup.
-- **Sensitivity/authorization:** endpoints, account identities, credentials,
-  sender authority, allowlists, polling policy, and initial-notification policy
-  remain private and are never projected by `settings`. Both displayed values
-  are fully redacted. Only an authorized owner should edit the document.
-- **Change procedure:** use the existing File/Shell procedure to edit the
-  private JSON file selected above, following `mcp-manual` →
-  `reference/curated-addons.md` “Cloud Mail setup.” Keep real credentials out
-  of reports and examples. Fully relaunch Cloud Mail, verify ordinary
-  readiness, then call the `settings` action again with empty input.
+`accounts` is only an opaque `configured` marker for the document selected by
+`config_path`; the settings provider never traverses or projects account
+records. It is fully redacted. Missing startup truth fails the whole inventory
+with the fixed `SETTINGS_UNAVAILABLE` result; no partial rows or startup
+exception are returned, and `manual` remains available.
 
-`LINGTAI_AGENT_DIR` and `LINGTAI_MCP_NAME` are launcher identity rather than
-Cloud Mail preferences. Watermark files are derived delivery state, and cached
-public/JWT tokens are session material. None is a row and none is writable
-through `settings`.
+## SAFETY & RESULTS
 
-## SIDE EFFECTS & SAFETY
-
-- `send` delivers real email to real recipients — an external, hard-to-undo side
-  effect. Confirm the recipient(s) and body before sending unsolicited mail.
-- `add_user` mutates the Cloud Mail deployment's user set; double-check before
-  running it.
-- Actions return `{'status': 'ok', ...}` on success or `{'status': 'error',
-  'error': <message>}` on failure. Check the status and surface or act on errors
-  rather than assuming delivery.
+- `send` delivers real email to real recipients: confirm recipients and body
+  before this external, hard-to-undo side effect.
+- `add_user` mutates the Cloud Mail deployment's user set; double-check the
+  account, email, and role first.
+- Successful business actions return `status: "ok"`; provider or business
+  failures return `status: "error"` with an error message, while envelope,
+  settings, or dispatch validation failures use `status: "failed"`. Inspect the
+  status and error fields; do not assume delivery.
+- Setup fields, credential handling, watermark state, and retry/startup
+  diagnosis are intentionally in [`reference/setup.md`](reference/setup.md),
+  not repeated in this resident router.

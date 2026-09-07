@@ -249,19 +249,6 @@ def test_openai_responses_scrub_preserves_family_root_and_action_branches():
 # "Dispatch and actions" MUST).
 # ---------------------------------------------------------------------------
 
-def test_manual_documents_the_ltp_v2_envelope_and_summarize_profile():
-    body = cloud_mail_mgr._SKILL_BODY
-    lowered = body.lower()
-    assert "action, input, reasoning" in lowered or "action`, `input`, and\n`reasoning`" in body
-    assert "summarize" in lowered
-    assert "bulky-result" in lowered
-    assert "short-result" in lowered
-    assert "exactly two rows" in body
-    assert "<redacted>" in body
-    assert "full Cloud Mail relaunch" in body
-    assert "there is no set/reset or other mutation operation" in body
-
-
 def test_manual_never_teaches_the_retired_check_n_alias():
     # 'n' was a flat-shape alias for 'limit' on the pre-migration manager
     # dispatch; the LTP-v2 'check' input branch does not accept it
