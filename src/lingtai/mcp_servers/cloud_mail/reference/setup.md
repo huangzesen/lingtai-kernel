@@ -72,12 +72,13 @@ from the current implementation, not additional schema aliases.
 List/search/read/poll and `add_user` use an admin-minted public token from
 `POST /public/genToken`; the token is sent as the raw `Authorization` value,
 not as `Bearer ...`. `send` logs in with the configured user credentials via
-`POST /login` and sends with the returned raw user JWT. The client caches each
-token and refreshes it once after a 401/403 response. The Cloud Mail envelope
-must carry `code: 200`; non-JSON responses and non-200 codes become
-`CloudMailError` results. Transport exceptions are surfaced as bounded manager
-error results with their native `error_type`; neither path should log
-credentials or full auth headers.
+`POST /login` and sends with the returned raw user JWT. For authenticated
+requests, the client checks HTTP status before parsing the response body and
+refreshes the cached token once after HTTP 401/403. After that retry opportunity,
+a non-JSON response or a decoded envelope whose `code` is not 200 becomes a
+`CloudMailError`; a non-200 envelope code alone does not trigger token refresh.
+Transport exceptions are surfaced as bounded manager error results with their
+native `error_type`; neither path should log credentials or full auth headers.
 
 User credentials are optional: public read/search/check/poll actions can work
 without them, while `send` returns a clear error. Admin credentials remain
