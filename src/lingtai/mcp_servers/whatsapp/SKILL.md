@@ -171,11 +171,13 @@ relaunch and verify with a second SHOW.
   is likewise an open compatibility object, and both it and `preview_url` are
   retained schema fields not used by the personal bridge; use text or
   bridge-supported media.
-- `reply` requires an opaque `message_id` and text. Pass `to`/`wa_id` when
-  known; otherwise the manager scans up to 500 stored messages for that ID and
-  recovers the conversation. Use IDs returned by inbound notifications,
-  `read`, or `search` exactly; do not invent or rewrite them. A missing local
-  target and recipient fails before the bridge call. The schema retains
+- `reply` requires a provider-stable opaque `message_id` and text. Pass
+  `to`/`wa_id` when known; otherwise the manager scans up to 500 stored
+  messages for that ID and recovers the conversation. Use provider-stable IDs
+  returned by inbound notifications, `read`, or `search` exactly; do not invent
+  or rewrite them. A no-ID message's local archive/notification UUID is not a
+  reply target (see the LICC section below). A missing local target and
+  recipient fails before the bridge call. The schema retains
   media/template compatibility branches, but the implemented reply path is
   text-only.
 - `react` requires the exact `message_id` and a non-empty `emoji`; the bridge
