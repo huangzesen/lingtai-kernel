@@ -60,8 +60,14 @@ log = logging.getLogger("lingtai.mcp_servers.imap")
 
 _SERVER_INSTRUCTIONS = (
     "lingtai-imap: real email via IMAP/SMTP with multi-account support. "
-    "Configure via the LINGTAI_IMAP_CONFIG env var pointing at a JSON file. "
-    "Inbound mail flows into the host agent's inbox via LICC. "
+    "Safe first route: check/search, then read the returned compound email_id "
+    "before deciding whether to reply. send and reply deliver real external "
+    "mail; verify recipients and body first, and follow the standing policy for "
+    "external replies. delete, move, and flag mutate mailbox state. "
+    "Call imap(action=\"manual\", input={}, reasoning=\"read IMAP guidance\") "
+    "for action, account, attachment, settings, configuration, and safety detail. "
+    "Configure via the LINGTAI_IMAP_CONFIG env var pointing at a private JSON "
+    "file. Inbound mail flows into the host agent's inbox via LICC. "
     "This server publishes LingTai profile resources; read lingtai://manifest "
     "to discover MCP-owned docs, routing hints, and status. "
     "Setup, config schema, and troubleshooting: "
