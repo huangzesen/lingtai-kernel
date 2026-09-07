@@ -88,7 +88,7 @@ family never receives a whole Agent.
   substituted, and `_build_family`
   (`src/lingtai/tools/plugin/__init__.py:203`) is the single source of the
   child registry — called with `None` at import for the module-level
-  schema-only family `_FAMILY` (`src/lingtai/tools/plugin/__init__.py:287`),
+  schema-only family `_FAMILY` (`src/lingtai/tools/plugin/__init__.py:274`),
   which fails loudly on a duplicate/reserved-name collision and never
   dispatches, and called with the granted `ToolPluginHost` from `_bind` for the
   real dispatching family, whose `manual` child receives only `host.workdir`

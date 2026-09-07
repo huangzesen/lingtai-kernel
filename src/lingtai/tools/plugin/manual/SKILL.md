@@ -88,7 +88,7 @@ A server is registered but not running: registration is registry-level metadata,
 not a running process. No action launches a server, copies a skill, edits
 `init.json`, changes the environment, or writes a registry file.
 
-## Authorized lifecycle
+## Plugin registration roots
 
 There is no install or uninstall action. An authorized configuration owner edits
 the canonical `manifest.plugins` list in `init.json` using the existing `file`
@@ -116,7 +116,7 @@ turn. Read the narrowest reference needed:
 | “Is this plugin registered or merely visible?” | `info`, then `registration-and-lifecycle.md` |
 | “Can this command, cwd, or argument escape the plugin?” | `format-and-containment.md` |
 | “Why was a skill or server skipped?” | `info.problems` and `diagnostics-and-settings.md` |
-| “How do I change registration roots?” | Authorized lifecycle above, then `diagnostics-and-settings.md` |
+| “How do I change registration roots?” | `Plugin registration roots` above, then `diagnostics-and-settings.md` |
 | “How do I activate a registered server?” | `mcp-manual`; registration here never launches it |
 
 ## Non-negotiable safety and presentation rules
