@@ -131,6 +131,9 @@ related_files:
   - src/lingtai/mcp_servers/telegram/notification_header.md
   - src/lingtai/mcp_servers/telegram/updates.py
   - src/lingtai/mcp_servers/wechat/SKILL.md
+  - src/lingtai/mcp_servers/wechat/reference/operations.md
+  - src/lingtai/mcp_servers/wechat/reference/media.md
+  - src/lingtai/mcp_servers/wechat/reference/setup.md
   - src/lingtai/mcp_servers/wechat/__init__.py
   - src/lingtai/mcp_servers/wechat/__main__.py
   - src/lingtai/mcp_servers/wechat/api.py
