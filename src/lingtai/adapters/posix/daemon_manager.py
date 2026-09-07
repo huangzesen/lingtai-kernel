@@ -195,8 +195,26 @@ def _manager_env() -> dict[str, str]:
 
 
 def _ensure_manager(agent_working_dir: Path, *, pool_size: int) -> None:
+    """Reuse the agent's resident manager, or reserve and spawn exactly one.
+
+    The complete observe/identity/reserve/spawn sequence runs under one
+    exclusive ``fcntl.flock`` on ``manager.lock`` so concurrent callers for the
+    same agent directory cannot both observe an absent manager and both spawn
+    one; the later caller instead sees the ``starting`` reservation.
+    """
+    import fcntl
+
     root = _manager_dir(agent_working_dir)
     _private_dir(root)
+    with open(root / "manager.lock", "a", encoding="utf-8") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        try:
+            _ensure_manager_locked(agent_working_dir, root, pool_size=pool_size)
+        finally:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
+def _ensure_manager_locked(agent_working_dir: Path, root: Path, *, pool_size: int) -> None:
     pid_path = root / "manager.pid"
     expected_runtime_identity = _manager_runtime_identity()
     try:

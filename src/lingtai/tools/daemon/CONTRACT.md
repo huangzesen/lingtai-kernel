@@ -664,6 +664,12 @@ identity **and** its persisted loaded-code head, source root, and per-run daemon
 notification-protocol identity match. A missing, malformed, or mismatched stamp
 refuses the new submission before it is queue-owned or receives a capsule; it
 does not terminate or take over the old manager's active/capsule-backed runs.
+Concurrent submitters for one agent directory serialize the whole
+observe/identity-check/`starting`-reservation/spawn sequence under one exclusive
+`fcntl.flock` on `daemon/manager/manager.lock`, so later callers re-read
+`manager.pid` instead of acting on the same absent or stale observation. A fresh
+`starting` reservation is reused under the existing grace; stale-start recovery
+remains unchanged.
 When the manager's direct Unix-socket path is too long, its capsule transport
 uses `/tmp/lingtai-dm-<uid>-<digest>/capsule.sock`, independent of ambient temp
 variables. Before stale-socket unlink or bind, the fallback parent MUST be a
@@ -1092,6 +1098,7 @@ Re-check this contract when touching:
 |---|---|---|
 | the parent dispatches seven actions; unknown actions error | `src/lingtai/tools/daemon/__init__.py`, `src/lingtai/tools/daemon/_tool_family.py` | `tests/test_tool_family_daemon_migration.py`, `tests/test_daemon_check.py::test_check_unknown_id_returns_error` |
 | Default `manager_pool_size` is 100 and the config reaches the manager/list output | `src/lingtai/tools/daemon/__init__.py` | `tests/test_daemon.py::test_daemon_default_manager_pool_size_is_100`, `::test_daemon_manager_pool_size_config_reaches_manager` |
+| Concurrent submitters for one agent directory serialize manager observe/reserve/spawn under `manager.lock`; later callers re-read the persisted reservation instead of acting on the same absent state | `src/lingtai/adapters/posix/daemon_manager.py` | `tests/test_daemon_central_manager.py::test_concurrent_ensure_manager_callers_reserve_and_spawn_one_manager` |
 | `max_turns` precedence is valid `LINGTAI_DAEMON_MAX_TURNS`, explicit capability/setup, valid owner file, then 5000; invalid environment input retains the lower valid result | `src/lingtai/tools/daemon/__init__.py` | `tests/test_daemon.py::test_daemon_max_turns_env_beats_explicit_and_config`, `::test_daemon_invalid_max_turns_env_keeps_explicit_value` |
 | Per-agent `system_prompt_budget_chars` defaults to 20,000, accepts a positive `daemon/daemon.json` override, and safely falls back for malformed/non-positive values while retaining fail-loud/no-truncation rendering | `src/lingtai/tools/daemon/__init__.py`, `src/lingtai/tools/daemon/system_prompt.py` | `tests/test_daemon.py::test_daemon_default_system_prompt_budget_is_20000_without_config`, `::test_daemon_config_system_prompt_budget_allows_larger_complete_prompt`, `::test_daemon_invalid_system_prompt_budget_falls_back_to_default` |
 | `settings` returns exactly the four owner rows and five public fields, has no mutation route, and fails as one fixed response when current manager truth is unavailable | `src/lingtai/tools/daemon/settings.py`, `src/lingtai/tools/daemon/_tool_family.py` | `tests/test_daemon_settings.py` |

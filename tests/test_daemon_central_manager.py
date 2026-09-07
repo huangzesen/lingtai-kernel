@@ -4,6 +4,7 @@ import json
 import os
 import stat
 import socket
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -790,6 +791,68 @@ def test_central_manager_refuses_mismatched_starting_identity(tmp_path, monkeypa
 
     with pytest.raises(RuntimeError, match="runtime identity.*daemon-manual"):
         daemon_manager._ensure_manager(agent_working_dir, pool_size=1)
+
+
+def test_concurrent_ensure_manager_callers_reserve_and_spawn_one_manager(tmp_path, monkeypatch):
+    """Two callers that both see no live manager must not both spawn one.
+
+    The barrier inside the ``manager.pid`` read forces the classic TOCTOU
+    interleaving: neither caller may reserve until both have observed the
+    absent record.  When the read/reserve/spawn sequence is exclusive the
+    second reader cannot arrive, the barrier breaks after its bounded wait,
+    and the first caller proceeds alone; the second then sees the fresh
+    ``starting`` reservation and reuses it.  The test therefore never depends
+    on a lucky schedule to make either regime observable.
+    """
+    agent_working_dir = tmp_path / "agent"
+    expected = _manager_runtime_identity("current-head")
+    monkeypatch.setattr(daemon_manager, "_manager_runtime_identity", lambda: expected)
+
+    spawn_lock = threading.Lock()
+    spawned_tokens: list[str] = []
+
+    def counting_popen(_argv, **kwargs):
+        with spawn_lock:
+            spawned_tokens.append(kwargs["env"]["LINGTAI_DAEMON_MANAGER_TOKEN"])
+        return SimpleNamespace(pid=4242)
+
+    monkeypatch.setattr(daemon_manager.subprocess, "Popen", counting_popen)
+
+    both_observed_absent = threading.Barrier(2, timeout=1.0)
+    real_read_json = daemon_manager.read_json
+
+    def barrier_read_json(path, *args, **kwargs):
+        info = real_read_json(path, *args, **kwargs)
+        if Path(path).name == "manager.pid" and not info:
+            try:
+                both_observed_absent.wait()
+            except threading.BrokenBarrierError:
+                pass
+        return info
+
+    monkeypatch.setattr(daemon_manager, "read_json", barrier_read_json)
+
+    errors: list[BaseException] = []
+
+    def call_ensure_manager() -> None:
+        try:
+            daemon_manager._ensure_manager(agent_working_dir, pool_size=1)
+        except BaseException as exc:  # pragma: no cover - surfaced by assertion
+            errors.append(exc)
+
+    callers = [threading.Thread(target=call_ensure_manager) for _ in range(2)]
+    for caller in callers:
+        caller.start()
+    for caller in callers:
+        caller.join(timeout=10.0)
+
+    assert not any(caller.is_alive() for caller in callers)
+    assert errors == []
+    assert len(spawned_tokens) == 1
+    record = json.loads((agent_working_dir / MANAGER_DIR / "manager.pid").read_text(encoding="utf-8"))
+    assert record["state"] == "starting"
+    assert record["manager_token"] == spawned_tokens[0]
+    assert record["manager_runtime_identity"] == expected
 
 
 def test_central_manager_completes_run_and_notifies(tmp_path, monkeypatch):
