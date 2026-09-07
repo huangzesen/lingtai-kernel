@@ -66,7 +66,7 @@ I/O. The complete action inventory is:
 
 | Action | First-call shape and purpose |
 |---|---|
-| `send` | Fresh message: `receive_id`, `receive_id_type`, and exactly one of `text`/`content`; `account` and `placeholder` are optional. |
+| `send` | Fresh message: `receive_id` and exactly one of `text`/`content`; `receive_id_type` (default `open_id`), `account`, and `placeholder` are optional. |
 | `check` | Recent conversations and unread counts; optional `account`. |
 | `read` | Messages from one chat: `chat_id`; optional `account` and `limit`. |
 | `reply` | Reply to an exact compound `message_id` with exactly one of `text`/`content`; optional `reply_in_thread`. |

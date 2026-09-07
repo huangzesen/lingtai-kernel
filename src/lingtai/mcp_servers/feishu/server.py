@@ -61,7 +61,8 @@ _SERVER_INSTRUCTIONS = (
     "host agent's inbox via LICC. Use the single strict `feishu` tool with "
     "{action, input, reasoning, summarize?}; its description gives the action "
     "inventory and first-call safety boundaries. Call action='manual' for the "
-    "deep packaged message-semantics guidance. Configure via the "
+    "concise packaged usage manual, then follow its linked message-semantics "
+    "reference when deeper guidance is needed. Configure via the "
     "LINGTAI_FEISHU_CONFIG environment variable; setup and troubleshooting are "
     "available from the server's packaged resources."
 )
