@@ -177,7 +177,13 @@ stamped onto a capped entry as `_dismiss_fingerprint` so `record_dismissal`
 recovers the same identity from the persisted compact shape rather than
 re-deriving it from the rewritten compact `title`/`detail`. An uncapped small
 entry never carries `_dismiss_fingerprint` — the wire shape for the common
-case is unchanged from before the cap existed.
+case is unchanged from before the cap existed. The mute decision is repeated
+inside the Store's `nudge` channel transaction: `upsert`'s pure mutator
+re-reads `.nudge_state.json` (read-only) under the same compare-update that
+`dismiss_channel` uses to clear the channel, so a dismissal recorded after
+`upsert`'s cheap pre-check still wins and the in-flight upsert leaves the
+channel unchanged. Expired-record cleanup (`_clear_dismissal`) stays outside
+the Store mutator, before `_modify`, and never removes a record still in force.
 
 Externalization is fail-loud, not fail-open: an invalid `kind` (bounded
 filesystem-safe pattern, checked before any file naming) or a sidecar write
