@@ -700,13 +700,12 @@ def test_manual_returns_the_installed_body(tmp_path):
     result = agent._tool_handlers["plugin"]({
         "action": "manual", "input": {}, "reasoning": "load plugin guidance",
     })
-    assert result["status"] == "ok"
-    assert result["plugin_manual"]
-    assert "declaration is what registers" in result["plugin_manual"]
-    assert "## Plugin registration roots" in result["plugin_manual"]
-    assert result["manual_path"] == str(
+    manual_path = (
         workdir / ".library" / "intrinsic" / "capabilities" / "plugin" / "SKILL.md"
     )
+    assert result["status"] == "ok"
+    assert result["manual_path"] == str(manual_path)
+    assert result["plugin_manual"] == manual_path.read_text(encoding="utf-8")
     # The Host adapter runs after dispatch: no canonical child fields leak out.
     assert "content" not in result and "structuredContent" not in result
 
@@ -1465,15 +1464,6 @@ def test_manual_ships_with_the_package():
     body = manual.read_text(encoding="utf-8")
     assert "name: plugin-manual" in body
     assert "agent-plugins.org" in body
-    # The manual must carry the two-tier mount contract, the boundary
-    # registration stops at, and both halves of the declaration lifecycle.
-    assert "declaration is what registers" in body
-    assert "registered, *not running*" in body
-    assert "## Installing a plugin" in body
-    assert "### Uninstalling" in body
-    assert "### Canonical config key" in body
-    assert "`manifest.plugins` is the **canonical** declaration key" in body
-    assert "## Plugin registration roots" in body
 
 
 def test_default_plugin_root_is_scanned_without_declaration(tmp_path):
