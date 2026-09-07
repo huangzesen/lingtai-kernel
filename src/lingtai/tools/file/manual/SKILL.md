@@ -51,7 +51,7 @@ absent: read uses offset **1** (1-based), limit **2000** lines, and
 | Read text | `action="read"` with `file_path` | Numbered UTF-8 lines; a capped page can be continued with `next_offset`. |
 | Create or replace a file | `action="write"` with `file_path`, `content` | Full UTF-8 text write; inspect the receipt. |
 | Make an exact change | `action="edit"` with `file_path`, `old_string`, `new_string` | Exact replacement; ambiguity or a missing match leaves the file untouched. |
-| Find names | `action="glob"` with `pattern` | Sorted matches; a budget-limited traversal is marked partial. |
+| Find names | `action="glob"` with `pattern` such as `**/*.py`; use `**/` recursively | Sorted matches; a budget-limited traversal is marked partial. |
 | Search contents | `action="grep"` with regex `pattern` | Text matches; glob filters prune before file reads and traversal limits are reported. |
 | Inspect policy | `action="settings", input={}` | Read-only complete SHOW inventory; no set/reset form. |
 | Load guidance | `action="manual", input={}` | The installed `file-manual` body; no target-file I/O. |
@@ -63,6 +63,10 @@ absent: read uses offset **1** (1-based), limit **2000** lines, and
   use `bash` with an explicit encoding (`Path(...).read_text(encoding="gbk",
   errors="replace")` or another known codec), and convert durable project files
   to UTF-8 with `iconv` before storing them.
+- **Path privacy:** Agent-local paths may be private and are not portable
+  deliverables. Do not paste a local path into a human-facing or public result
+  when the recipient cannot open it; quote the needed content or attach/export
+  a reviewed artifact through the originating communication channel.
 - **Mutations:** `write` creates parent directories and returns
   `{status: "ok", path, bytes}`; `edit` returns
   `{status: "ok", replacements}`. Read the target before an important
@@ -87,20 +91,28 @@ absent: read uses offset **1** (1-based), limit **2000** lines, and
 exact payload is not needed. Keep it false for `write` and `edit` receipts and
 for `manual` procedure text. Summarization does not alter the raw result.
 
-Call `file(action="manual", input={})` once before a careful or unfamiliar
-workflow. It returns the package-owned body from the established public install
-path `capabilities/file-manual/SKILL.md`; its result performs no target-file
-operation. After it returns, continue with the requested action instead of
-repeating the identical manual call.
+Call `file(action="manual", input={})` as a one-time entry before a careful or
+unfamiliar workflow. It returns the package-owned body from the established
+public install path `capabilities/file-manual/SKILL.md`; its result performs no
+target-file operation. After it returns, continue with the ordinary requested
+action; repeating an identical manual call is an error loop.
 
 ## Settings — SHOW only
 
 `action="settings"` accepts strict empty input and returns exactly the complete
 five-field rows `key`, `current`, `default`, `configurable`, `comment`, in order.
-It never writes a settings file or changes policy. The first eleven rows are
-immutable File policy; only the two construction-time backend rows are
-configurable before a new service/Agent is built. Current construction values
-are snapshotted at bind time; SHOW does not reread ambient environment.
+It never writes a settings file or changes policy. Unavailable current truth
+fails the whole inventory with `SETTINGS_UNAVAILABLE`; a serialized response
+over 65,536 UTF-8 bytes fails whole with `SETTINGS_RESPONSE_TOO_LARGE`.
+
+The first eleven rows are immutable File policy; only the two construction-time
+backend rows are configurable before a new service/Agent is built. A
+`configurable: true` row describes an existing owner procedure but grants no
+authority. Current construction values are snapshotted at bind time; SHOW does
+not reread ambient environment. After an authorized factory, launcher, or named
+environment-source change outside SHOW, rebuild/restart the owner service and
+call `file(action="settings", input={})` again; sidecar changes also require a
+File search check.
 
 The following stable headings are the exact anchors used by the inventory's
 `comment` fields. Each heading gives the row's meaning, source/timing, and
@@ -164,18 +176,28 @@ workflow above for external non-UTF-8 files; File does not guess locale codecs.
 
 ### backend mode
 
-`backend.mode` reports the normalized mode (`auto`, `rust`, or `python`) captured
-when the service was constructed. An explicit factory argument wins, then
-`LINGTAI_FILE_IO_BACKEND`, then `auto`; change it only before constructing a
-new Agent/service. Later environment changes do not alter SHOW.
+`backend.mode` reports the normalized construction snapshot; its default is
+`auto`. Accepted values are case-insensitive, whitespace-trimmed `auto`, `rust`,
+or `python`. An explicit factory/launcher `backend=` argument wins, then
+`LINGTAI_FILE_IO_BACKEND`, then `auto`; every other value fails service
+construction closed. An authorized owner changes the explicit argument or
+named environment source outside SHOW before rebuilding/restarting the service,
+then verifies the applied value with another SHOW. Later ambient changes do not
+alter the current row, and backend selection grants no path authority.
 
 ### backend sidecar
 
-`backend.sidecar` is one sensitive construction-time override. The canonical
-`LINGTAI_FILE_IO_SIDECAR` wins over legacy `LINGTAI_SEARCH_SIDECAR`; both current
-and default are always `<redacted>`, so no executable path is disclosed. Set the
-canonical source before constructing a new Agent; `python` mode does not use a
-sidecar.
+`backend.sidecar` is one sensitive construction-time override accepting a
+nonempty executable local path or command name. The canonical
+`LINGTAI_FILE_IO_SIDECAR` wins; legacy `LINGTAI_SEARCH_SIDECAR` is consulted only
+when the canonical variable is absent, and is not a second row. A nonempty but
+unusable canonical value still shadows the alias; packaged/dev-tree discovery
+and `auto` Python fallback remain, while explicit `rust` fails if no usable
+source exists. This path never downloads a binary, and `python` mode does not
+use a sidecar. Both current and default are always `<redacted>`. An authorized
+owner sets or clears the canonical source outside SHOW before rebuilding or
+restarting the owner service, keeps the resolved path private, validates its
+executable ownership, then verifies SHOW plus a File search.
 
 ## What to load next
 

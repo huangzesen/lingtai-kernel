@@ -108,7 +108,10 @@ _GREP_INPUT_SCHEMA: dict[str, Any] = {
 _GLOB_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "pattern": {"type": "string", "description": "Glob pattern."},
+        "pattern": {
+            "type": "string",
+            "description": "Glob pattern (for example '**/*.py'); use '**/' recursively.",
+        },
         "path": {
             "type": ["string", "null"],
             "description": "Directory; null=workdir.",
@@ -252,9 +255,10 @@ def get_description(lang: str = "en") -> str:
         "regex content. Choose file(action='settings', input={}) for the "
         "read-only policy inventory, or file(action='manual', input={}) once "
         "for file-manual, which routes non-UTF-8/search-edit workflows and "
-        "the exact read-manual pagination guidance. Relative paths stay under "
-        "the agent working directory; binary, image, and audio content is out "
-        "of scope."
+        "the exact read-manual pagination guidance. After the manual result, "
+        "continue the original operation; repeating the same manual call is an "
+        "error loop. Relative paths stay under the agent working directory; "
+        "binary, image, and audio content is out of scope."
     )
 
 
