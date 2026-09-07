@@ -59,10 +59,14 @@ Paths are relative to the parent working directory and its network root:
   system/ knowledge/ exports/ combo.json  # deep payload where applicable
 ```
 
-Each attempt appends an Avatar ledger record with `event`, canonical `name`,
-`working_dir`, mission, type, pid, boot status, and (on failure) bounded boot
-error. The ledger is append-only and is also used for target-bound liveness
-observation. A live peer with the same canonical name blocks another spawn.
+A call that reaches provider admission appends an
+`avatar_admission_decision` record. A separate full `avatar` record is appended
+only after the process launches; it carries the canonical name, sibling-directory
+basename, mission, type, pid, boot status, and any bounded boot error. Earlier
+validation/gate returns and dry-run have no full spawn record. The ledger is
+append-only. Matching-name records are consulted for liveness through their
+stored `working_dir` value, while an existing sibling target directory is
+separately refused before child creation.
 
 ## Derived-child authority boundary
 

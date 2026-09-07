@@ -46,11 +46,11 @@ uses the fixed default. `action` is explicit and has no default.
 
 `input.name` is both the avatar's public agent name and the basename of its
 working directory. It must be 1–64 characters and match the Unicode-aware
-`^[\\w-]+$` rule: letters, digits, underscore, and hyphen only. No dot, slash,
+`^[\w-]+$` rule: letters, digits, underscore, and hyphen only. No dot, slash,
 space, control character, or leading dot is accepted. The target is a direct
 sibling of the parent directory and must remain inside the network root. The
-manager checks the resolved path before mutating anything; an existing target
-or an active ledger peer is refused.
+manager checks the resolved path before creating the child directory or launching
+a process; an existing target or an active ledger peer is refused.
 
 Do not supply an alternate directory. A name-shaped public call is the only
 supported identity/path input, which keeps ledger identity and filesystem

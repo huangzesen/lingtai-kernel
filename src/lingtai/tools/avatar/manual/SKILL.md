@@ -58,16 +58,44 @@ spawn or ledger I/O. Use the routes below for depth rather than guessing.
 ## Tool essentials
 
 ```text
-avatar(action="spawn", input={"name": "researcher"}, reasoning="<mission>")
-avatar(action="spawn", input={"name": "clone", "type": "deep"}, reasoning="<mission>")
+avatar(action="spawn",
+       input={"name": "researcher", "type": null, "comment": null,
+              "dry_run": false, "confirm": false},
+       reasoning="<mission>")
+avatar(action="spawn",
+       input={"name": "clone", "type": "deep", "comment": null,
+              "dry_run": false, "confirm": false},
+       reasoning="<mission>")
 avatar(action="settings", input={}, reasoning="inspect Avatar policy")
 ```
 
-`name` is the canonical sibling-directory basename. `type` is `shallow` or
-`deep` and defaults to `shallow`; `dry_run` previews without files or a process;
-`confirm` acknowledges review when the mission is empty, short, or placeholder-
-like. Null optional values mean absent. A spawn is an external side effect and
-an independent life; do not batch it with unrelated calls.
+The strict model-facing `spawn` branch requires all five input keys; use `null`
+for a defaulted value. `name` is the canonical sibling-directory basename.
+`type` is `shallow` or `deep` and defaults to `shallow`; `dry_run` previews
+without files or a process; `confirm` acknowledges review when the mission is
+empty, short, or placeholder-like. Null values mean absent. A spawn is an
+external side effect and an independent life; do not batch it with unrelated
+calls.
+
+## Settings
+
+`avatar(action="settings", input={}, reasoning="inspect Avatar policy")` is
+SHOW-only. Its 16 rows each contain exactly `key`, `current`, `default`,
+`configurable`, and `comment`. Every row is immutable (`configurable:false`):
+the fixed values in `avatar/settings.py` are both the fresh effective `current`
+and truthful `default`. Avatar has no settings file, `LINGTAI_AVATAR_*`
+environment source, alternate precedence, or set/reset action. A per-call spawn
+input affects only that invocation.
+
+The 16 exposed policy values are non-sensitive and unredacted. SHOW writes
+nothing and omits parent identity, runtime/venv/auth, inherited environment
+contents, handoff values, and invocation/session state. If the inventory cannot
+be read or serialized safely, it fails as one result capped at 65,536 UTF-8
+bytes, without partial rows or raw exception detail. There is no runtime setting
+change procedure: an authorized permanent policy change requires source/manual
+review, `tests/test_tool_family_avatar_migration.py` plus the shared
+`tests/test_tool_settings_contract.py`, and a relaunch; call SHOW again after
+relaunch to verify the effective values. The anchors below define each row group.
 
 ### Spawn call defaults
 
