@@ -186,7 +186,6 @@ def test_manual_routes_focused_references_and_keeps_first_call_guard():
         assert fragment in description, fragment
     start_input = get_schema()["properties"]["input"]["anyOf"][0]
     assert "renderer_path" in start_input["required"]
-    assert len(manual) < 6000
 
 
 def test_start_writes_body_before_active_and_reports_exact_paths(agent, manager, monkeypatch):

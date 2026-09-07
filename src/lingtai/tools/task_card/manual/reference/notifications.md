@@ -34,10 +34,12 @@ to the system channel with bounded extras, idempotency, and priority. The
 producer owns event content and deduplication identity; it does not select a
 transport or another channel.
 
-Renderer failures after a valid watch preserve the last body and emit a deduped
-error state; a later successful publication emits recovery. Refresh exhaustion
-emits one limit event whose guidance says to start a new watch if work remains.
-Notification failure must not turn a truthful producer state into a false one.
+A non-exhausting renderer failure after a valid watch preserves the last body
+and emits a deduped error state; a later successful publication emits recovery.
+An exhausted final failure suppresses that error and, like a successful final
+refresh, emits one limit event whose guidance says to start a new watch if work
+remains. Notification failure must not turn a truthful producer state into a
+false one.
 
 ## Absent/stale reminders
 

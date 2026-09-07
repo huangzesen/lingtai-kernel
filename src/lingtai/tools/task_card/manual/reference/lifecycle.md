@@ -50,10 +50,12 @@ configured body limit is a refusal, never truncation; see [settings](settings.md
 `start` runs the renderer first, atomically writes the complete body, then
 atomically writes exact `active`, and only then starts the updater and persists
 its descriptor. `retry` reruns the same renderer and atomically replaces only
-the body; status remains `active`. A renderer or publication failure preserves
-the last valid body and records the producer error rather than inventing
-progress. A second `start` fails closed because one card/watch is allowed per
-agent.
+the body; status remains `active` until the last allowed refresh is consumed,
+when the successful final attempt is exhausted and becomes `inactive`. A
+non-exhausting renderer or publication failure preserves the last valid body
+and records the producer error rather than inventing progress; the exhausted
+final attempt follows the limit path. A second `start` fails closed because one
+card/watch is allowed per agent.
 
 ## Pause, terminal cleanup, and restart
 

@@ -35,7 +35,7 @@ public actions are `start`, `inspect`, `retry`, `stop`, `remove`, `settings`, an
 `manual`; `manual` takes `{}` and is directly callable.
 
 For `start`, provide an existing Python `renderer_path` inside the working
-directory. The renderer must exit successfully and print a non-empty full body to
+directory. The renderer must exit successfully and print a nonempty full body to
 stdout. The producer writes that body atomically to `taskcard/taskcard.md`, then
 writes exact `active` to `taskcard/status`. It permits one active watch per
 agent. Keep its output truthful and current: start a watch for meaningful

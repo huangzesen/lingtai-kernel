@@ -289,8 +289,9 @@ _DESCRIPTION = (
     "body written atomically to taskcard/taskcard.md, then exact active is written "
     "to taskcard/status. One watch only. Keep output truthful for meaningful "
     "long-running, multi-step, or parallel work, not quick ritual updates. stop "
-    "pauses/preserves; remove retires then deletes. Consumers project state "
-    "independently. Restart after expiry; use settings and manual for detail."
+    "pauses/preserves; remove retires then deletes, so use it only after completion, "
+    "cancellation, or abandonment. Consumers project state independently. Restart "
+    "after expiry by starting a new watch if work continues. Use settings and manual for detail."
 )
 
 _ACTION_DESCRIPTION = (

@@ -7,6 +7,9 @@ related_files:
   - src/lingtai/tools/task_card/BEHAVIORS.md
   - src/lingtai/tools/task_card/__init__.py
   - src/lingtai/tools/task_card/manual/SKILL.md
+  - src/lingtai/tools/task_card/manual/reference/lifecycle.md
+  - src/lingtai/tools/task_card/manual/reference/notifications.md
+  - src/lingtai/tools/task_card/manual/reference/settings.md
   - src/lingtai/tools/CONTRACT.md
   - src/lingtai/tools/registry.py
   - src/lingtai/kernel/tool_plugin/CONTRACT.md
