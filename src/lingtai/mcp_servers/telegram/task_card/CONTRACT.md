@@ -27,7 +27,7 @@ maintenance: |
 # Telegram Task Card Projection
 
 ## Purpose
-Guarded by: [TT001](BEHAVIORS.md#behavior-tt001)
+Guarded by: [TT001](BEHAVIORS.md#behavior-tt001), [TT002](BEHAVIORS.md#behavior-tt002)
 
 
 Own Telegram's provider adapter and read-only projection of the intrinsic
@@ -87,6 +87,13 @@ semantics live here. The public producer contract lives in
    deriving its siblings, so it can only ever apply its own requested field
    change on top of the freshly observed file — it never writes back a stale
    in-memory copy of an unseen edit's other fields.
+9. The automatic API-call divider renders a valid per-call thinking/reasoning
+   token count as a compact parenthesized value immediately after output tokens:
+   `↓<output> (<thinking>) ↑<cache-miss>`. Both the
+   `token_usage.current_call.thinking` carrier and the `llm_response`
+   `thinking_tokens` fallback produce the same representation. A missing,
+   malformed, or output-less count is omitted without a dangling parenthesis,
+   preserving old-event rendering and never exposing reasoning text.
 
 ## Port
 
@@ -147,7 +154,8 @@ There is no public MCP `task_card` family in this component.
 - `tests/test_telegram_task_card_toggle.py` covers toggle suppression and the
   hidden-finalize clear semantics.
 - `tests/test_telegram_task_card_event_tail.py` continues to cover the automatic
-  channel independently.
+  channel independently, including identical parenthesized reasoning-token
+  rendering from current-call carriers and `llm_response` fallbacks.
 - `tests/test_task_card_event_projection_shared.py` pins shared-core safety and
   byte compatibility with Telegram's established render surface.
 - `tests/test_task_card_resident_shared.py` pins provider-neutral route/slot,

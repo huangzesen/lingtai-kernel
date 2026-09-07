@@ -459,7 +459,7 @@ class TaskCardEventProjection:
         event: dict[str, Any],
     ) -> tuple[str, dict[str, Any]] | None:
         """Extract per-call LLM usage from a ``notification_block_injected``
-        carrier. Returns ``(call_id, {output, cache_miss, cache_rate,
+        carrier. Returns ``(call_id, {output, thinking, cache_miss, cache_rate,
         context})`` so the tailer can attach it to the matching tool row.
         ``context`` is the session's actual ``context_tokens`` count riding the
         same carrier (never derived from a percentage); absent/invalid values
@@ -484,7 +484,7 @@ class TaskCardEventProjection:
         current = token_usage.get("current_call")
         if not isinstance(current, dict):
             return None
-        supported = ("output", "cache_miss", "cache_rate")
+        supported = ("output", "thinking", "cache_miss", "cache_rate")
         usage = {key: current[key] for key in supported if key in current}
         session = token_usage.get("session")
         if usage and isinstance(session, dict):
@@ -502,9 +502,10 @@ class TaskCardEventProjection:
         Pure-text turns (an assistant reply with no tool call) never carry a
         ``notification_block_injected`` carrier, so their per-call token usage
         has to come from the ``llm_response`` event itself. Returns
-        ``(api_call_id, {output, cache_miss, cache_rate, context})``; estimated
-        token counts are still shown (they are the only signal a pure-text turn
-        has) but missing/zero input degrades to ``None``. ``context`` is the
+        ``(api_call_id, {output, thinking, cache_miss, cache_rate, context})``.
+        Estimated token counts are still shown (they are the only signal a
+        pure-text turn has) but missing/zero input degrades to ``None``.
+        ``context`` is the
         event's ``input_tokens`` — the exact value the kernel records as that
         round's session ``context_tokens`` (``ctx_total_tokens``), an actual
         count, never reconstructed from the cache percentage.
@@ -515,6 +516,7 @@ class TaskCardEventProjection:
         if not isinstance(call_id, str) or not call_id:
             return None
         output = event.get("output_tokens")
+        thinking = event.get("thinking_tokens")
         cached = event.get("cached_tokens")
         total = event.get("input_tokens")
         if (
@@ -529,6 +531,8 @@ class TaskCardEventProjection:
             "cache_miss": max(total - cached, 0),
             "context": total,
         }
+        if type(thinking) is int and thinking >= 0:
+            usage["thinking"] = thinking
         if cached > 0:
             usage["cache_rate"] = min(cached / total, 1.0)
         return (call_id, usage)
@@ -659,24 +663,30 @@ class TaskCardEventProjection:
         api_delay_s: float | None,
         usage: dict[str, Any] | None,
     ) -> str:
-        """Compact divider line: `↻ x s` plus `↓out ↑miss ◌ ctx | cache%`.
+        """Compact divider: `↻ x s ↓out (think) ↑miss ◌ ctx | cache%`.
 
-        The down arrow denotes output tokens, the up arrow denotes cache miss
-        (the two token flows that grow with each call); ``◌`` is the current
-        context length (an actual token count) and the trailing percentage is
-        that call's cache rate, joined as ``◌ <context> | <rate>``. Any piece
-        missing from the event degrades silently — no dangling marker or
-        separator — so old events without usage still render the delay alone.
+        The down arrow denotes output tokens; the immediately following
+        parenthesized count denotes thinking/reasoning tokens; and the up arrow
+        denotes cache miss. ``◌`` is the current context length (an actual token
+        count) and the trailing percentage is that call's cache rate, joined as
+        ``◌ <context> | <rate>``. Any piece missing from the event degrades
+        silently — no dangling marker or separator — so old events without
+        usage still render the delay alone.
         """
         parts: list[str] = []
         if api_delay_s is not None and api_delay_s > 0:
             parts.append(f"↻ {api_delay_s:.1f}s")
         if isinstance(usage, dict) and usage:
             out = usage.get("output")
+            thinking = usage.get("thinking")
             miss = usage.get("cache_miss")
             rate = usage.get("cache_rate")
-            if type(out) is int and out >= 0:
-                parts.append(f"\u2193{cls.format_count(out)}")
+            out_text = cls.format_count(out)
+            if out_text is not None:
+                parts.append(f"\u2193{out_text}")
+                thinking_text = cls.format_count(thinking)
+                if thinking_text is not None:
+                    parts.append(f"({thinking_text})")
             if type(miss) is int and miss >= 0:
                 parts.append(f"\u2191{cls.format_count(miss)}")
             context = cls.format_count(usage.get("context"))

@@ -20,7 +20,8 @@ maintenance: |
 Self-contained agent behavior tasks guarding the observable behavior clauses of
 `src/lingtai/mcp_servers/telegram/task_card/CONTRACT.md` (programmable body
 only when status is exactly active and nonempty; diff-only projection;
-no-op preservation). Pinned pytest commands must run from the repo root with
+no-op preservation; automatic per-call token metrics). Pinned pytest commands
+must run from the repo root with
 the project's Python.
 
 ## Behavior TT001 — the programmable frame is composed only for exact active with a nonempty body, and diff-only updates suppress transport churn
@@ -44,3 +45,25 @@ the project's Python.
 
 ### Pass / Fail
 Pass when the suite passes and the active/diff-only observations hold. Fail on programmable composition for a non-active status, on a transport update for identical bytes, or on `inactive` clearing the resident message or body; record the evidence trail in the task report.
+
+## Behavior TT002 — automatic API-call dividers show reasoning tokens beside output tokens
+
+- **id**: TT002
+- **title**: automatic API-call dividers show reasoning tokens beside output tokens
+- **guards**: `telegram-task-card-projection` § Behavior rule 9
+- **runner**: any LingTai agent with `shell` access to this repository
+- **prerequisites**: a clean checkout of `<repo>`
+- **estimate**: ≈ 2 minutes
+
+### Steps
+1. From `<repo>`, run `python -m pytest tests/test_telegram_task_card_event_tail.py -q` and capture the outcome.
+2. Project one tool-call group whose notification carrier reports `current_call.output`, `current_call.thinking`, cache miss/rate, and session context.
+3. Project one pure-text group whose `llm_response` reports `output_tokens` and `thinking_tokens`, then repeat without a thinking field.
+
+### Expected evidence
+- [ ] Step 1: the automatic event-tail suite passes.
+- [ ] Step 2: the divider contains `↓<output> (<thinking>) ↑<cache-miss>` with compact counts, while `_usage` remains private projection state.
+- [ ] Step 3: the `llm_response` fallback renders the same parenthesized form; an old event without thinking tokens preserves the prior output/cache/context line with no dangling parentheses.
+
+### Pass / Fail
+Pass when both normalized usage paths render the same parenthesized reasoning count immediately after output and legacy missing-field input remains unchanged. Fail if the count is misplaced, reasoning text is exposed, or missing/malformed data leaves a dangling marker.

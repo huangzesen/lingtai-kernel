@@ -67,7 +67,9 @@ onto its one tracked resident Task Card target per account+chat.
   in-memory copy of the other fields.
 - `../../task_card/event_projection.py` — the channel-neutral pure core for safe
   event allowlisting, redaction, API-call grouping, budgets, metadata, and text
-  rendering. It owns no journal I/O, route, resident, or transport state.
+  rendering, including compact per-call output/thinking/cache metrics from the
+  normalized current-call carrier or `llm_response` fallback. It owns no journal
+  I/O, route, resident, or transport state.
   `DISPLAY_SLOTS`/`DEFAULT_DISPLAY_EXPRESSION`/`validate_display_expression`/
   `compose_display` define and enforce the small declarative display-expression
   grammar: an ordered, allowlisted selection of the fragments
