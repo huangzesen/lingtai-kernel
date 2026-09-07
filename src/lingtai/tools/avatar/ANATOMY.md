@@ -22,6 +22,8 @@ related_files:
   - src/lingtai/cli.py
   - ENVIRONMENT_VARIABLES.md
   - src/lingtai/tools/avatar/manual/SKILL.md
+  - src/lingtai/tools/avatar/manual/reference/spawn.md
+  - src/lingtai/tools/avatar/manual/reference/lifecycle.md
   - src/lingtai/tools/tool_family/ANATOMY.md
   - tests/test_avatar_rules.py
   - tests/test_tool_family_avatar_migration.py

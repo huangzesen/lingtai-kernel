@@ -139,40 +139,37 @@ _SPAWN_INPUT_SCHEMA: dict[str, Any] = {
         "name": {
             "type": "string",
             "description": (
-                "True name for the avatar. Also the working-directory basename "
-                "under .lingtai/. Single segment: letters/digits/underscore/"
-                "hyphen, max 64 chars."
+                "Avatar name and sibling-directory basename: one segment of "
+                "letters/digits/_/-; 1-64 chars, with no dots or slashes."
             ),
         },
         "type": {
             "type": ["string", "null"],
             "enum": [*SPAWN_TYPES, None],
             "description": (
-                "'shallow' (default): blank slate — init.json only. 'deep': "
-                "full copy of character, pad, and codex. Null for the default."
+                "Spawn type: 'shallow' (default) copies init.json plus narrow "
+                "Psyche inputs; 'deep' also copies identity/knowledge. Null uses "
+                "shallow."
             ),
         },
         "comment": {
             "type": ["string", "null"],
             "description": (
-                "Persistent system note in the avatar's prompt (survives molt/"
-                "refresh/wake). Not inherited. Null or empty unless you have "
-                "something the avatar must never forget."
+                "Persistent child-prompt note; not inherited. Null or empty means "
+                "no note. See avatar-manual for placement and lifetime."
             ),
         },
         "dry_run": {
             "type": ["boolean", "null"],
             "description": (
-                "Preview the spawn without creating a process. Use to "
-                "sanity-check before committing. Null for the default false."
+                "Preview with no files or process created; null defaults to false."
             ),
         },
         "confirm": {
             "type": ["boolean", "null"],
             "description": (
-                "Confirm you have reviewed the mission and intend to spawn. "
-                "Required when the mission looks empty/short/test-like. Null "
-                "for the default false."
+                "Acknowledge the mission review; required for empty/short/"
+                "placeholder reasoning. Null defaults to false."
             ),
         },
     },
@@ -187,15 +184,14 @@ _DECLARED_CHILD_SPECS: tuple[tuple[str, dict[str, Any]], ...] = (
 )
 
 _DESCRIPTION = (
-    "Spawn an independent agent (他我), inventory Avatar settings, or read "
-    "the avatar manual. Requires an explicit action — no default. "
-    "avatar(action='spawn', input={'name': 'researcher', ...}, "
-    "reasoning='<the avatar's mission>'): inherits init.json, boots on "
-    "default preset; your reasoning becomes the avatar's first prompt. "
-    "avatar(action='settings', input={}, reasoning='...'): show immutable "
-    "defaults, constraints, and lifecycle policy. "
-    "avatar(action='manual', input={}, reasoning='...'): return the "
-    "avatar-manual skill body. See avatar-manual skill for full guidance."
+    "Spawn an independent, detached avatar, show its fixed settings, or read "
+    "the manual. Use an explicit action and strict input; there is no default. "
+    "Read avatar-manual first. Before the first spawn, call "
+    "avatar(action='manual', input={}, "
+    "reasoning='...'). For spawn, input.name is the canonical sibling-directory "
+    "basename, input.type is shallow (default) or deep, and root reasoning is "
+    "the required mission/first prompt. Use dry_run to preview and confirm only "
+    "after reviewing the mission. settings and manual are read-only."
 )
 
 

@@ -667,7 +667,14 @@ class TestMissionQualityGate:
         desc = get_description("en")
         schema = get_schema("en")
         assert "avatar-manual" in desc
+        assert "Before the first spawn, call avatar(action='manual'" in desc
         assert "WARNING" not in desc
+        manual = (
+            Path(__file__).parents[1] / "src/lingtai/tools/avatar/manual/SKILL.md"
+        ).read_text(encoding="utf-8")
+        assert "Before the first spawn" in manual
+        assert "reference/spawn.md" in manual
+        assert "reference/lifecycle.md" in manual
         spawn_props = {
             b["title"]: b for b in schema["properties"]["input"]["anyOf"]
         }["spawn input"]["properties"]
