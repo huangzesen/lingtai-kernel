@@ -217,7 +217,12 @@ disclosure, and fail-loud mismatch reports; do not duplicate that rule here.
   invokes the generator and the publisher (always with `--skip-gitee`;
   no path in that workflow touches Gitee) with `--execute` on a real
   `release.published` event (or an explicit `workflow_dispatch` with
-  `publish: true`) — every other trigger shape stays dry-run.
+  `publish: true`) — every other trigger shape stays dry-run. Only after that
+  publish step actually executes, the job's "Notify lingtai-web download
+  mirror" step dispatches a `repository_dispatch` to `Lingtai-AI/lingtai-web`
+  so it can mirror the same bytes for download acceleration (see
+  `RELEASING.md` "Download-mirror dispatch"); this never runs on a dry run
+  and never touches the GitHub release itself.
 - [`.github/`](.github/) — GitHub Actions, issue templates, and pull request
   templates. `workflows/wheels.yml` is the release build/verify/manifest
   pipeline; `kernel-windows-pr.yml` and `shell-windows-pr.yml` are the native
