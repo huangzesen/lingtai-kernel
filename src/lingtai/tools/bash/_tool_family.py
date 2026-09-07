@@ -258,17 +258,16 @@ def get_description(
     )
     return (
         f"Execute a shell command and return stdout/stderr. Active shell dialect: {dialect}.{shell_prose}{host} "
-        "The dialect and host OS are detected at setup time; calls cannot choose them. Any system program — scripts, git, curl, pip, data pipelines. "
-        "shell(action='run', input={'command': '...'}, reasoning='...') executes a command; "
-        "shell(action='poll', input={'job_id': '...'}, reasoning='...') checks an async job; "
-        "shell(action='cancel', input={'job_id': '...'}, reasoning='...') kills an async job; "
-        "shell(action='settings', input={}, reasoning='...') shows applied Shell settings; "
-        "shell(action='manual', input={}, reasoning='...') returns the installed shell-manual skill. "
-        "Returns exit_code, stdout, stderr, plus ok (bool) and command_status ('success'/'failed'). IMPORTANT: top-level status stays 'ok' even when the command FAILS — it only means the shell ran. "
-        "Always check exit_code/ok and read the warning field (it names nonzero exits, Python tracebacks, and missing modules); never assume success from status alone. "
-        "Avoid broad recursive scans (find … -name, rglob, os.walk, glob('**')) — they time out; prefer `rg --files`. Parse JSONL line-by-line, not as one JSON blob. "
-        "Supports async mode (input.async=true → job_id, then poll/cancel). Before ordinary shell work, read the manual — it covers async hygiene and advanced usage; no exceptions. "
-        "On Windows, sync runs are contained in a kill-on-close Job Object: a background process started by a sync command (e.g. Start-Process with redirected output) is terminated when the command completes — use input.async=true for work that must outlive the command."
+        "The dialect and host OS are detected at setup time; calls cannot choose them. Any system program — scripts, git, curl, pip, or data pipelines. "
+        "Before ordinary shell work, read the manual: shell(action='manual', input={}, reasoning='...'). "
+        "For a first call use shell(action='run', input={'command': '...'}, reasoning='...'); "
+        "async runs return a job_id for shell(action='poll', input={'job_id': '...'}, reasoning='...') or "
+        "shell(action='cancel', input={'job_id': '...'}, reasoning='...'). "
+        "For read-only current settings use shell(action='settings', input={}, reasoning='...'). "
+        "Completed results include exit_code, ok, command_status ('success'/'failed'), and possibly warning. "
+        "The top-level status only says the shell spawned the command, even when it fails; always check exit_code/ok and warning. "
+        "Sync runs honor the timeout ceiling; on Windows a kill-on-close Job Object terminates surviving descendants, so use input.async=true for work that must outlive the command. "
+        "Prefer `rg --files` over broad recursive scans and parse JSONL line-by-line. See the manual references for async lifecycle, wakeups, and scheduling."
     )
 
 
