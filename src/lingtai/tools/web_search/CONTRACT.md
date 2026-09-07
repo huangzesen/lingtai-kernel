@@ -15,7 +15,6 @@ related_files:
   - src/lingtai/adapters/tool_plugin_host.py
   - tests/test_web_official_plugin.py
   - tests/test_web_composition_port.py
-  - tests/test_web_progressive_disclosure.py
   - tests/test_web_settings_action.py
   - src/lingtai/tools/browser/core.py
   - src/lingtai/tools/browser/port.py
