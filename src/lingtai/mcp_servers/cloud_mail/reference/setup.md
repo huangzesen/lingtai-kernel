@@ -73,11 +73,12 @@ List/search/read/poll and `add_user` use an admin-minted public token from
 `POST /public/genToken`; the token is sent as the raw `Authorization` value,
 not as `Bearer ...`. `send` logs in with the configured user credentials via
 `POST /login` and sends with the returned raw user JWT. The client caches each
-token and refreshes it once after a 401/403 response. The Cloud Mail envelope
-must carry `code: 200`; non-JSON responses and non-200 codes become
-`CloudMailError` results. Transport exceptions are surfaced as bounded manager
-error results with their native `error_type`; neither path should log
-credentials or full auth headers.
+token and refreshes it once after an HTTP-status 401/403 response. The Cloud
+Mail envelope must carry `code: 200`; non-JSON responses and non-200 envelope
+codes become `CloudMailError` results without entering that HTTP-status retry
+path. Transport exceptions are surfaced as bounded manager error results with
+their native `error_type`; neither path should log credentials or full auth
+headers.
 
 User credentials are optional: public read/search/check/poll actions can work
 without them, while `send` returns a clear error. Admin credentials remain

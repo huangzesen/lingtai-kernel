@@ -59,9 +59,10 @@ new account and role before calling it. Neither action is a dry run.
 
 ## Results and result size
 
-Successful manager actions use `status: "ok"`; provider or validation failures
-use an error result. Inspect status and the error text rather than assuming a
-send or administrative mutation succeeded.
+Successful manager actions use `status: "ok"`; family or settings validation
+failures use `status: "failed"`, while provider or transport failures use an
+error result. Inspect status and the error text rather than assuming a send or
+administrative mutation succeeded.
 
 `check`, `search`, and `read` can return bulky listings or full bodies. Keep
 exact ids, addresses, and verbatim body text whenever later actions depend on
