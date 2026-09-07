@@ -434,6 +434,7 @@ related_files:
   - tests/test_web_composition_port.py
   - tests/test_web_official_plugin.py
   - tests/test_web_output_spill.py
+  - tests/test_web_progressive_disclosure.py
   - tests/test_web_search_capability.py
   - tests/test_wechat_config_resolution.py
   - tests/test_wechat_inbound_replay.py

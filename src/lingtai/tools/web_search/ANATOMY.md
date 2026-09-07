@@ -10,11 +10,13 @@ related_files:
   - src/lingtai/tools/web_search/settings.py
   - src/lingtai/tools/web_search/_spill.py
   - src/lingtai/tools/web_search/manual/SKILL.md
+  - src/lingtai/tools/web_search/manual/reference/operation-contract.md
   - ENVIRONMENT_VARIABLES.md
   - src/lingtai/kernel/tool_plugin/ANATOMY.md
   - src/lingtai/adapters/tool_plugin_host.py
   - tests/test_web_official_plugin.py
   - tests/test_web_composition_port.py
+  - tests/test_web_progressive_disclosure.py
   - tests/test_web_settings_action.py
   - src/lingtai/tools/browser/ANATOMY.md
   - src/lingtai/tools/browser/core.py
@@ -157,12 +159,13 @@ implementations, read-only settings resolution, and diagnostics.
 - `SearchService` adapters — provider implementations behind the internal
   service boundary (`src/lingtai/services/websearch/__init__.py:20-70`).
 - `manual/SKILL.md` — sole installed `web-manual` route
-  (`src/lingtai/tools/web_search/manual/SKILL.md:1-91`). It progressively
+  (`src/lingtai/tools/web_search/manual/SKILL.md:1-239`). It progressively
   discloses into three sidecar trees, all packaged and all enumerated in
-  `related_files`: `manual/reference/*.md` (per-tier extraction guides
-  `tier-0-pdf` … `tier-5-ai-search`, plus the strategy/domain notes
-  `academic-pipeline`, `agent-native-browser`, `news-and-rss`, `realtime-data`,
-  `search-strategies`, `social-media`, `stealth`, and `migration-from-v2`),
+  `related_files`: `manual/reference/*.md` (the detailed public
+  `operation-contract`, per-tier extraction guides `tier-0-pdf` …
+  `tier-5-ai-search`, plus the strategy/domain notes `academic-pipeline`,
+  `agent-native-browser`, `news-and-rss`, `realtime-data`, `search-strategies`,
+  `social-media`, `stealth`, and `migration-from-v2`),
   the nested sub-skills `manual/reference/{maintenance-bundles,
   routing-and-sites,tier-quick-refs}/SKILL.md`, `manual/assets/*.json`
   (provider, selector, endpoint, regex, pipeline, and site-template data), and

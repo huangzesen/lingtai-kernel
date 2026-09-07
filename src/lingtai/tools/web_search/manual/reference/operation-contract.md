@@ -78,13 +78,14 @@ web(action="browse", input={
 }, reasoning="read the selected source")
 ```
 
-A browse request must use a public HTTP(S) URL, a same-Agent `link_ref`, or an
-existing same-Agent `cursor`; do not invent references or use a private,
-non-HTTP, local, or credential-bearing URL. `link_ref` resolves the URL recorded
-by this Agent's search/browse state. `cursor` is only a compatibility locator
-for an already fetched cached snapshot: it does not refetch the page and does
-not mean that another partial page should be requested. A fresh fetch and a
-cursor continuation both deliver the complete extracted document for that
+A browse request must supply exactly one public HTTP(S) URL or same-Agent
+`link_ref`; do not invent references or use a private, non-HTTP, local, or
+credential-bearing URL. `link_ref` resolves the URL recorded by this Agent's
+search/browse state. A same-Agent `cursor` may accompany that same URL/reference
+as a compatibility locator for an already fetched cached snapshot, but it is
+not a third target and cursor-only input fails `INVALID_TARGET`. The cursor does
+not refetch the page or request another partial page. A fresh fetch and a
+cursor-bearing call both deliver the complete extracted document for that
 fetch. A fresh success never mints `next_cursor`.
 
 Browse is a static, read-only, SSRF-vetted HTTP(S) GET. It preserves links,
@@ -231,15 +232,25 @@ distinct `SettingsOnlyProviderError`; MiniMax/Zhipu are retired and raise
 `RetiredProviderError`. No provider credential or selection can be inferred
 from another Agent service.
 
-Only a typed `OpenAISearchError` triggers automatic fallback: exactly one
-DuckDuckGo attempt. A successful fallback reports the selected OpenAI engine,
-`actual_engine: "duckduckgo"`, a comment, and bounded
+With no explicit operator default, the built-in selector chooses canonical
+OpenAI only when its admitted spec is genuinely available; otherwise it chooses
+DuckDuckGo when composed, or no default when neither is usable. Anthropic and
+Gemini are never selected as the built-in default.
+
+Only a typed `OpenAISearchError` triggers an automatic **runtime retry**:
+exactly one DuckDuckGo attempt. A successful retry reports the selected OpenAI
+engine, `actual_engine: "duckduckgo"`, a comment, and bounded
 `openai_failure_class`; if DuckDuckGo fails, return `SEARCH_FAILED` with both
 bounded failure classes. Typed Anthropic/Gemini failures, other provider
-failures, and manager/programming exceptions fail without fallback; raw SDK
-text, request bodies, credentials, and exception details never enter the
-result. A genuinely successful provider response with no results is `[]`, not
-an error.
+failures, and manager/programming exceptions fail without retry; raw SDK text,
+request bodies, credentials, and exception details never enter the result. A
+genuinely successful provider response with no results is `[]`, not an error.
+
+Separate from that runtime retry, the retained composition compatibility path
+maps a genuinely unrecognized/inherited legacy provider name to one
+DuckDuckGo spec tagged with `legacy_fallback_from`. This happens before a search
+call and performs no failed-provider attempt. Deliberately retired MiniMax or
+Zhipu names instead raise `RetiredProviderError`; they never use this mapping.
 
 ## One explicit legacy fallback and public boundary
 

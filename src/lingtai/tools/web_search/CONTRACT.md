@@ -10,10 +10,12 @@ related_files:
   - src/lingtai/tools/web_search/settings.py
   - src/lingtai/tools/web_search/_spill.py
   - src/lingtai/tools/web_search/manual/SKILL.md
+  - src/lingtai/tools/web_search/manual/reference/operation-contract.md
   - src/lingtai/kernel/tool_plugin/CONTRACT.md
   - src/lingtai/adapters/tool_plugin_host.py
   - tests/test_web_official_plugin.py
   - tests/test_web_composition_port.py
+  - tests/test_web_progressive_disclosure.py
   - tests/test_web_settings_action.py
   - src/lingtai/tools/browser/core.py
   - src/lingtai/tools/browser/port.py

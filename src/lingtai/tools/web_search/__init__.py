@@ -145,15 +145,15 @@ _BROWSE_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "url": {
             "type": ["string", "null"],
-            "description": "Public HTTP(S) URL; use null with link_ref or cursor.",
+            "description": "Public HTTP(S) URL; null only when link_ref is supplied.",
         },
         "link_ref": {
             "type": ["string", "null"],
-            "description": "Same-Agent search reference; null when unused.",
+            "description": "Same-Agent search reference; null only when URL is supplied.",
         },
         "cursor": {
             "type": ["string", "null"],
-            "description": "Same-Agent continuation cursor; null when unused.",
+            "description": "Continuation cursor for that URL/link_ref; null when unused.",
         },
         "extract": {
             "type": ["string", "null"],
@@ -209,9 +209,11 @@ def _schema_only_family() -> ToolFamily:
 
 def get_description(lang: str = "en") -> str:
     return (
-        "Web search current sources, then browse a returned link_ref or public HTTP(S) URL. "
-        "Use settings(input={}) for read-only configuration and manual(input={}) for procedures; "
-        "browse unused optionals are JSON null and complete content is inline or a full artifact."
+        "Search current sources with web(action='search', input={'query':'...'}), then browse a "
+        "returned link_ref or public HTTP(S) URL with web(action='browse', input={...}). Use "
+        "web(action='settings', input={}) for read-only config and web(action='manual', input={}) "
+        "for procedures; browse optionals are JSON null when unused and complete content is inline "
+        "or a full artifact."
     )
 
 

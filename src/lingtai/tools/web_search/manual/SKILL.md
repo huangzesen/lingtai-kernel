@@ -78,13 +78,13 @@ web(action="browse", input={
 }, reasoning="read the selected source")
 ```
 
-Use only a public HTTP(S) URL, a same-Agent `link_ref`, or an existing
-same-Agent `cursor`; do not invent references or pass private/local URLs. A
-cursor locates an already-fetched snapshot and does not request another page.
-Fresh and cursor-based calls deliver the complete document, never a first-page
-prefix, and a fresh success never mints `next_cursor`. Browse is static,
-read-only, SSRF-vetted HTTP(S) GET: no JavaScript, PDF, login, cookies, forms,
-or hidden search fallback. Complete output is inline or a full artifact when
+Supply exactly one public HTTP(S) URL or same-Agent `link_ref`; do not invent
+references or pass private/local URLs. A same-Agent `cursor` may accompany that
+same URL/reference to locate an already-fetched snapshot, but it is not a third
+target and never works by itself. Fresh and cursor-bearing calls deliver the
+complete document, never a first-page prefix, and a fresh success never mints
+`next_cursor`. Browse is static, read-only, SSRF-vetted HTTP(S) GET: no
+JavaScript, PDF, login, cookies, forms, or hidden search fallback. Complete output is inline or a full artifact when
 the threshold is exceeded; it is never silently truncated. See
 [reference/operation-contract.md](reference/operation-contract.md#action-envelope-and-first-call-rules).
 
@@ -104,57 +104,93 @@ contract is in [operation-contract.md](reference/operation-contract.md#settings-
 
 #### provider
 
-Startup snapshot of singular flat provider composition, not the engine chosen
-for one search. `automatic` is its meaningful default; multi-engine composition
-is `null`. Change it only through authorized setup/manifest composition.
+`provider` is the startup snapshot of Web's singular flat provider
+composition, not the engine selected for one search. Its default is
+`automatic`; multi-engine or injected-service composition reports `null`
+because it has no singular flat provider fact. An authorized owner changes the
+existing Web `setup(..., provider=...)` or manifest capability composition,
+then rebuilds or relaunches Web and verifies with another SHOW. There is no
+parallel `LINGTAI_WEB_PROVIDER` source. Provider identity is public
+configuration and grants no backend eligibility or credentials.
 
 #### model
 
-Startup snapshot of the flat model choice. `provider-default` is the meaningful
-fallback; multi-engine composition is `null`. Change it through the existing
-authorized setup/manifest procedure.
+`model` is the startup snapshot of the singular flat provider's `model=`
+choice. The meaningful fallback is `provider-default`; composition without a
+singular model reports `null`. An authorized owner changes the existing Web
+setup/manifest composition, rebuilds or relaunches the capability, and verifies
+with SHOW. There is no `LINGTAI_WEB_MODEL` source. A model name is public and
+does not install or authorize a provider.
 
 #### api-key
 
-Private setup/launcher route; both values are redacted. There is no generic
-Web API-key setting or SHOW writer. Never put secrets in calls, prompts,
-reports, or settings files.
+`api_key` is the startup snapshot of the flat `api_key=`/`api_key_env=`
+composition route. Its current and default are always redacted and there is no
+meaningful public default. An authorized owner updates the existing private
+launcher/secret-store or Web composition and rebuilds or relaunches the
+capability; there is no generic `LINGTAI_WEB_API_KEY` source. Never put a secret
+in a tool call, report, prompt, or settings JSON. Verify only the redacted row.
 
 #### engines
 
-Sorted names admitted by immutable composition. The no-config set is
-`anthropic`, `duckduckgo`, `gemini`, and `openai`; admission does not mean an
-engine is usable. Change it only through authorized composition.
+`engines` is the sorted startup snapshot of names admitted by this Agent's
+immutable Web composition. The no-config default is exactly `anthropic`,
+`duckduckgo`, `gemini`, and `openai`. There is no map/blob environment variable
+or settings document. An authorized owner changes the existing `engines=` or
+manifest composition, rebuilds or relaunches Web, and verifies the public name
+list with SHOW. Admission is not proof that every engine is currently usable.
 
 #### search-engine
 
-Hot precedence is `LINGTAI_WEB_ENGINE`, then
-`settings/web.search.json`, then the composed fallback. This strict v1 file
-selects one admitted engine; it does not install providers or carry credentials.
-Browse and manual never read it.
+`search.engine` is the hot effective search selector. It accepts one bounded
+name already present in `engines`; Anthropic/Gemini retain the canonical-backend
+eligibility rule in the operation reference. Precedence is `LINGTAI_WEB_ENGINE`,
+then the exact `settings/web.search.json` document, then the composed runtime
+fallback. That fallback is the row's `default` (or `null` when none is
+meaningful). Sources are read for every search and SHOW. An authorized owner
+changes the launcher environment or edits the exact document through an
+existing File/Shell/operator procedure; the next search and a second SHOW
+observe it. SHOW itself never writes the file. Browse and manual never read it.
 
 #### output-max-chars
 
-Shared search/browse inline-versus-artifact threshold: `LINGTAI_WEB_MAX_CHARS`,
-then `settings/web.json`, then `50000`. Values are integers `1..100000`; a
-browse `input.max_chars` overrides one call only. Manual never reads this file.
+`output.max_chars` is the shared search/browse inline-versus-artifact threshold.
+Accepted values are integers `1..100000` (the environment form is an integer
+string). Precedence is `LINGTAI_WEB_MAX_CHARS`, then the exact
+`settings/web.json` document, then `50000`; Browse's per-call `input.max_chars`
+overrides one browse only and does not change this row. Sources are read for
+every applicable operation and SHOW. An authorized owner changes the launcher
+environment or edits the exact document, then verifies with a second SHOW.
+Output tuning grants no access and complete content remains inline or in the
+canonical artifact. Manual never reads this file.
 
 #### openai-api-key
 
-Redacted OpenAI credential route; canonical no-config selection reads
-`OPENAI_API_KEY`. Change only through the authorized private launcher,
-secret-store, or engine-composition procedure.
+`credentials.openai_api_key` is the active credential route for the admitted
+OpenAI engine. Both values are always redacted and there is no public default.
+Before lazy service construction, SHOW reflects the declared route the next
+selection consumes; afterward it reflects the cached service snapshot. The
+canonical no-config engine uses `OPENAI_API_KEY`. An authorized owner updates
+the existing private launcher/secret-store or engine composition and performs
+any required rebuild/relaunch, then verifies only the redacted row.
 
 #### anthropic-api-key
 
-Redacted Anthropic route; canonical no-config selection reads
-`ANTHROPIC_API_KEY`. This never bypasses settings-only selection or canonical
-backend identity.
+`credentials.anthropic_api_key` follows the same lifecycle for the admitted
+Anthropic engine; the canonical no-config route uses `ANTHROPIC_API_KEY`. Both
+values are always redacted, there is no public default, and this setting does
+not bypass canonical-backend eligibility. Use the same authorized private
+launcher/secret-store or engine-composition procedure, perform any required
+rebuild/relaunch, and verify only redaction.
 
 #### gemini-api-key
 
-Redacted Gemini route; canonical no-config selection reads `GEMINI_API_KEY`.
-This never bypasses settings-only selection or canonical backend identity.
+`credentials.gemini_api_key` follows the same lifecycle for the admitted Gemini
+engine; the canonical no-config route uses `GEMINI_API_KEY`. Both values are
+always redacted, there is no public default, and this setting does not bypass
+canonical-backend eligibility. Use the same authorized private
+launcher/secret-store or engine-composition procedure, perform any required
+rebuild/relaunch, and verify only redaction.
 
 Load the complete installed guidance with:
 
