@@ -1,5 +1,7 @@
 """Tests for async mode of the bash capability."""
 import json
+import os
+import signal
 import subprocess
 import sys
 import threading
@@ -869,6 +871,61 @@ print(json.dumps(manager.handle({
         assert store.writes == 1
 
 
+def _wait_for_file(path: Path, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while not path.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return path.exists()
+
+
+def _observe_single_process(pid: int) -> dict | None:
+    """Observe exactly one PID: parent, process group, start time, command."""
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "ppid=,pgid=,lstart=,command=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=2, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    fields = result.stdout.strip().split(None, 7)
+    if result.returncode != 0 or len(fields) < 7:
+        return None
+    return {
+        "ppid": int(fields[0]), "pgid": int(fields[1]),
+        "started": " ".join(fields[2:7]),
+        "command": fields[7] if len(fields) > 7 else "",
+    }
+
+
+def _reap_owned_descendant(tmp_path: Path, marker: str) -> None:
+    """Test-owned teardown (issue #943): reap only the TERM-ignoring descendant
+    this invocation launched, after proving it is that exact process.  TERM, a
+    bounded grace, KILL only if the identical process survived, then a bounded
+    wait for the outer shell's own reap.  Only this one PID is observed or
+    signalled, and nothing here raises over the test's own failure.
+    """
+    _wait_for_file(tmp_path / "descendant.ready", 2.0)
+    pid_file = tmp_path / "descendant.pid"
+    pid = int(pid_file.read_text().strip() or 0) if pid_file.exists() else 0
+    claimed = _observe_single_process(pid) if pid else None
+    # Ownership: this invocation's marker is on the command line and the parent
+    # is the job's own group leader (the outer shell).  Every later check
+    # requires the identical observation (parent, group, start time, command),
+    # so a reused PID is never signalled.
+    if not (claimed and marker in claimed["command"] and claimed["ppid"] == claimed["pgid"]):
+        return
+    for sig, grace in ((signal.SIGTERM, 0.5), (signal.SIGKILL, 2.0)):
+        try:
+            os.kill(pid, sig)
+        except OSError:
+            return
+        deadline = time.monotonic() + grace
+        while time.monotonic() < deadline:
+            if _observe_single_process(pid) != claimed:
+                return
+            time.sleep(0.02)
+
+
 class TestBashAsyncTerminalRaces:
     """Deterministic coverage for durable terminal/cancellation linearization."""
 
@@ -963,36 +1020,73 @@ class TestBashAsyncTerminalRaces:
 
     def test_outer_shell_exit_does_not_leave_term_ignoring_descendant(self, tmp_path):
         manager = self._manager(tmp_path)
+        # A no-op marker on the inner shell's own command line ties that exact
+        # process to this invocation for the test-owned teardown below.
+        marker = f"lingtai-943-{os.urandom(8).hex()}"
         started = manager.handle({
             "command": (
-                "sh -c 'trap \"\" TERM; echo $$ > descendant.pid; "
+                f"sh -c ': {marker}; trap \"\" TERM; echo $$ > descendant.pid; "
                 ": > descendant.ready; while :; do sleep 1; done' & wait $!"
             ),
             "async": True,
             "reminder": 30,
         })
-        descendant_file = tmp_path / "descendant.pid"
-        descendant_ready = tmp_path / "descendant.ready"
-        deadline = time.monotonic() + 2
-        while not descendant_ready.exists() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        # The child writes this acknowledgement only after installing its ignored-
-        # TERM trap, so cancellation necessarily exercises the intended survivor.
-        assert descendant_ready.exists()
-        assert descendant_file.exists()
-        descendant_pid = int(descendant_file.read_text().strip())
+        # From here on this test owns a TERM-ignoring descendant; every exit
+        # path (assertion failure, interruption, normal) reaps that exact child.
+        try:
+            descendant_file = tmp_path / "descendant.pid"
+            # The child writes this acknowledgement only after installing its
+            # ignored-TERM trap, so cancellation necessarily exercises the
+            # intended survivor.
+            assert _wait_for_file(tmp_path / "descendant.ready", 2.0)
+            assert descendant_file.exists()
+            descendant_pid = int(descendant_file.read_text().strip())
 
-        cancelled = manager.handle({"action": "cancel", "job_id": started["job_id"]})
-        assert cancelled == {"status": "cancelled", "job_id": started["job_id"]}
+            cancelled = manager.handle({"action": "cancel", "job_id": started["job_id"]})
+            assert cancelled == {"status": "cancelled", "job_id": started["job_id"]}
+            deadline = time.monotonic() + 2
+            while _posix_process_is_alive(descendant_pid) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert not _posix_process_is_alive(descendant_pid)
+            state = json.loads(
+                (tmp_path / "system" / "jobs" / started["job_id"] / "state.json").read_text()
+            )
+            assert state["exit_status_known"] is True
+            assert state["cancellation_outcome"] == "group_cancelled"
+        finally:
+            _reap_owned_descendant(tmp_path, marker)
+
+    def test_pre_cancel_failure_reaps_term_ignoring_descendant(self, tmp_path, monkeypatch):
+        # Regression for Lingtai-AI/lingtai#943: a failure after the sibling test
+        # launched its TERM-ignoring descendant but before its cancel must not
+        # leak that exact child, and the (here injected) cancel path must never
+        # be the cleanup mechanism.
+        real_handle = BashManager.handle
+
+        def fail_before_cancel(manager, args):
+            if args.get("action") == "cancel":
+                raise AssertionError("injected pre-cancel failure")
+            return real_handle(manager, args)
+
+        monkeypatch.setattr(BashManager, "handle", fail_before_cancel)
+        with pytest.raises(AssertionError, match="injected pre-cancel failure"):
+            self.test_outer_shell_exit_does_not_leave_term_ignoring_descendant(tmp_path)
+
+        descendant_pid = int((tmp_path / "descendant.pid").read_text().strip())
         deadline = time.monotonic() + 2
         while _posix_process_is_alive(descendant_pid) and time.monotonic() < deadline:
             time.sleep(0.01)
         assert not _posix_process_is_alive(descendant_pid)
-        state = json.loads(
-            (tmp_path / "system" / "jobs" / started["job_id"] / "state.json").read_text()
-        )
-        assert state["exit_status_known"] is True
-        assert state["cancellation_outcome"] == "group_cancelled"
+        # With the descendant gone, the outer shell's wait returns and the
+        # supervisor records the job's terminal outcome on its own.
+        (job_dir,) = (tmp_path / "system" / "jobs").iterdir()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            state = json.loads((job_dir / "state.json").read_text())
+            if state["exit_status_known"]:
+                break
+            time.sleep(0.05)
+        assert state["exit_status_known"] is True, state
 
     def test_owned_parent_reaper_terminalizes_early_supervisor_exit(self, tmp_path):
         manager = self._manager(tmp_path)
