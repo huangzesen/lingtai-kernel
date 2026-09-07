@@ -14,9 +14,10 @@ aliases; schema prose is canonical English, language-independent.
 
 The migration moved the six pre-migration flat sibling fields (``reason``,
 ``address``, ``preset``, ``revert_preset``, ``rebuild``, ``items``) into the
-``input`` object of exactly the actions that read them. Their descriptions,
-types, and defaults are carried over verbatim; no action was added, removed,
-renamed, or reordered, and no field changed meaning.
+``input`` object of exactly the actions that read them. Their types, defaults,
+and meanings are unchanged; model-visible descriptions are kept concise and
+route operational depth to ``system-manual``. No action was added, removed,
+renamed, or reordered.
 
 Two fields deserve a note because they are not a straight carry-over of the
 pre-migration *schema*:
@@ -51,7 +52,7 @@ from .plugin import SYSTEM_DECLARED_ACTIONS
 # ``settings`` immediately before ``manual`` in the final model-facing family.
 ACTION_ORDER = (*SYSTEM_DECLARED_ACTIONS, "manual")
 
-# --- Shared field descriptions, carried over verbatim from the flat schema ---
+# --- Concise descriptions for shared fields with unchanged runtime meaning ---
 
 _REASON_DESCRIPTION = (
     "Optional reason, recorded in the event log; for clear it becomes the "
@@ -76,7 +77,7 @@ _REVERT_PRESET_DESCRIPTION = (
 
 _FORCE_DESCRIPTION = (
     "Sleep despite pending notifications. The default false refuses the "
-    "transition; use true only when that mail is intentionally deferred."
+    "transition; use true only when that pending attention is intentionally deferred."
 )
 
 def _address_input_schema() -> dict[str, Any]:
@@ -196,9 +197,9 @@ INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     "manual": MANUAL_INPUT_SCHEMA,
 }
 
-# The per-action prose the model reads to choose an action. Carried over
-# verbatim from the pre-migration flat ``action`` enum description, with the
-# argument references restated in the ``input`` shape they now take.
+# Concise per-action prose the model reads to choose an action. Runtime meaning
+# and argument ownership stay unchanged; operational depth routes to
+# ``system-manual`` instead of remaining in the resident declaration.
 ACTION_ENUM_DESCRIPTION = (
     "Choose one action; put only that action's fields in input.\n\n"
     "refresh: reload the existing runtime from init.json; optional preset is "
@@ -210,7 +211,7 @@ ACTION_ENUM_DESCRIPTION = (
     "alarm for async work without one.\n\n"
     "lull: put another agent to sleep (karma).\n"
     "suspend: stop another agent (karma).\n"
-    "cpr: resuscitate another agent (karma).\n"
+    "cpr: resuscitate a suspended or stopped agent (karma).\n"
     "interrupt: cancel another agent's turn (karma).\n"
     "clear: force another agent's molt (karma).\n"
     "nirvana: permanently destroy another agent (karma + nirvana privilege); "

@@ -8,8 +8,8 @@ description: |
   consistency, newly introduced env vars, context-vs-target-context_limit,
   durable-store and working-tree state, source_drift, and what to check when
   a refresh fails or comes back with a broken surface.
-version: 1.1.2
-last_changed_at: "2026-09-05T00:00:00Z"
+version: 1.1.3
+last_changed_at: "2026-09-07T00:00:00Z"
 tags: [lingtai, system, refresh, preset, precheck, checklist, mcp, env, pth, editable-install, verification, lifecycle]
 related_files:
 - src/lingtai/intrinsic_skills/system-manual/SKILL.md
@@ -148,9 +148,9 @@ how you get a broken surface with no easy way back); the `mcp` block names an en
 no corresponding registry record (stale/duplicate surface); or `mcp(action="info")`
 reports `problems` you have not explained. Fix the config *first*, then refresh once.
 
-Remember the direction of causation: **a config/prompt/MCP/capability edit needs
-`refresh` to take effect. `context(action="summarize")` never applies config and is not
-a refresh substitute.**
+Remember the direction of causation: **a config/MCP/capability edit needs
+`refresh` to take effect. A canonical prompt-source edit may instead use
+`context(action="rebuild")`; `context(action="summarize")` only records summaries.**
 
 ### Step 4 — Preset target validity (trigger: `preset` or `revert_preset` in the call)
 
@@ -177,8 +177,7 @@ The cache-miss total accumulates **since last molt and survives a refresh** —
 refreshing does not reset it, so do not expect this precheck's refresh to clear
 it. Inspect the live value through `system(action="settings", input={})`; see
 `reference/settings-inventory/SKILL.md` → "Cache-miss budget" for its exact
-source precedence and document shape. The owner is `settings/system.json`, the
-fixed fallback is the `2,000,000` default, and Legacy `manifest.cache_miss_budget` is ignored.
+source precedence and document shape.
 
 ### Step 6 — Newly introduced environment variables (trigger: the change adds an env read)
 
@@ -242,21 +241,27 @@ ls -l .notification/nudge.json 2>/dev/null && sed -n '1,240p' .notification/nudg
 **Exactly one call.** Do not stack refreshes; do not "refresh again to be sure."
 
 ```text
-system(action="refresh", input={"reason": "<what config change this applies>"},
+system(action="refresh",
+       input={"reason": "<what config change this applies>",
+              "preset": null, "revert_preset": null},
        reasoning="apply the authorized <X> edit")
 ```
 
 or, for a swap:
 
 ```text
-system(action="refresh", input={"preset": "<exact path from system(action='presets')>"},
+system(action="refresh",
+       input={"reason": null,
+              "preset": "<exact path from system(action='presets')>",
+              "revert_preset": null},
        reasoning="swap to <preset> for <task>")
 ```
 
 or, to go home:
 
 ```text
-system(action="refresh", input={"revert_preset": true},
+system(action="refresh",
+       input={"reason": null, "preset": null, "revert_preset": true},
        reasoning="return to default preset after experimenting")
 ```
 
@@ -305,7 +310,7 @@ is success** — diagnose before believing the refresh happened.
 | Preset swap refused | Was the path in `system(action="presets")` output? Does current context fit the target `context_limit`? | Unauthorized path → ask the config owner to add it to `manifest.preset.allowed`, then refresh, then re-verify with `presets`. Context too large → molt first. |
 | Broken/missing MCP surface after refresh | `mcp(action="info")` `problems` list; `init.json` `mcp` block vs. `mcp_registry.jsonl` records | Fix the registry/config, then refresh **once** more. Do not loop refreshes against an unfixed config. |
 | Active preset file missing or malformed | Which one? | Missing → materialization may fall back to a different loadable default (so the running preset may not be the one you think). Malformed **existing active** preset → materialization fails rather than silently substituting. Read `system/manifest.resolved.json` to see what actually loaded. |
-| Wrong preset is live and you want out | — | `system(action="refresh", input={"revert_preset": true})` — the home button to `manifest.preset.default`. Cannot be combined with `preset`. |
+| Wrong preset is live and you want out | — | `system(action="refresh", input={"reason": null, "preset": null, "revert_preset": true})` — the home button to `manifest.preset.default`. Cannot be combined with `preset`. |
 | Terminal relaunch failure | `logs/refresh_failed_permanent.json` and the high-priority `.notification/system.json` event the kernel writes on permanent relaunch failure | This is a human-escalation condition, not a retry condition. |
 | Mixed/contradictory evidence (offline? stale paths? heartbeat vs. status disagree?) | `lingtai-doctor` — read-only, redacts secrets, never edits | Diagnose before repair; repairs belong to the owning manual. |
 
@@ -374,7 +379,9 @@ trigger.
 1. system(action="presets", input={}, reasoning="read the allowed-only catalog")
 2. # If the path you want is absent, it is NOT authorized (allowed-catalog
    #   mechanics: substrate-manual §11). Ask the config owner to add it, then:
-   system(action="refresh", input={"reason": "pick up new allowed preset entry"},
+   system(action="refresh",
+          input={"reason": "pick up new allowed preset entry",
+                 "preset": null, "revert_preset": null},
           reasoning="apply the config owner's allowed-list edit")
 3. system(action="presets", input={}, reasoning="confirm the new path is now listed")
 4. # Pass the EXACT path from step 3 as tasks[].preset — not the pre-authorization

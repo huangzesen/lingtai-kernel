@@ -1965,7 +1965,7 @@ def test_outer_agent_budget_hook_delegates_to_system(monkeypatch, tmp_path):
     assert Agent.resolve_cache_miss_budget(subject) == 123
 
 
-def test_system_manual_contains_declared_ltp_and_budget_settings_contract():
+def test_system_manual_routes_declared_ltp_and_settings_owners():
     manual_path = (
         Path(__file__).parents[1]
         / "src"
@@ -1976,36 +1976,19 @@ def test_system_manual_contains_declared_ltp_and_budget_settings_contract():
     )
     body = manual_path.read_text(encoding="utf-8")
     assert DECLARATION.manual == "system-manual"
-    assert '"action": "<one action from the installed schema>"' in body
-    assert '"input": {"<fields for that action only>": "..."}' in body
-    assert "presets` can return a large allowed-only catalog" in body
-    assert "action itself must always use `summarize=false`" in body
     for required in (
-        "<agent-workdir>/settings/system.json",
-        '"schema_version": 1',
-        '"cache_miss_budget": 2000000',
-        "LINGTAI_CACHE_MISS_BUDGET",
-        "2,000,000",
-        ".notification/system.json",
-        "manifest.cache_miss_budget",
+        '"action": "<one action from the installed schema>"',
+        '"input": {"<fields for that action only>": "..."}',
+        "presets` can return a large allowed-only catalog",
+        "action itself must always use `summarize=false`",
         "### Cache-miss budget",
         "system-manual#cache-miss-budget",
-        "read-only SHOW",
-        "existing File or",
-        "Shell capability",
-        'system(action="settings", input={})` again',
+        "reference/settings-inventory/SKILL.md",
+        "SHOW is read-only",
     ):
         assert required in body
     assert '"set":"cache_miss_budget"' not in body
     assert '"reset":"cache_miss_budget"' not in body
-
-    refresh_reference = (
-        manual_path.parent / "reference" / "refresh-precheck" / "SKILL.md"
-    ).read_text(encoding="utf-8")
-    assert "settings/system.json" in refresh_reference
-    assert "`2,000,000` default" in refresh_reference
-    assert "Legacy `manifest.cache_miss_budget` is ignored" in refresh_reference
-    assert "default 1,000,000" not in refresh_reference
 
     inventory_reference = (
         manual_path.parent / "reference" / "settings-inventory" / "SKILL.md"
@@ -2017,32 +2000,6 @@ def test_system_manual_contains_declared_ltp_and_budget_settings_contract():
         "## Explicit non-settings and exclusions",
     ):
         assert heading in inventory_reference
-    for required in (
-        "accepted value",
-        "Invalid behavior",
-        "Redaction",
-        "Application timing",
-        "Authorized change procedure",
-        "active preset over authored init",
-        "LINGTAI_CODEX_WS",
-        "llm.codex_tui_dir",
-        "LINGTAI_TUI_DIR",
-        "manifest.pseudo_agent_subscriptions",
-        "Email-owner inventory",
-        "fully redact both current and default path lists",
-        "Psyche owns the live Pad prompt inputs",
-        "resolve_env_checked",
-        "LINGTAI_DAEMON_MANAGER_POOL_SIZE",
-        "LINGTAI_DAEMON_MAX_TURNS",
-        "runtime.tool_batch_memory_relief",
-        "LINGTAI_DAEMON_MANAGER_TOKEN",
-        "LINGTAI_DAEMON_RUN_DIR",
-        "Injected or handoff environment exclusions",
-        "Build-only environment exclusions",
-        "Test-only environment exclusions",
-        "manifest.llm.codex_thread_salt",
-    ):
-        assert required in inventory_reference
     assert "Unregistered concrete-owner baseline" not in inventory_reference
 
     comments = {

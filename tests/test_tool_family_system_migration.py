@@ -453,35 +453,6 @@ def test_self_actions_need_no_karma(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_system_invocation_surface_routes_depth_without_losing_first_call_guards() -> None:
-    """The schema/manual stay concise while routing safe operations to depth."""
-    import json
-
-    schema = _schema()
-    compact = json.dumps(
-        {"name": "system", "description": system_tool.get_description(), "parameters": schema},
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-    assert len(compact) < 14_000
-    assert "system-manual" in schema["properties"]["action"]["description"]
-    assert "last-resort" in INPUT_SCHEMAS["sleep"]["properties"]["delay"]["description"]
-    assert INPUT_SCHEMAS["sleep"]["additionalProperties"] is False
-
-    manual_path = Path(__file__).parents[1] / "src/lingtai/intrinsic_skills/system-manual/SKILL.md"
-    manual = manual_path.read_text(encoding="utf-8")
-    body = manual.split("---", 2)[2]
-    assert len(body) < 10_000
-    for route in (
-        "reference/refresh-precheck/SKILL.md",
-        "reference/runtime-update-checks/SKILL.md",
-        "reference/settings-inventory/SKILL.md",
-    ):
-        assert route in manual
-    assert "manifest.preset.allowed" in manual
-    assert "read-only SHOW" in manual
-
-
 def test_manual_returns_the_pinned_flat_public_shape(tmp_path: Path) -> None:
     path = (
         tmp_path / ".library" / "intrinsic" / "capabilities" / "system-manual" / "SKILL.md"

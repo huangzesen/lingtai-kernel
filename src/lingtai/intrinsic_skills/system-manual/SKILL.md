@@ -3,8 +3,8 @@ name: system-manual
 description: >
   Short router for runtime, lifecycle, identity, refresh, presets, settings,
   LLM adapters, and operating procedures; route to the named reference for depth.
-version: 1.21.0
-last_changed_at: "2026-09-06T00:00:00Z"
+version: 1.21.1
+last_changed_at: "2026-09-07T00:00:00Z"
 tags: [lingtai, agent, runtime, procedures, substrate, system, lifecycle, alarm, memory, communication, skills, settings, molt, summarize, nudge, updates, refresh, preset, llm, adapters, codex, websocket]
 related_files:
 - src/lingtai/prompts/substrate/substrate.md
@@ -148,9 +148,10 @@ exact path from its allowed-only result. `refresh` refuses a path outside
 whose context limit cannot hold the current conversation. Use
 `revert_preset=true` to return to `manifest.preset.default`. The substrate
 reference §11 owns the runtime model; the refresh reference owns ordering and
-post-refresh checks. A config/prompt/MCP/capability edit needs refresh to take
-effect; refresh is not a substitute for `context(action="rebuild")`, and neither
-is an installer.
+post-refresh checks. A config/MCP/capability edit needs refresh to take effect. A canonical
+prompt-source edit may instead use `context(action="rebuild")` to recompose the
+prompt and replay history; refresh is the broader runtime lifecycle operation.
+Neither operation is an installer.
 
 ### Identity and settings
 
@@ -175,20 +176,11 @@ accepted values and timing.
 
 ### Cache-miss budget
 
-This stable `system-manual#cache-miss-budget` anchor routes to the exact
-cache-budget source, validation, precedence, and authorized procedure in
-`reference/settings-inventory/SKILL.md`. SHOW is read-only. The owner file is
-`<agent-workdir>/settings/system.json`; its minimal v1 shape is:
-
-```json
-{"schema_version": 1, "cache_miss_budget": 2000000}
-```
-
-The live `LINGTAI_CACHE_MISS_BUDGET` source wins over that file, then the fixed
-`2,000,000` default. After explicit owner authorization, use the existing File or
-Shell capability to change the source, then call `system(action="settings", input={})` again to verify it. This setting is unrelated to `.notification/system.json`, and
-legacy `manifest.cache_miss_budget` is ignored. The reference owns validation,
-shadowing, timing, and the full procedure.
+This stable `system-manual#cache-miss-budget` anchor routes to
+`reference/settings-inventory/SKILL.md` → “Cache-miss budget” for the current
+value, owner, precedence, validation, timing, and authorized change procedure.
+Query `system(action="settings", input={})` first. SHOW is read-only; keep
+adjustable values and document shapes in the reference rather than this router.
 
 ## Runtime policy (v2)
 
