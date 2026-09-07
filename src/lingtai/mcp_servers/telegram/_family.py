@@ -157,7 +157,7 @@ def _telegram_input_schemas() -> dict[str, dict[str, Any]]:
         "indicator instead of a message. Auto-expires after 5 seconds; omit or pass "
         "an empty string for no chat action."
     )
-    return TELEGRAM_PLUGIN.action_input_schemas({
+    schemas = TELEGRAM_PLUGIN.action_input_schemas({
         "send": send,
         "check": _object({"account": _nullable({"type": "string"})}),
         "read": _object(
@@ -228,6 +228,120 @@ def _telegram_input_schemas() -> dict[str, dict[str, Any]]:
         "accounts": _object({}),
     })
 
+    # These annotations are intentionally attached after the closed schemas are
+    # assembled. They improve first-use tool discovery without changing action
+    # names, requiredness, nullability, combinators, or dispatch inputs.
+    branch_descriptions = {
+        "send": (
+            "Send a new message to a numeric Telegram chat. Provide text, media, "
+            "a rich structured_message, or a chat_action; this is an external send."
+        ),
+        "check": "List recent conversations and incoming unread counts; does not mark them read.",
+        "read": (
+            "Read recent messages from one chat; returned messages are marked read and "
+            "the matching wake-notification mirror is cleared."
+        ),
+        "reply": (
+            "Reply to one message using its compound message_id from read/search; this "
+            "sends a new message, marks the target handled, and adds a replied reaction."
+        ),
+        "search": (
+            "Regex-search stored inbound message text, sender fields, and update type; "
+            "use chat_id='updates' for synthetic non-chat events."
+        ),
+        "delete": "Delete one bot message by compound message_id; this is an external side effect.",
+        "edit": (
+            "Edit one previously sent bot message by compound message_id; text/rich edits "
+            "and media-caption edits have different rendering limits."
+        ),
+        "contacts": "List local account contact aliases; contacts do not grant inbound permission.",
+        "add_contact": (
+            "Save a local alias for a numeric chat_id; this does not add the user to "
+            "accounts.allowed_users or authorize inbound messages."
+        ),
+        "remove_contact": "Remove a local contact by alias or numeric chat_id; it does not change inbound permission.",
+        "accounts": "List configured account aliases and safe account details; credentials are not returned.",
+    }
+    for action, description in branch_descriptions.items():
+        schemas[action]["description"] = description
+
+    property_descriptions = {
+        "send": {
+            "account": "Optional bot account alias; omitted uses the service default.",
+            "chat_id": "Real numeric Telegram chat ID for outbound delivery.",
+            "text": "Message text or media caption; omit when using structured_message or chat_action.",
+            "reply_markup": "Optional Telegram inline keyboard markup.",
+            "placeholder": (
+                "For long work, send a progress-only placeholder, edit it at meaningful "
+                "phase changes, then send the final answer as a separate durable message."
+            ),
+            "link_preview_options": "Optional Telegram link-preview options for text messages.",
+            "disable_web_page_preview": "Compatibility shortcut to disable text link previews.",
+        },
+        "check": {
+            "account": "Optional bot account alias; omitted uses the service default.",
+        },
+        "read": {
+            "account": "Optional bot account alias when more than one account is configured.",
+            "chat_id": (
+                "Numeric Telegram chat ID; the reserved 'updates' value is read-only and "
+                "recovers synthetic non-chat updates."
+            ),
+            "limit": "Optional maximum number of recent messages; default is 10.",
+        },
+        "reply": {
+            "message_id": "Compound target ID in account:chat_id:message_id form, from read/search results.",
+            "text": "Reply text; omit when supplying structured_message.",
+            "entities": "Optional MessageEntity[] when rendering_mode='entities' for text.",
+        },
+        "search": {
+            "query": "Case-insensitive regular expression over stored message text, sender, and update type.",
+            "account": "Optional bot account alias; omitted uses the service default.",
+            "chat_id": "Optional numeric chat ID or exactly 'updates' for the synthetic event bucket.",
+        },
+        "delete": {
+            "message_id": "Compound bot-message ID in account:chat_id:message_id form.",
+        },
+        "edit": {
+            "message_id": "Compound bot-message ID in account:chat_id:message_id form.",
+            "text": "Replacement text or media caption; omit when supplying structured_message.",
+            "reply_markup": "Optional replacement Telegram inline keyboard markup.",
+            "entities": "Optional MessageEntity[] for text edits when rendering_mode='entities'.",
+        },
+        "contacts": {
+            "account": "Optional bot account alias; omitted uses the service default.",
+        },
+        "add_contact": {
+            "account": "Optional bot account alias; omitted uses the service default.",
+            "chat_id": "Numeric Telegram chat ID to remember locally.",
+            "alias": "Local alias used to find the saved chat; not an authorization grant.",
+        },
+        "remove_contact": {
+            "account": "Optional bot account alias; omitted uses the service default.",
+            "chat_id": "Remove contacts matching this numeric Telegram chat ID.",
+            "alias": "Remove the contact with this local alias.",
+        },
+    }
+    for action, descriptions in property_descriptions.items():
+        for field, description in descriptions.items():
+            schemas[action]["properties"][field]["description"] = description
+
+    rich_mode_description = (
+        "Default is Markdown; use plain_text, HTML, MarkdownV2, or entities for "
+        "text formatting, or rich with structured_message for native Telegram blocks."
+    )
+    rich_content_description = (
+        "Native rich content: require rendering_mode='rich' and title; optional "
+        "summary, facts, bullets, steps, code, next, and footer are rendered as "
+        "Telegram blocks. Do not combine with text, media, or entity fields."
+    )
+    for action in ("reply", "edit"):
+        schemas[action]["properties"]["rendering_mode"]["description"] = rich_mode_description
+        schemas[action]["properties"]["structured_message"]["description"] = rich_content_description
+        schemas[action]["properties"]["structured_message"]["anyOf"][0]["description"] = rich_content_description
+
+    return schemas
+
 
 def _schema_only_family() -> ToolFamily:
     schemas = _telegram_input_schemas()
@@ -254,14 +368,14 @@ def telegram_schema() -> dict[str, Any]:
     if "oneOf" in input_schema:
         input_schema["anyOf"] = input_schema.pop("oneOf")
     schema["properties"]["action"]["description"] = (
-        "Telegram action. Each action owns a strict input branch. Content-bearing "
-        "send/reply/edit calls default to rendering_mode=\"Markdown\"; the agent may omit "
-        "rendering_mode and it will render as Markdown. Choose plain_text/HTML/MarkdownV2/"
-        "entities/rich only when needed. For charts, "
+        "Choose one Telegram action. For inbound work, begin read-only with check, "
+        "read, or search. Use send only for an authorized new outbound message to a "
+        "known numeric chat_id; use reply with a compound message_id from read/search. "
+        "Content-bearing send/reply/edit defaults to Markdown; use plain_text, "
+        "HTML, MarkdownV2, entities, or rich only when needed. For charts, "
         "reports, generated artifacts, and other files the user should open intact, "
-        "prefer media.type='document'; use media.type='photo' only for an inline "
-        "preview because photo previews may crop or compress text-heavy graphics. "
-        "Call manual "
+        "use media.type='document' (use 'photo' only for an inline preview). "
+        "Read this package's detailed guidance with "
         + TELEGRAM_PLUGIN.manual_action_description()
     )
     return schema
