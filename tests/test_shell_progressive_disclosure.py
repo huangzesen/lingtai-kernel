@@ -33,6 +33,8 @@ def test_shell_description_keeps_first_call_and_safety_guards():
     assert "shell(action='manual', input={}, reasoning='...')" in description
     assert "shell(action='run', input={'command': '...'}, reasoning='...')" in description
     assert "shell(action='poll', input={'job_id': '...'}, reasoning='...')" in description
+    assert "shell(action='cancel', input={'job_id': '...'}, reasoning='...')" in description
+    assert "shell(action='settings', input={}, reasoning='...')" in description
     assert "top-level status only says the shell spawned" in description
     assert "exit_code/ok" in description
     assert "kill-on-close Job Object" in description
@@ -55,6 +57,7 @@ def test_shell_manual_routes_durable_async_detail_to_reference():
     assert "reference/debugging-cleanup/SKILL.md" in manual
     assert "return_handoff" not in manual
     assert "return_handoff" in reference
+    assert "`working_dir`" in reference
     assert "bash.reminder:<job_id>" in reference
     assert "Relaunch-safe status and cancellation" in reference
     assert "daemon-manual" in reference

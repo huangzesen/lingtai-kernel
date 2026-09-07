@@ -36,23 +36,7 @@ reminders, or debugging/cleanup. For ordinary short, deterministic commands,
 use the schema synchronously; for anything long-running, scheduled, or
 failure-prone, read the matching route first.
 
-## Nested reference catalog
-
-These are parent-owned drill-down references, not standalone top-level skills:
-
-| Need | Reference |
-|---|---|
-| Durable async jobs, reminder/completion wakes, relaunch-safe polling, cancellation, or shell-side coding-CLI supervision | [async jobs](reference/async-jobs/SKILL.md) |
-| Recurring/time-driven work, mailbox-drop wakeups, cron/launchd/systemd recipes, and scheduler hygiene | [scheduled work](reference/scheduled-work/SKILL.md) |
-| One-shot `.notification/cron.json` reminders and the rest checklist | [notification reminders](reference/notification-reminders/SKILL.md) |
-| Silent scheduled jobs, launchd diagnosis, retirement, and footprint inspection | [debugging and cleanup](reference/debugging-cleanup/SKILL.md) |
-| Backend-specific coding-CLI flags, environment, and parser caveats | `daemon-manual` → `reference/cli-backends/SKILL.md` |
-
-The async reference supersedes the former long coding-CLI and durable-lifecycle
-block in this router. The three host/scheduler references remain the owners of
-their recipes; do not duplicate their examples here.
-
-## Router table
+## Routing table
 
 | Need / keywords | Read |
 |---|---|
@@ -60,6 +44,11 @@ their recipes; do not duplicate their examples here.
 | "Every hour", "daily", "weekdays at 9", or any other time-driven recurring work | [scheduled work](reference/scheduled-work/SKILL.md) |
 | A single future nudge while work is pending | [notification reminders](reference/notification-reminders/SKILL.md) |
 | A scheduler is silent, fires twice, exits immediately, or must be retired | [debugging and cleanup](reference/debugging-cleanup/SKILL.md) |
+| Backend-specific coding-CLI flags, environment, and parser caveats | `daemon-manual` → `reference/cli-backends/SKILL.md` |
+
+The async reference supersedes the former long coding-CLI and durable-lifecycle
+block in this router. The three host/scheduler references remain the owners of
+their recipes; do not duplicate their examples here.
 
 ## First-call decision tree
 

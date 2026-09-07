@@ -37,6 +37,7 @@ related_files:
   - tests/test_bash_async.py
   - tests/test_execution_workspace.py
   - tests/test_shell_tool_plugin_declaration.py
+  - tests/test_shell_progressive_disclosure.py
   - tests/test_shell_settings.py
   - tests/test_layers_bash.py
   - src/lingtai/tools/bash/glossary-en.md

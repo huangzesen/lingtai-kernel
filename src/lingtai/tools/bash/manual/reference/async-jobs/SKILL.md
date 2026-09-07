@@ -36,8 +36,8 @@ notifications (mail, refresh, interrupts). Async + poll keeps the turn
 responsive and prevents ACTIVE blockage while the child CLI works.
 
 The public envelope is used for every follow-up. Run-only fields
-(`command`, `async`, `reminder`, and `timeout`) stay in `run`'s `input`; `poll`
-and `cancel` take only `job_id`:
+(`command`, `timeout`, `working_dir`, `async`, and `reminder`) stay in `run`'s
+`input`; `poll` and `cancel` take only `job_id`:
 
 ```text
 shell(action="run",
