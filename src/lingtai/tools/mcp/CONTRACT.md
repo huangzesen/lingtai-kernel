@@ -15,6 +15,7 @@ related_files:
   - tests/test_mcp_settings.py
   - tests/test_mcp_builtin_plugin_package.py
   - src/lingtai/tools/mcp/skills/mcp-manual/SKILL.md
+  - src/lingtai/tools/mcp/skills/mcp-manual/reference/runtime-and-identity.md
   - src/lingtai/services/mcp_registry.py
   - src/lingtai/tools/CONTRACT.md
   - src/lingtai/tools/tool_family/CONTRACT.md

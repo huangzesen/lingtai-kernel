@@ -30,6 +30,7 @@ related_files:
   - ENVIRONMENT_VARIABLES.md
   - src/lingtai/tools/mcp/skills/mcp-manual/reference/curated-addons.md
   - src/lingtai/tools/mcp/skills/mcp-manual/reference/third-party-and-legacy.md
+  - src/lingtai/tools/mcp/skills/mcp-manual/reference/runtime-and-identity.md
   - src/lingtai/tools/mcp/skills/mcp-manual/reference/troubleshooting.md
   - src/lingtai/tools/mcp/skills/mcp-manual/scripts/find_readme.py
   - src/lingtai/tools/ANATOMY.md

@@ -149,18 +149,14 @@ def _flatten_manual_result(mcp_result: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 _DESCRIPTION = (
-    "SIGNPOST ONLY: this tool does not register, activate, configure, or "
-    "troubleshoot MCP servers by itself. `info` only re-reads the registry "
-    "and returns registry health; `settings` shows MCP-owned configuration; "
-    "`manual` returns the mcp-manual body. Your per-agent MCP server "
-    "registry: the <registered_mcp> catalog in your system prompt lists "
-    "every MCP server currently registered. Before registering, "
-    "deregistering, updating, or troubleshooting MCP servers, read the "
-    "`mcp-manual` skill (call `manual` for its body: registration contract, "
-    "file paths, schema) and call `info` for the current registry health "
-    "snapshot; no exceptions. To register, deregister, or update MCPs, edit "
-    "mcp_registry.jsonl directly with write/edit and call "
-    "system(action=\"refresh\")."
+    "SIGNPOST ONLY: this read-only tool does not register, activate, configure, "
+    "or troubleshoot MCP servers. `info` only re-reads the registry and returns "
+    "health; `settings` shows MCP-owned configuration; `manual` returns the "
+    "mcp-manual body. Before registering, deregistering, updating, or "
+    "troubleshooting, read `mcp-manual` (call `manual` for its body), call "
+    "`info` for the current health snapshot, and obtain explicit authorization. "
+    "Registry changes use "
+    "write/edit on mcp_registry.jsonl followed by system(action=\"refresh\")."
 )
 
 # The owner-defined action and reserved manual action take no arguments; the
@@ -172,10 +168,10 @@ _EMPTY_INPUT: dict[str, Any] = MANUAL_INPUT_SCHEMA
 
 _ACTION_DESCRIPTION = (
     "info: signpost-only action; re-reads the registry and returns a runtime "
-    "health snapshot (registry contents, problems, registry path) without "
-    "the manual body. settings: show the MCP-owned init.addons and fully "
-    "redacted init.mcp configuration rows. manual: return only the "
-    "mcp-manual skill body. No action mutates MCP configuration."
+    "health snapshot (registry contents, problems, registry path) without the "
+    "manual body. settings: show the MCP-owned init.addons and fully redacted "
+    "init.mcp configuration rows. manual: return only the mcp-manual skill "
+    "body. No action mutates MCP configuration."
 )
 
 
