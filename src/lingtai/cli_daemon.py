@@ -9,7 +9,19 @@ skin over the *existing* engine: it builds a minimal agent-shaped facade
 model uses.  No emanation, preset, run-directory, supervisor, or notification
 logic is reimplemented here.
 
-Four actions are exposed, deliberately fewer than the tool's six:
+The caller is an **external owner**: any same-machine principal (a coding
+agent acting for a human, CI, a shell operator) that owns the daemon runs it
+dispatches instead of borrowing a live Agent's identity.  Its ``--owner-dir``
+is any directory holding a valid ``init.json`` — a LingTai agent working
+directory or a standalone directory the caller set up itself.  The engine
+already keys everything on that directory: run state lives under
+``<owner>/daemons/``, the detached supervisor publishes terminal and follow-up
+notifications under ``<owner>/.notification/daemon/``, and resident manager
+pools are per owner directory.  No Agent has to be running there, and the CLI
+never takes the directory's ``.agent.lock`` lease.  ``--agent-dir`` is kept
+only as the legacy spelling of the same argument.
+
+Six actions are exposed:
 
 ``emanate``
     Dispatch a batch from a tasks JSON file.  Preview-by-default; ``--yes`` is
@@ -32,18 +44,35 @@ Four actions are exposed, deliberately fewer than the tool's six:
     shape ``daemon/execution_host.py`` uses inside a supervisor process.
 
 ``reclaim``
-    Cancel every active or queued detached run of this agent directory,
+    Cancel every active or queued detached run of this owner directory,
     through the same family dispatch and durable control spool the tool's
     ``daemon(action="reclaim")`` uses — a CLI-created daemon stays exactly as
     controllable as an agent-created one.
 
-``ask`` is intentionally absent.
+``ask``
+    Send one follow-up message to a run, strictly through the tool family's
+    ``ask`` child and the manager's own delivery rules (control spool for a
+    live LingTai run, checkpoint inbox for a live common-MCP CLI run, resume
+    owner for a terminal resumable CLI run).  The engine's result dict is
+    printed verbatim; nothing about delivery is decided here.
+
+``wait``
+    Observe one run to its terminal state.  It resolves the run once through
+    the read-only ``check`` view, then polls only its atomic ``daemon.json`` and
+    performs one final full check: each change in progress (state, turn, current
+    tool, latest checkpoint, last output, follow-up state) is reported once,
+    then the terminal state maps to the exit status.  It constructs no
+    manager, writes nothing, and never adopts execution ownership — the
+    detached supervisor stays the run's only owner.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +88,19 @@ _MAX_TASKS_FILE_BYTES = 4 * 1024 * 1024
 #: Task text shown per row in the ``emanate`` preview.
 _PREVIEW_TASK_CHARS = 120
 
+#: Durable daemon.json states after which a run never changes again.
+_TERMINAL_STATES = frozenset({"done", "failed", "cancelled", "timeout"})
+
+#: ``wait`` exit statuses beyond the run's own outcome, following the shell
+#: conventions harnesses already understand (``timeout(1)``, SIGINT).
+_WAIT_EXIT_TIMEOUT = 124
+_WAIT_EXIT_INTERRUPTED = 130
+
+#: Indirections for the ``wait`` poll loop so tests can drive it
+#: deterministically without patching the standard library.
+_sleep = time.sleep
+_monotonic = time.monotonic
+
 
 class CliDaemonError(Exception):
     """A user-facing refusal: printed to stderr, exits non-zero."""
@@ -72,6 +114,17 @@ def _strict_positive_int(raw: str) -> int:
         raise argparse.ArgumentTypeError("must be an integer") from exc
     if value < 1:
         raise argparse.ArgumentTypeError("must be >= 1")
+    return value
+
+
+def _strict_positive_float(raw: str) -> float:
+    """Parse a CLI duration in seconds that must be strictly positive."""
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number of seconds") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise argparse.ArgumentTypeError("must be a finite number > 0")
     return value
 
 
@@ -130,15 +183,17 @@ class _CliDaemonAgent:
     del _Agent
 
     @classmethod
-    def for_dispatch(cls, agent_dir: Path, *, journal=None) -> "_CliDaemonAgent":
-        """Build a facade backed by the agent's **effective** configuration.
+    def for_dispatch(cls, owner_dir: Path, *, journal=None) -> "_CliDaemonAgent":
+        """Build a facade backed by the owner's **effective** configuration.
 
         Dispatch decides a daemon's model, credentials, capability surface, and
-        file paths, so it must see what the live agent sees: JSONC parsed,
-        active preset materialized, provider ``inherit`` sentinels expanded,
-        schema validated, and every relative path resolved against
-        ``agent_dir``.  That is :func:`lingtai.init_reader.read_init` — the one
-        canonical reader boot and live refresh share.
+        file paths, so it must see what a live agent booted from this
+        ``init.json`` would see: JSONC parsed, active preset materialized,
+        provider ``inherit`` sentinels expanded, schema validated, and every
+        relative path resolved against ``owner_dir``.  That is
+        :func:`lingtai.init_reader.read_init` — the one canonical reader boot
+        and live refresh share.  A standalone owner supplies its own minimal
+        ``init.json``; nothing is copied from any other agent.
 
         Boot loads the configured ``env_file`` before any service or
         capability construction (``cli.build_agent``); dispatch must match,
@@ -148,23 +203,23 @@ class _CliDaemonAgent:
         """
         from lingtai.kernel.config_resolve import load_env_file
 
-        data = _read_effective_init(agent_dir)
+        data = _read_effective_init(owner_dir)
         env_file = data.get("env_file")
         if env_file:
             load_env_file(env_file)
-        return cls(agent_dir, data, journal=journal)
+        return cls(owner_dir, data, journal=journal)
 
     @classmethod
-    def for_inspection(cls, agent_dir: Path) -> "_CliDaemonAgent":
-        """Build a facade for ``list``/``check``, which read no manifest at all.
+    def for_inspection(cls, owner_dir: Path) -> "_CliDaemonAgent":
+        """Build a facade for ``list``/``check``/``wait``, which read no manifest.
 
         Inspection needs only ``_working_dir``: it never resolves a model, a
         credential, a capability, or a path.  Deliberately skipping the
-        canonical reader keeps an agent whose active preset went missing still
-        *inspectable* — refusing to list a broken agent's daemon history is
+        canonical reader keeps an owner whose active preset went missing still
+        *inspectable* — refusing to list a broken owner's daemon history is
         exactly backwards.
         """
-        return cls(agent_dir, {})
+        return cls(owner_dir, {})
 
     def __init__(self, working_dir: Path, init_data: dict, *, journal=None) -> None:
         self._working_dir = Path(working_dir)
@@ -365,21 +420,28 @@ class _ReadOnlyDaemonView:
 # --------------------------------------------------------------------------
 
 
-def _resolve_agent_dir(raw: Path | None) -> Path:
-    """Resolve and validate the agent working directory."""
-    agent_dir = (raw if raw is not None else Path.cwd()).resolve()
-    if not agent_dir.is_dir():
-        raise CliDaemonError(f"{agent_dir} is not a directory")
-    if not (agent_dir / "init.json").is_file():
+def _resolve_owner_dir(raw: Path | None) -> Path:
+    """Resolve and validate the owner directory.
+
+    The only requirement is a directory with an ``init.json``: a LingTai agent
+    working directory qualifies, and so does a standalone directory an
+    external caller set up for its own runs.  No running Agent, heartbeat, or
+    lease is looked for — the CLI is that directory's owner for this call.
+    """
+    owner_dir = (raw if raw is not None else Path.cwd()).resolve()
+    if not owner_dir.is_dir():
+        raise CliDaemonError(f"{owner_dir} is not a directory")
+    if not (owner_dir / "init.json").is_file():
         raise CliDaemonError(
-            f"{agent_dir} does not contain init.json — --agent-dir must point "
-            "at a LingTai agent working directory"
+            f"{owner_dir} does not contain init.json — --owner-dir must point "
+            "at an owner directory with its own init.json (a LingTai agent "
+            "working directory, or a standalone directory this caller owns)"
         )
-    return agent_dir
+    return owner_dir
 
 
-def _read_effective_init(agent_dir: Path) -> dict:
-    """Resolve the agent's effective configuration through the canonical reader.
+def _read_effective_init(owner_dir: Path) -> dict:
+    """Resolve the owner's effective configuration through the canonical reader.
 
     :func:`lingtai.init_reader.read_init` is the single parse → materialize →
     prepare → validate → resolve path that boot (``cli.load_init``) and live
@@ -391,8 +453,8 @@ def _read_effective_init(agent_dir: Path) -> dict:
     schema was never checked, and a relative ``env_file`` resolved against the
     caller's CWD instead of the agent directory.
 
-    ``working_dir`` is ``agent_dir``, so ``resolve_paths`` makes ``env_file``,
-    ``venv_path``, and every ``*_file`` absolute under the agent directory
+    ``working_dir`` is ``owner_dir``, so ``resolve_paths`` makes ``env_file``,
+    ``venv_path``, and every ``*_file`` absolute under the owner directory
     regardless of where the CLI was invoked from.
 
     Unlike ``cli.load_init`` this deliberately does **not** call
@@ -403,14 +465,14 @@ def _read_effective_init(agent_dir: Path) -> dict:
     from lingtai.agent import load_preset
     from lingtai.init_reader import InitReadStatus, read_init, reader_callbacks
 
-    materialize, prepare = reader_callbacks(agent_dir, load_preset=load_preset)
+    materialize, prepare = reader_callbacks(owner_dir, load_preset=load_preset)
     outcome = read_init(
-        agent_dir, materialize=materialize, prepare=prepare, failure_behavior="STOP",
+        owner_dir, materialize=materialize, prepare=prepare, failure_behavior="STOP",
     )
     if outcome.status is InitReadStatus.READ_FAILED:
         payload = outcome.to_payload()
         raise CliDaemonError(
-            f"{agent_dir / 'init.json'} is not usable "
+            f"{owner_dir / 'init.json'} is not usable "
             f"(stage {payload.get('stage')}): {payload.get('safe_excerpt') or payload.get('next_step')}"
         )
     assert outcome.data is not None
@@ -797,7 +859,7 @@ def _print_list_table(result: dict) -> None:
         print(f"\n{len(rows)} shown, {running} running")
 
 
-def _build_preview(agent_dir: Path, backend: str, tasks: list[dict]) -> dict:
+def _build_preview(owner_dir: Path, backend: str, tasks: list[dict]) -> dict:
     """Describe what ``--yes`` would dispatch, without dispatching it."""
     presets = sorted({
         spec["preset"] for spec in tasks
@@ -806,7 +868,10 @@ def _build_preview(agent_dir: Path, backend: str, tasks: list[dict]) -> dict:
     return {
         "status": "preview",
         "dispatched": False,
-        "agent_dir": str(agent_dir),
+        "owner_dir": str(owner_dir),
+        # Retain the original machine-readable key for scripts written before
+        # external-owner terminology made the ownership boundary explicit.
+        "agent_dir": str(owner_dir),
         "backend": backend,
         "count": len(tasks),
         "presets": presets,
@@ -852,7 +917,7 @@ def _dispatch_through_tool_family(agent: _CliDaemonAgent, action: str,
 
 
 def _handle_emanate(args) -> int:
-    agent_dir = _resolve_agent_dir(args.agent_dir)
+    owner_dir = _resolve_owner_dir(args.owner_dir)
     payload = _load_tasks_file(args.tasks.resolve())
     tasks = _validate_emanate_input(payload)
 
@@ -864,8 +929,8 @@ def _handle_emanate(args) -> int:
     if args.yes:
         from lingtai.adapters.posix.event_journal import PosixJsonlEventJournalAdapter
 
-        journal = PosixJsonlEventJournalAdapter(agent_dir)
-    agent = _CliDaemonAgent.for_dispatch(agent_dir, journal=journal)
+        journal = PosixJsonlEventJournalAdapter(owner_dir)
+    agent = _CliDaemonAgent.for_dispatch(owner_dir, journal=journal)
 
     # Both gates are fail-closed and run before anything is previewed or
     # spawned; the engine re-checks each one on the dispatch path.
@@ -873,7 +938,7 @@ def _handle_emanate(args) -> int:
     _enforce_capability_policy(agent, tasks)
 
     if not args.yes:
-        _emit_json(_build_preview(agent_dir, backend, tasks))
+        _emit_json(_build_preview(owner_dir, backend, tasks))
         print(
             "not dispatched: re-run with --yes to spawn these daemons",
             file=sys.stderr,
@@ -896,8 +961,8 @@ def _handle_emanate(args) -> int:
 
 
 def _handle_list(args) -> int:
-    agent_dir = _resolve_agent_dir(args.agent_dir)
-    view = _ReadOnlyDaemonView(_CliDaemonAgent.for_inspection(agent_dir))
+    owner_dir = _resolve_owner_dir(args.owner_dir)
+    view = _ReadOnlyDaemonView(_CliDaemonAgent.for_inspection(owner_dir))
     result = view._handle_list(
         contains="",
         status_filter=args.status or "all",
@@ -906,7 +971,10 @@ def _handle_list(args) -> int:
     )
     if result.get("status") == "error":
         raise CliDaemonError(str(result.get("message", "list failed")))
-    _print_list_table(result)
+    if args.json:
+        _emit_json(result)
+    else:
+        _print_list_table(result)
     _print_list_warnings(result)
     return 0
 
@@ -929,8 +997,8 @@ def _print_list_warnings(result: dict) -> None:
 
 
 def _handle_check(args) -> int:
-    agent_dir = _resolve_agent_dir(args.agent_dir)
-    view = _ReadOnlyDaemonView(_CliDaemonAgent.for_inspection(agent_dir))
+    owner_dir = _resolve_owner_dir(args.owner_dir)
+    view = _ReadOnlyDaemonView(_CliDaemonAgent.for_inspection(owner_dir))
     result = view._handle_check(args.id)
     _emit_json(result)
     return 0 if result.get("status") != "error" else 1
@@ -939,20 +1007,243 @@ def _handle_check(args) -> int:
 def _handle_reclaim(args) -> int:
     from lingtai.adapters.posix.event_journal import PosixJsonlEventJournalAdapter
 
-    agent_dir = _resolve_agent_dir(args.agent_dir)
-    journal = PosixJsonlEventJournalAdapter(agent_dir)
-    agent = _CliDaemonAgent.for_dispatch(agent_dir, journal=journal)
+    owner_dir = _resolve_owner_dir(args.owner_dir)
+    journal = PosixJsonlEventJournalAdapter(owner_dir)
+    agent = _CliDaemonAgent.for_dispatch(owner_dir, journal=journal)
     result = _dispatch_through_tool_family(agent, "reclaim", {})
     _emit_json(result)
     return 0 if result.get("status") == "reclaimed" else 1
+
+
+def _handle_ask(args) -> int:
+    """Forward one follow-up through the tool family's ``ask`` child.
+
+    ``sent`` (control spool / resume owner started) and ``queued`` (parked in
+    a live CLI run's checkpoint inbox) both mean the engine accepted the
+    message and exit 0; ``busy`` and ``error`` exit 1 with the engine's own
+    result printed so a script can read the reason.
+    """
+    from lingtai.adapters.posix.event_journal import PosixJsonlEventJournalAdapter
+
+    owner_dir = _resolve_owner_dir(args.owner_dir)
+    if not args.message.strip():
+        raise CliDaemonError("message must be a non-empty string")
+    journal = PosixJsonlEventJournalAdapter(owner_dir)
+    agent = _CliDaemonAgent.for_dispatch(owner_dir, journal=journal)
+    result = _dispatch_through_tool_family(agent, "ask", {
+        "id": args.id,
+        "message": args.message,
+    })
+    _emit_json(result)
+    return 0 if result.get("status") in ("sent", "queued") else 1
+
+
+# -- wait ---------------------------------------------------------------------
+
+
+def _progress_signature(snapshot: dict) -> tuple:
+    """The parts of a ``check`` snapshot whose change counts as progress."""
+    checkpoint = snapshot.get("latest_checkpoint")
+    return (
+        snapshot.get("state"),
+        snapshot.get("turn"),
+        snapshot.get("current_tool"),
+        checkpoint.get("sequence") if isinstance(checkpoint, dict) else None,
+        snapshot.get("last_output_at"),
+        snapshot.get("pending_checkpoint_messages"),
+        snapshot.get("resume_state"),
+        snapshot.get("followup_status"),
+    )
+
+
+def _read_wait_snapshot(em_id: str, run_path: Path) -> dict:
+    """Read only the durable state fields whose changes ``wait`` reports.
+
+    ``DaemonManager._handle_check`` also reads the complete events JSONL before
+    tailing it.  Repeating that once per poll would make a long wait rescan a
+    growing file.  The first check resolves the id and run path, this helper
+    then reads only atomically replaced ``daemon.json``, and the terminal poll
+    performs one final full check for result/artifact/event details.
+    """
+    state = json.loads((run_path / "daemon.json").read_text(encoding="utf-8"))
+    pending = state.get("pending_checkpoint_messages")
+    return {
+        "id": em_id,
+        "run_id": state.get("run_id"),
+        "state": state.get("state"),
+        "turn": state.get("turn"),
+        "current_tool": state.get("current_tool"),
+        "elapsed_s": state.get("elapsed_s"),
+        "latest_checkpoint": state.get("latest_checkpoint"),
+        "pending_checkpoint_messages": len(pending) if isinstance(pending, list) else 0,
+        "last_output": state.get("last_output"),
+        "last_output_at": state.get("last_output_at"),
+        "resume_state": state.get("resume_state"),
+        "followup_status": state.get("followup_status"),
+    }
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _wait_record(event: str, snapshot: dict, **extra) -> dict:
+    """One ``wait`` observation, in the shape both output modes render."""
+    return {
+        "event": event,
+        "id": snapshot.get("id"),
+        "run_id": snapshot.get("run_id"),
+        "state": snapshot.get("state"),
+        "turn": snapshot.get("turn"),
+        "current_tool": snapshot.get("current_tool"),
+        "elapsed_s": snapshot.get("elapsed_s"),
+        "checkpoint": snapshot.get("latest_checkpoint"),
+        "pending_checkpoint_messages": snapshot.get("pending_checkpoint_messages"),
+        "last_output": snapshot.get("last_output"),
+        "last_output_at": snapshot.get("last_output_at"),
+        "resume_state": snapshot.get("resume_state"),
+        "followup_status": snapshot.get("followup_status"),
+        "observed_at": _now_iso(),
+        **extra,
+    }
+
+
+def _emit_jsonl(record: dict) -> None:
+    """One redacted JSON object per line, flushed so a harness sees it now."""
+    print(json.dumps(
+        _redact_preserving_nulls(record), ensure_ascii=False, default=str,
+    ), flush=True)
+
+
+def _print_wait_line(record: dict, *, checkpoint_changed: bool) -> None:
+    """Render one observation as a single human-readable line."""
+    parts = [record["observed_at"], str(record.get("id") or "?"), str(record.get("state") or "?")]
+    event = record["event"]
+    if event in ("timeout", "interrupted"):
+        parts.append(f"wait {event}")
+    if record.get("turn"):
+        parts.append(f"turn={record['turn']}")
+    if record.get("current_tool"):
+        parts.append(f"tool={record['current_tool']}")
+    checkpoint = record.get("checkpoint")
+    if checkpoint_changed and isinstance(checkpoint, dict):
+        summary = str(checkpoint.get("summary") or "").replace("\n", " ")
+        parts.append(
+            f"checkpoint#{checkpoint.get('sequence')} "
+            f"{checkpoint.get('state') or ''}: {summary[:_PREVIEW_TASK_CHARS]}".rstrip(": ")
+        )
+    if event == "terminal":
+        check = record.get("check") or {}
+        if check.get("result_path"):
+            parts.append(f"result={check['result_path']}")
+        error = check.get("error")
+        if isinstance(error, dict) and error:
+            parts.append(f"error={error.get('type', 'error')}: {error.get('message') or ''}".rstrip(": "))
+    print("  ".join(parts), flush=True)
+
+
+def _handle_wait(args) -> int:
+    """Poll the read-only ``check`` view until the run is terminal or time is up.
+
+    Every iteration reads the durable ``daemon.json`` the supervisor writes;
+    nothing here reconciles, repairs, notifies, or constructs a manager, so
+    waiting on a run can never disturb it.  A first observation that fails
+    (unknown id, unreadable state) is refused outright; a later transient read
+    failure — the atomic-replace window `_check_snapshot_from_paths` notes —
+    is retried on the next interval rather than ending the wait.
+    """
+    owner_dir = _resolve_owner_dir(args.owner_dir)
+    view = _ReadOnlyDaemonView(_CliDaemonAgent.for_inspection(owner_dir))
+    deadline = None if args.timeout is None else _monotonic() + args.timeout
+
+    previous: tuple | None = None
+    last_checkpoint_seq = None
+    snapshot: dict = {"id": args.id}
+    run_path: Path | None = None
+
+    def emit(record: dict) -> None:
+        nonlocal last_checkpoint_seq
+        checkpoint = record.get("checkpoint")
+        seq = checkpoint.get("sequence") if isinstance(checkpoint, dict) else None
+        changed = seq is not None and seq != last_checkpoint_seq
+        last_checkpoint_seq = seq
+        if args.json:
+            _emit_jsonl(record)
+        else:
+            _print_wait_line(record, checkpoint_changed=changed)
+
+    try:
+        while True:
+            if run_path is None:
+                observed = view._handle_check(args.id, last=1)
+                if observed.get("status") != "error":
+                    raw_path = observed.get("path")
+                    if not isinstance(raw_path, str) or not raw_path:
+                        raise CliDaemonError("check returned no daemon run path")
+                    run_path = Path(raw_path)
+            else:
+                try:
+                    observed = _read_wait_snapshot(args.id, run_path)
+                except (OSError, json.JSONDecodeError):
+                    observed = {"status": "error", "message": "daemon.json read failed"}
+            if observed.get("status") == "error":
+                if previous is None:
+                    raise CliDaemonError(str(observed.get("message", "check failed")))
+            else:
+                snapshot = observed
+                state = snapshot.get("state")
+                if state in _TERMINAL_STATES:
+                    code = 0 if state == "done" else 1
+                    final = view._handle_check(args.id)
+                    emit(_wait_record(
+                        "terminal", snapshot, exit_code=code,
+                        check=final if final.get("status") != "error" else snapshot,
+                    ))
+                    return code
+                signature = _progress_signature(snapshot)
+                if signature != previous:
+                    emit(_wait_record("progress", snapshot))
+                    previous = signature
+            if deadline is not None and _monotonic() >= deadline:
+                emit(_wait_record(
+                    "timeout", snapshot, exit_code=_WAIT_EXIT_TIMEOUT,
+                    timeout_s=args.timeout,
+                ))
+                return _WAIT_EXIT_TIMEOUT
+            _sleep(args.interval)
+    except KeyboardInterrupt:
+        emit(_wait_record("interrupted", snapshot, exit_code=_WAIT_EXIT_INTERRUPTED))
+        return _WAIT_EXIT_INTERRUPTED
 
 
 _HANDLERS = {
     "emanate": _handle_emanate,
     "list": _handle_list,
     "check": _handle_check,
+    "ask": _handle_ask,
+    "wait": _handle_wait,
     "reclaim": _handle_reclaim,
 }
+
+
+def _add_owner_dir_argument(parser: argparse.ArgumentParser, *, required: bool) -> None:
+    """The one owner-directory argument every daemon command takes.
+
+    ``--agent-dir`` is the legacy spelling; both write the same destination.
+    """
+    help_text = (
+        "Owner directory containing init.json — the directory whose daemons/ "
+        "run state and .notification/daemon/ notifications this caller owns. "
+        "No running Agent or lease is required (--agent-dir is the legacy spelling)"
+    )
+    parser.add_argument(
+        "--owner-dir", "--agent-dir",
+        dest="owner_dir",
+        type=Path,
+        required=required,
+        default=None,
+        help=help_text if required else help_text + " (default: cwd)",
+    )
 
 
 def add_daemon_parser(sub: "argparse._SubParsersAction") -> None:
@@ -973,12 +1264,7 @@ def add_daemon_parser(sub: "argparse._SubParsersAction") -> None:
         required=True,
         help="JSON file: the daemon tool's emanate input, or a bare array of task objects",
     )
-    emanate.add_argument(
-        "--agent-dir",
-        type=Path,
-        required=True,
-        help="Agent working directory containing init.json",
-    )
+    _add_owner_dir_argument(emanate, required=True)
     emanate.add_argument(
         "--backend",
         default=None,
@@ -1004,31 +1290,58 @@ def add_daemon_parser(sub: "argparse._SubParsersAction") -> None:
         help="Show the newest N rows (strictly positive; default: 1000)",
     )
     listing.add_argument(
-        "--agent-dir",
-        type=Path,
-        default=None,
-        help="Agent working directory containing init.json (default: cwd)",
+        "--json",
+        action="store_true",
+        help="Print the engine's list payload as JSON instead of a table",
     )
+    _add_owner_dir_argument(listing, required=False)
 
     reclaim = daemon_sub.add_parser(
         "reclaim",
-        help="Cancel every active or queued detached daemon run of this agent",
+        help="Cancel every active or queued detached daemon run of this owner directory",
     )
-    reclaim.add_argument(
-        "--agent-dir",
-        type=Path,
-        required=True,
-        help="Agent working directory containing init.json",
-    )
+    _add_owner_dir_argument(reclaim, required=True)
 
     check = daemon_sub.add_parser("check", help="Inspect one daemon run (read-only)")
     check.add_argument("id", help="Daemon id, e.g. em-1 or a full run id")
-    check.add_argument(
-        "--agent-dir",
-        type=Path,
-        default=None,
-        help="Agent working directory containing init.json (default: cwd)",
+    _add_owner_dir_argument(check, required=False)
+
+    ask = daemon_sub.add_parser(
+        "ask",
+        help="Send one follow-up message to a daemon run through the daemon tool's ask path",
     )
+    ask.add_argument("id", help="Daemon id, e.g. em-1 or a full run id")
+    ask.add_argument("message", help="Follow-up message; delivery is backend-specific")
+    _add_owner_dir_argument(ask, required=True)
+
+    wait = daemon_sub.add_parser(
+        "wait",
+        help=(
+            "Observe one daemon run until it is terminal (read-only); exit 0 on done, "
+            "1 on failed/cancelled/timeout, 124 when --timeout elapses, 130 on interrupt"
+        ),
+    )
+    wait.add_argument("id", help="Daemon id, e.g. em-1 or a full run id")
+    wait.add_argument(
+        "--timeout",
+        type=_strict_positive_float,
+        default=None,
+        metavar="SECONDS",
+        help="Stop waiting after this many seconds (default: until the run is terminal)",
+    )
+    wait.add_argument(
+        "--interval",
+        type=_strict_positive_float,
+        default=1.0,
+        metavar="SECONDS",
+        help="Seconds between polls of the run's durable state (default: 1)",
+    )
+    wait.add_argument(
+        "--json",
+        action="store_true",
+        help="Print one JSON object per line: each progress change, then the final event",
+    )
+    _add_owner_dir_argument(wait, required=False)
 
 
 def handle_daemon_command(args) -> None:

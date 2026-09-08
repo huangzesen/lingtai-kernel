@@ -199,15 +199,15 @@ def test_emanate_accepts_bare_task_array(tmp_path, monkeypatch, capsys, no_spawn
 
 
 # ---------------------------------------------------------------------------
-# --agent-dir
+# --owner-dir (legacy spelling --agent-dir)
 # ---------------------------------------------------------------------------
 
 
-def test_emanate_requires_agent_dir(tmp_path, monkeypatch, capsys, no_spawn):
+def test_emanate_requires_owner_dir(tmp_path, monkeypatch, capsys, no_spawn):
     tasks = _write_tasks(tmp_path, {"tasks": [{"task": "x", "tools": ["file"]}]})
     code = _run_cli(monkeypatch, ["daemon", "emanate", "--tasks", str(tasks)])
     assert code == 2  # argparse usage error
-    assert "--agent-dir" in capsys.readouterr().err
+    assert "--owner-dir" in capsys.readouterr().err
     assert no_spawn == []
 
 
@@ -244,6 +244,8 @@ def test_emanate_without_yes_previews_and_spawns_nothing(tmp_path, monkeypatch,
     preview = json.loads(captured.out)
     assert preview["status"] == "preview"
     assert preview["dispatched"] is False
+    assert preview["owner_dir"] == str(agent_dir)
+    assert preview["agent_dir"] == str(agent_dir)  # legacy machine-readable key
     assert preview["count"] == 2
     assert preview["backend"] == "lingtai"
     assert [t["tools"] for t in preview["tasks"]] == [["file"], ["file", "shell"]]
@@ -1224,3 +1226,336 @@ def test_daemon_manual_routes_programmatic_use_to_current_help():
     assert "lingtai-agent daemon emanate" not in manual
     assert "lingtai-agent daemon list" not in manual
     assert "non-empty `contains` searches prompt-preview text" not in manual
+
+
+# ---------------------------------------------------------------------------
+# External owner (#1659): --owner-dir naming, no live Agent, owner-scoped state
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("flag", ["--owner-dir", "--agent-dir"])
+def test_owner_dir_and_legacy_agent_dir_share_one_destination(tmp_path, monkeypatch,
+                                                             capsys, flag):
+    """``--agent-dir`` survives only as a spelling of the same owner directory."""
+    owner_dir = _write_agent_dir(tmp_path)
+    _seed_run_dir(owner_dir)
+    assert _run_cli(monkeypatch, ["daemon", "list", flag, str(owner_dir)]) == 0
+    assert "em-1" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("command", ["emanate", "list", "check", "ask", "wait", "reclaim"])
+def test_every_daemon_command_documents_owner_dir(monkeypatch, capsys, command):
+    assert _run_cli(monkeypatch, ["daemon", command, "--help"]) == 0
+    out = capsys.readouterr().out
+    assert "--owner-dir" in out
+    assert "owner" in out.lower()
+    assert "Agent working directory" not in out
+
+
+def test_owner_dir_errors_speak_owner(tmp_path, monkeypatch, capsys):
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    assert _run_cli(monkeypatch, ["daemon", "list", "--owner-dir", str(bare)]) == 1
+    err = capsys.readouterr().err
+    assert "--owner-dir" in err and "init.json" in err
+    assert "--agent-dir" not in err
+
+
+def test_standalone_owner_dispatch_keeps_state_owner_local_without_a_lease(
+    tmp_path, monkeypatch, capsys, no_spawn,
+):
+    """An owner directory with its own init.json needs no running Agent."""
+    owner_dir = _write_agent_dir(tmp_path)
+    tasks = _write_tasks(tmp_path, [{"task": "owned task", "tools": ["file"]}])
+    assert _run_cli(monkeypatch, [
+        "daemon", "emanate", "--tasks", str(tasks), "--owner-dir", str(owner_dir), "--yes",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "dispatched"
+    assert len(no_spawn) == 1
+    assert Path(no_spawn[0]["run_dir"].path).parent == owner_dir / "daemons"
+    for marker in (".agent.lock", ".agent.heartbeat", ".agent.json"):
+        assert not (owner_dir / marker).exists()
+
+
+def test_supervisor_terminal_notification_anchors_to_the_owner_dir(tmp_path):
+    """The detached publisher routes by the manifest's owner directory alone."""
+    from lingtai.tools.daemon.run_dir import DaemonRunDir
+    from lingtai.tools.daemon.supervisor_runtime import _publish_daemon_notification
+
+    owner_dir = _write_agent_dir(tmp_path)
+    run_path = _seed_run_dir(owner_dir)
+    run_dir = DaemonRunDir.attach(run_path)
+    state = DaemonRunDir.read_state_from_disk(run_path)
+
+    published = _publish_daemon_notification(
+        run_dir, {"parent_working_dir": str(owner_dir)},
+        status="done", state=state, idempotency_key="k-owner",
+    )
+    assert published is True
+    assert list((owner_dir / ".notification" / "daemon").glob("*.json"))
+    assert not (tmp_path / ".notification").exists()
+
+
+# ---------------------------------------------------------------------------
+# ask
+# ---------------------------------------------------------------------------
+
+
+def test_ask_dispatches_through_the_daemon_family(tmp_path, monkeypatch, capsys):
+    """CLI ask is the tool-family ask surface, not a second follow-up path."""
+    owner_dir = _write_agent_dir(tmp_path)
+    calls: list[tuple[Path, str, dict]] = []
+
+    def fake_dispatch(agent, action, action_input):
+        calls.append((agent._working_dir, action, action_input))
+        return {"status": "sent", "id": "em-1"}
+
+    monkeypatch.setattr("lingtai.cli_daemon._dispatch_through_tool_family", fake_dispatch)
+
+    assert _run_cli(monkeypatch, [
+        "daemon", "ask", "em-1", "stop at the next checkpoint", "--owner-dir", str(owner_dir),
+    ]) == 0
+    assert calls == [(owner_dir, "ask", {"id": "em-1", "message": "stop at the next checkpoint"})]
+    assert json.loads(capsys.readouterr().out) == {"status": "sent", "id": "em-1"}
+
+
+@pytest.mark.parametrize("status, code", [
+    ("sent", 0), ("queued", 0), ("busy", 1), ("error", 1),
+])
+def test_ask_exit_status_tracks_the_engine_result(tmp_path, monkeypatch, capsys,
+                                                  status, code):
+    owner_dir = _write_agent_dir(tmp_path)
+    monkeypatch.setattr(
+        "lingtai.cli_daemon._dispatch_through_tool_family",
+        lambda agent, action, action_input: {"status": status, "id": "em-1"},
+    )
+    assert _run_cli(monkeypatch, [
+        "daemon", "ask", "em-1", "hello", "--owner-dir", str(owner_dir),
+    ]) == code
+    assert json.loads(capsys.readouterr().out)["status"] == status
+
+
+def test_ask_unknown_id_is_refused_by_the_real_engine(tmp_path, monkeypatch, capsys):
+    owner_dir = _write_agent_dir(tmp_path)
+    assert _run_cli(monkeypatch, [
+        "daemon", "ask", "em-404", "hello", "--owner-dir", str(owner_dir),
+    ]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "error"
+    assert "em-404" in result["message"]
+
+
+def test_ask_refuses_a_blank_message_before_dispatch(tmp_path, monkeypatch, capsys):
+    owner_dir = _write_agent_dir(tmp_path)
+    monkeypatch.setattr(
+        "lingtai.cli_daemon._dispatch_through_tool_family",
+        lambda *a: pytest.fail("a blank message must never reach the engine"),
+    )
+    assert _run_cli(monkeypatch, [
+        "daemon", "ask", "em-1", "   ", "--owner-dir", str(owner_dir),
+    ]) == 1
+    assert "message" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# wait
+# ---------------------------------------------------------------------------
+
+
+def _script_sleeps(monkeypatch, steps) -> list:
+    """Drive ``wait`` deterministically: each poll interval runs the next step."""
+    queue = list(steps)
+
+    def _sleep(_seconds: float) -> None:
+        if not queue:
+            raise AssertionError("wait polled after the scripted run ended")
+        queue.pop(0)()
+
+    monkeypatch.setattr("lingtai.cli_daemon._sleep", _sleep)
+    return queue
+
+
+def _forbid_manager_construction(monkeypatch) -> None:
+    from lingtai.tools.daemon import DaemonManager
+
+    def _refuse(self, *args, **kwargs):
+        pytest.fail("wait must observe without constructing a DaemonManager")
+
+    monkeypatch.setattr(DaemonManager, "__init__", _refuse)
+
+
+def test_wait_reports_each_progress_change_once_then_exits_zero_on_done(
+    tmp_path, monkeypatch, capsys,
+):
+    from lingtai.tools.daemon.run_dir import DaemonRunDir
+
+    owner_dir = _write_agent_dir(tmp_path)
+    run_dir = DaemonRunDir.attach(_seed_run_dir(owner_dir, state="running"))
+    remaining = _script_sleeps(monkeypatch, [
+        lambda: run_dir.update_state(turn=1, current_tool="file"),
+        lambda: None,  # nothing changed: must not be reported again
+        lambda: run_dir.record_checkpoint({"state": "implementing", "summary": "half way"}),
+        lambda: run_dir.mark_done("finished"),
+    ])
+
+    assert _run_cli(monkeypatch, ["daemon", "wait", "em-1", "--owner-dir", str(owner_dir)]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert remaining == []
+    assert len(lines) == 4  # first observation, turn/tool, checkpoint, terminal
+    assert "running" in lines[0]
+    assert "turn=1" in lines[1] and "file" in lines[1]
+    assert "checkpoint" in lines[2] and "half way" in lines[2]
+    assert "done" in lines[3]
+
+
+def test_wait_json_emits_one_record_per_change_and_a_terminal_record(
+    tmp_path, monkeypatch, capsys,
+):
+    from lingtai.tools.daemon.run_dir import DaemonRunDir
+
+    owner_dir = _write_agent_dir(tmp_path)
+    run_dir = DaemonRunDir.attach(_seed_run_dir(owner_dir, state="running"))
+    _forbid_manager_construction(monkeypatch)
+    _script_sleeps(monkeypatch, [
+        lambda: run_dir.update_state(turn=1, current_tool="file"),
+        lambda: run_dir.record_checkpoint({"state": "implementing", "summary": "half way"}),
+        lambda: run_dir.mark_done("finished"),
+    ])
+
+    assert _run_cli(monkeypatch, [
+        "daemon", "wait", "em-1", "--json", "--owner-dir", str(owner_dir),
+    ]) == 0
+
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [r["event"] for r in records] == ["progress", "progress", "progress", "terminal"]
+    assert all(r["id"] == "em-1" for r in records)
+    assert records[0]["state"] == "running" and records[0]["checkpoint"] is None
+    assert records[1]["turn"] == 1 and records[1]["current_tool"] == "file"
+    assert records[2]["checkpoint"]["sequence"] == 1
+    assert records[2]["checkpoint"]["summary"] == "half way"
+    assert records[-1]["state"] == "done" and records[-1]["exit_code"] == 0
+    assert records[-1]["check"]["result_path"].endswith("result.txt")
+
+
+def test_wait_does_not_rescan_the_events_log_on_each_poll(
+    tmp_path, monkeypatch, capsys,
+):
+    """Only initial resolution and terminal detail use the full check path."""
+    from lingtai.tools.daemon import DaemonManager
+    from lingtai.tools.daemon.run_dir import DaemonRunDir
+
+    owner_dir = _write_agent_dir(tmp_path)
+    run_dir = DaemonRunDir.attach(_seed_run_dir(owner_dir, state="running"))
+    calls = []
+    original = DaemonManager._handle_check
+
+    def counted(self, *args, **kwargs):
+        calls.append((args, kwargs))
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(DaemonManager, "_handle_check", counted)
+    _script_sleeps(monkeypatch, [
+        lambda: run_dir.update_state(turn=1),
+        lambda: run_dir.update_state(turn=2),
+        lambda: run_dir.mark_done("finished"),
+    ])
+
+    assert _run_cli(monkeypatch, [
+        "daemon", "wait", "em-1", "--json", "--owner-dir", str(owner_dir),
+    ]) == 0
+    assert len(calls) == 2  # initial id/path resolution, then one terminal full check
+    assert calls[0][1] == {"last": 1}
+    assert calls[1][1] == {}
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["event"] == "terminal"
+
+
+@pytest.mark.parametrize("state, code", [
+    ("done", 0), ("failed", 1), ("cancelled", 1), ("timeout", 1),
+])
+def test_wait_exit_status_reflects_the_terminal_state(tmp_path, monkeypatch, capsys,
+                                                      state, code):
+    owner_dir = _write_agent_dir(tmp_path)
+    _seed_run_dir(owner_dir, state=state)
+    monkeypatch.setattr(
+        "lingtai.cli_daemon._sleep",
+        lambda _s: pytest.fail("an already-terminal run must not be polled again"),
+    )
+    assert _run_cli(monkeypatch, [
+        "daemon", "wait", "em-1", "--json", "--owner-dir", str(owner_dir),
+    ]) == code
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [r["event"] for r in records] == ["terminal"]
+    assert records[0]["state"] == state and records[0]["exit_code"] == code
+
+
+def test_wait_timeout_exits_124_and_writes_nothing(tmp_path, monkeypatch, capsys):
+    owner_dir = _write_agent_dir(tmp_path)
+    run_path = _seed_run_dir(owner_dir, state="running")
+    before = (run_path / "daemon.json").read_bytes()
+    clock = [0.0]
+    monkeypatch.setattr("lingtai.cli_daemon._sleep", lambda s: clock.__setitem__(0, clock[0] + s))
+    monkeypatch.setattr("lingtai.cli_daemon._monotonic", lambda: clock[0])
+
+    assert _run_cli(monkeypatch, [
+        "daemon", "wait", "em-1", "--timeout", "3", "--interval", "1", "--json",
+        "--owner-dir", str(owner_dir),
+    ]) == 124
+
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert records[0]["event"] == "progress"
+    assert records[-1]["event"] == "timeout"
+    assert records[-1]["state"] == "running" and records[-1]["exit_code"] == 124
+    assert (run_path / "daemon.json").read_bytes() == before
+    assert not (owner_dir / ".notification").exists()
+
+
+def test_wait_interrupt_exits_130_with_a_final_record(tmp_path, monkeypatch, capsys):
+    owner_dir = _write_agent_dir(tmp_path)
+    _seed_run_dir(owner_dir, state="running")
+
+    def _interrupt(_seconds: float) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("lingtai.cli_daemon._sleep", _interrupt)
+    assert _run_cli(monkeypatch, [
+        "daemon", "wait", "em-1", "--json", "--owner-dir", str(owner_dir),
+    ]) == 130
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert records[-1]["event"] == "interrupted" and records[-1]["exit_code"] == 130
+
+
+def test_wait_unknown_id_exits_nonzero(tmp_path, monkeypatch, capsys):
+    owner_dir = _write_agent_dir(tmp_path)
+    assert _run_cli(monkeypatch, [
+        "daemon", "wait", "em-404", "--owner-dir", str(owner_dir),
+    ]) == 1
+    assert "em-404" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("argv", [
+    ["--timeout", "0"], ["--interval", "0"], ["--interval", "-1"],
+    ["--timeout", "inf"], ["--interval", "nan"],
+])
+def test_wait_bounds_must_be_positive(tmp_path, monkeypatch, capsys, argv):
+    owner_dir = _write_agent_dir(tmp_path)
+    assert _run_cli(monkeypatch, [
+        "daemon", "wait", "em-1", *argv, "--owner-dir", str(owner_dir),
+    ]) == 2
+
+
+# ---------------------------------------------------------------------------
+# list --json
+# ---------------------------------------------------------------------------
+
+
+def test_list_json_prints_the_engine_payload(tmp_path, monkeypatch, capsys):
+    owner_dir = _write_agent_dir(tmp_path)
+    _seed_run_dir(owner_dir)
+    assert _run_cli(monkeypatch, [
+        "daemon", "list", "--json", "--owner-dir", str(owner_dir),
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert [entry["id"] for entry in payload["emanations"]] == ["em-1"]
+    assert payload["emanations"][0]["status"] == "done"
+    assert payload["running"] == 0

@@ -212,7 +212,10 @@ or cleanup outside an authorized scope.
 ## Programmatic use / CLI
 
 For scripts and CI, use `lingtai-agent daemon --help` for the current command
-surface and options.
+surface and options. The CLI caller is an external owner: `--owner-dir` is any
+directory with its own `init.json` (no running Agent or lease required), and
+that directory anchors the runs' `daemons/` state and `.notification/daemon/`
+terminal notifications; `wait` observes a run to its terminal state read-only.
 
 ## Maintenance
 
