@@ -233,6 +233,8 @@ def check(agent) -> None:
     # each tick either starts one or consumes a finished one.
     pending = _fetch_slot(agent)
     if pending is None:
+        if not _remote_check_due(kernel_state, info.installed_version, today):
+            return
         _start_fetch(agent)
         return
     if not pending.done.is_set():
@@ -437,8 +439,18 @@ def _module_from_source_checkout(module_file: str) -> bool:
 
 
 def _remote_check_due(kernel_state: dict[str, Any], installed_version: str, today: str) -> bool:
-    """Bounded probe gate; repeat/dismiss semantics are global, never daily."""
-    return True
+    """Return whether this installed version has not been checked on this UTC day.
+
+    State is deliberately fail-open for malformed or missing values: a new
+    process must still get one observation. A completed probe (including a
+    failure) records both fields, so retries are suppressed until either the
+    UTC day or installed version changes. Nudge dismissal/repeat remains a
+    separate global policy concern.
+    """
+    return not (
+        kernel_state.get("last_remote_check_date") == today
+        and kernel_state.get("checked_installed_version") == installed_version
+    )
 
 
 def _fetch_latest_version() -> _ReleaseObservation:

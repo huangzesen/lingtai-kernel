@@ -298,7 +298,7 @@ def test_match_after_refresh_keeps_independent_remote_finding_during_outage(tmp_
     assert _entries(tmp_path)[0]["source"] == kv._GITHUB_SOURCE
 
 
-def test_remote_update_check_uses_bounded_probe_not_daily_product_cadence(tmp_path, monkeypatch):
+def test_remote_update_check_is_gated_by_installed_version_and_utc_day(tmp_path, monkeypatch):
     agent = _Agent(tmp_path)
     calls = {"n": 0}
     monkeypatch.setattr(
@@ -337,14 +337,35 @@ def test_remote_update_check_uses_bounded_probe_not_daily_product_cadence(tmp_pa
     assert state["kernel_version"]["checked_installed_version"] == "0.14.1"
     assert state["kernel_version"]["latest_seen"] == "0.14.2"
 
-    # A later probe starts a fresh fetch (the single-flight slot was consumed).
+    # A later same-day probe for the same installed version is suppressed.
+    _reset_fast_gate(agent)
+    kv.check(agent)
+    assert kv._fetch_slot(agent) is None
+    assert calls["n"] == 1
+
+    # An in-day installed-version change re-arms the remote observation.
+    monkeypatch.setattr(
+        kv,
+        "_runtime_info",
+        lambda: kv._RuntimeInfo("0.14.2", "0.14.2", None),
+    )
     _reset_fast_gate(agent)
     kv.check(agent)
     pending = kv._fetch_slot(agent)
     assert pending is not None
     pending.thread.join()
+    _reset_fast_gate(agent)
+    kv.check(agent)  # consume the completed version-change observation
     assert calls["n"] == 2
-    assert _entries(tmp_path)[0]["latest"] == "0.14.2"
+
+    # A UTC-day transition also re-arms the check for the same version.
+    monkeypatch.setattr(kv, "_today_utc", lambda: "2026-06-25")
+    _reset_fast_gate(agent)
+    kv.check(agent)
+    pending = kv._fetch_slot(agent)
+    assert pending is not None
+    pending.thread.join()
+    assert calls["n"] == 3
 
 
 @pytest.mark.parametrize("candidate", ["999-not-a-release", "release-999", "not-a-version"])
