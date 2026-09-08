@@ -259,7 +259,10 @@ class ToolFamily:
            showed this root construct is accepted, not rejected, by the
            current backend route.
         2. **Typed ``input`` disclosure:** the same per-action branches retained
-           for discoverability (``oneOf`` normally, ``anyOf`` with settings).
+           for discoverability under an overlap-tolerant ``anyOf`` union. Branch
+           annotations such as titles and descriptions are not validation
+           discriminators, so semantically equivalent action schemas are valid
+           members of the same family.
 
         The root carries ``action``, ``input``, required ``reasoning``, and
         optional ``summarize`` — exactly the four LTP v2 envelope fields
@@ -305,9 +308,14 @@ class ToolFamily:
                     },
                 }
             )
-        input_branches_keyword = (
-            "anyOf" if RESERVED_SETTINGS_NAME in self._children else "oneOf"
-        )
+        # Input branches are a discovery union, not an action discriminator:
+        # annotations do not affect JSON-Schema validation, so distinct actions
+        # may legitimately have overlapping constraints (for example, poll and
+        # cancel can both require only a string job_id).  Root allOf/if/then
+        # conditions already correlate action with its exact input schema, and
+        # dispatch remains the fail-closed authority for providers that do not
+        # enforce those conditions.
+        input_branches_keyword = "anyOf"
         return {
             "type": "object",
             "properties": {

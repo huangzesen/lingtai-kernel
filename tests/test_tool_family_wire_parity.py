@@ -1,6 +1,6 @@
 """Chat Completions / Responses wire parity for the generic ToolFamily schema.
 
-Proves the composed ``oneOf``-over-``input`` schema survives both
+Proves the composed overlap-tolerant ``anyOf``-over-``input`` schema survives both
 provider wire shapes at the smallest existing adapter seam
 (``lingtai.llm.openai.adapter._build_tools`` /
 ``_build_responses_tools``) without any adapter code change — a fake
@@ -58,7 +58,7 @@ def test_generic_family_schema_survives_chat_and_responses_wires():
     chat = _build_tools([schema])[0]["function"]["parameters"]
     responses = _build_responses_tools([schema])[0]["parameters"]
 
-    for wire, combinator in ((chat, "oneOf"), (responses, "anyOf")):
+    for wire, combinator in ((chat, "anyOf"), (responses, "anyOf")):
         assert wire["type"] == "object"
         # ``reasoning`` is REQUIRED Host InvocationContext/audit metadata,
         # declared by the family schema itself (see ToolFamily.build_schema).

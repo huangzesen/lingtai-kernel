@@ -102,7 +102,7 @@ def test_schema_composes_action_input_reasoning_summarize_root():
     assert schema["properties"]["input"]["type"] == "object"
     assert schema["properties"]["reasoning"]["type"] == "string"
     assert schema["properties"]["summarize"]["type"] == "boolean"
-    branches = schema["properties"]["input"]["oneOf"]
+    branches = schema["properties"]["input"]["anyOf"]
     assert [b["title"] for b in branches] == ["spin input", "manual input"]
     spin_branch, manual_branch = branches
     assert spin_branch["required"] == ["speed"]
@@ -118,7 +118,7 @@ def test_schema_composes_action_input_reasoning_summarize_root():
 def test_schema_never_uses_generic_unconstrained_input_object():
     fam = _widget_family()
     schema = fam.build_schema()
-    for branch in schema["properties"]["input"]["oneOf"]:
+    for branch in schema["properties"]["input"]["anyOf"]:
         assert branch.get("type") == "object"
         assert "properties" in branch
 
@@ -396,6 +396,155 @@ def test_handle_remains_authoritative_fail_closed_even_though_schema_now_correla
     assert result["error_code"] == "INVALID_ARGUMENT"
 
 
+def _minimal_json_schema_valid(instance, schema):
+    """Faithful subset evaluator for generated ToolFamily schemas.
+
+    The test uses ``jsonschema`` when that already-available validator can be
+    imported; this fallback covers only the JSON-Schema keywords emitted by
+    ``ToolFamily.build_schema`` so the regression stays dependency-free in
+    environments without that optional test dependency.  In particular,
+    ``oneOf`` counts successful branches and ignores annotation keywords such as
+    ``title`` and ``description``, as the standard requires.
+    """
+    if "const" in schema and instance != schema["const"]:
+        return False
+    if "enum" in schema and instance not in schema["enum"]:
+        return False
+    schema_type = schema.get("type")
+    if schema_type == "object" and not isinstance(instance, dict):
+        return False
+    if schema_type == "string" and not isinstance(instance, str):
+        return False
+    if schema_type == "boolean" and not isinstance(instance, bool):
+        return False
+    if isinstance(instance, dict):
+        required = set(schema.get("required", ()))
+        if not required.issubset(instance):
+            return False
+        properties = schema.get("properties", {})
+        if schema.get("additionalProperties") is False and set(instance) - set(properties):
+            return False
+        if any(
+            key in instance and not _minimal_json_schema_valid(instance[key], subschema)
+            for key, subschema in properties.items()
+        ):
+            return False
+    if "allOf" in schema and not all(
+        _minimal_json_schema_valid(instance, branch) for branch in schema["allOf"]
+    ):
+        return False
+    if "anyOf" in schema and not any(
+        _minimal_json_schema_valid(instance, branch) for branch in schema["anyOf"]
+    ):
+        return False
+    if "oneOf" in schema and sum(
+        _minimal_json_schema_valid(instance, branch) for branch in schema["oneOf"]
+    ) != 1:
+        return False
+    if "if" in schema:
+        if_matches = _minimal_json_schema_valid(instance, schema["if"])
+        if if_matches and "then" in schema and not _minimal_json_schema_valid(instance, schema["then"]):
+            return False
+    return True
+
+
+def _json_schema_valid(instance, schema):
+    """Use an installed standards validator, with the faithful local fallback."""
+    try:
+        from jsonschema import Draft202012Validator
+    except ImportError:
+        return _minimal_json_schema_valid(instance, schema)
+    return not list(Draft202012Validator(schema).iter_errors(instance))
+
+
+def _overlapping_poll_cancel_family() -> ToolFamily:
+    """No-settings fake whose poll/cancel branches overlap semantically."""
+    def _schema(description: str) -> dict:
+        return {
+            "type": "object",
+            "description": description,
+            "properties": {
+                "job_id": {
+                    "type": "string",
+                    "description": f"{description} job identifier",
+                },
+            },
+            "required": ["job_id"],
+            "additionalProperties": False,
+        }
+
+    def _handler(input_):
+        return {"status": "ok", "job_id": input_["job_id"]}
+
+    return ToolFamily(
+        "jobs",
+        [
+            ChildTool("poll", _schema("poll operation"), _handler, title="Poll a job"),
+            ChildTool("cancel", _schema("cancel operation"), _handler, title="Cancel a job"),
+            _manual_child(),
+        ],
+    )
+
+
+def test_no_settings_overlapping_input_branches_validate_with_root_correlation():
+    """A valid action/input call remains valid when input branches overlap.
+
+    ``poll`` and ``cancel`` have identical validation constraints but distinct
+    annotations.  A valid poll call validates against both input branches;
+    JSON Schema ``oneOf`` rejects it, even though the matching root
+    ``allOf``/``if``/``then`` condition validates the selected poll input.
+    The production fix must therefore use a union that permits overlap.
+    """
+    family = _overlapping_poll_cancel_family()
+    schema = family.build_schema()
+    payload = {"action": "poll", "input": {"job_id": "job-1"}, "reasoning": "inspect"}
+    input_schema = schema["properties"]["input"]
+    assert "oneOf" not in input_schema
+    branches = input_schema["anyOf"]
+
+    assert branches[0]["title"] != branches[1]["title"]
+    assert branches[0]["description"] != branches[1]["description"]
+    assert branches[0]["properties"]["job_id"]["description"] != branches[1]["properties"]["job_id"]["description"]
+    assert sum(_json_schema_valid(payload["input"], branch) for branch in branches) == 2
+
+    conditions = {
+        condition["if"]["properties"]["action"]["const"]: condition
+        for condition in schema["allOf"]
+    }
+    poll_input_schema = conditions["poll"]["then"]["properties"]["input"]
+    assert _json_schema_valid(payload["input"], poll_input_schema)
+    assert _json_schema_valid(payload, schema)
+
+
+def test_no_settings_non_overlapping_strict_branches_still_reject_mismatches():
+    """The overlap fix does not weaken strict branch/action correlation."""
+    schema = _widget_family().build_schema()
+    valid_spin = {"action": "spin", "input": {"speed": 1}, "reasoning": "run"}
+    missing_spin_input = {"action": "spin", "input": {}, "reasoning": "run"}
+    spin_input_for_manual = {
+        "action": "manual", "input": {"speed": 1}, "reasoning": "read"
+    }
+    assert _json_schema_valid(valid_spin, schema)
+    assert not _json_schema_valid(missing_spin_input, schema)
+    assert not _json_schema_valid(spin_input_for_manual, schema)
+
+
+def test_settings_enabled_family_keeps_anyof_and_validates_settings_action():
+    """The explicit settings opt-in remains an anyOf family and dispatches."""
+    family = ToolFamily(
+        "widget",
+        [_spin_child([]), _manual_child()],
+        settings_provider=lambda: (),
+    )
+    schema = family.build_schema()
+    input_schema = schema["properties"]["input"]
+    assert "oneOf" not in input_schema
+    assert len(input_schema["anyOf"]) == 3
+    payload = {"action": "settings", "input": {}, "reasoning": "inspect"}
+    assert _json_schema_valid(payload, schema)
+    assert family.handle(payload) == {"settings": []}
+
+
 def test_build_schema_does_not_leak_shared_mutable_child_schema_by_reference():
     """Regression test: ``build_schema()`` must not embed a child's own
     ``input_schema`` (or its nested containers) by reference into the
@@ -407,7 +556,7 @@ def test_build_schema_does_not_leak_shared_mutable_child_schema_by_reference():
     fam = _widget_family(calls)
     first = fam.build_schema()
     first_spin_branch = next(
-        b for b in first["properties"]["input"]["oneOf"] if b["title"] == "spin input"
+        b for b in first["properties"]["input"]["anyOf"] if b["title"] == "spin input"
     )
     # Mutate the nested ``properties`` container reachable from the first
     # returned schema.
@@ -415,16 +564,16 @@ def test_build_schema_does_not_leak_shared_mutable_child_schema_by_reference():
 
     second = fam.build_schema()
     second_spin_branch = next(
-        b for b in second["properties"]["input"]["oneOf"] if b["title"] == "spin input"
+        b for b in second["properties"]["input"]["anyOf"] if b["title"] == "spin input"
     )
     assert second_spin_branch["properties"]["speed"]["type"] == "integer"
 
 
 def test_build_schema_all_of_conditions_are_mutation_isolated():
-    """Companion to the ``oneOf``-branch mutation-isolation regression test,
+    """Companion to the ``anyOf``-branch mutation-isolation regression test,
     for the new ``allOf`` conditions: mutating one call's
     ``then.properties.input`` must not corrupt a later, independent call, the
-    child's own canonical ``input_schema``, or the sibling ``oneOf`` branch —
+    child's own canonical ``input_schema``, or the sibling ``anyOf`` branch —
     each surface is built from its own deep copy."""
     calls: list[dict] = []
     fam = _widget_family(calls)
@@ -442,9 +591,9 @@ def test_build_schema_all_of_conditions_are_mutation_isolated():
     assert fam._children["spin"].input_schema["properties"]["speed"]["type"] == "integer"
     assert dict(fam._children["spin"].input_schema) == original_spin_schema
 
-    # The sibling ``oneOf`` branch from the SAME first call is untouched —
-    # allOf.then.input and the oneOf branch do not share a container either.
-    first_spin_branch = next(b for b in first["properties"]["input"]["oneOf"] if b["title"] == "spin input")
+    # The sibling ``anyOf`` branch from the SAME first call is untouched —
+    # allOf.then.input and the anyOf branch do not share a container either.
+    first_spin_branch = next(b for b in first["properties"]["input"]["anyOf"] if b["title"] == "spin input")
     assert first_spin_branch["properties"]["speed"]["type"] == "integer"
 
 

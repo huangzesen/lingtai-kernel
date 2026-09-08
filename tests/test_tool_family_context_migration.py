@@ -160,7 +160,7 @@ def test_schema_and_dispatch_come_from_one_registry():
     """A child cannot be schema-advertised but dispatch-rejected."""
     schema = get_schema("en")
     advertised = list(schema["properties"]["action"]["enum"])
-    branch_titles = [b["title"] for b in schema["properties"]["input"]["oneOf"]]
+    branch_titles = [b["title"] for b in schema["properties"]["input"]["anyOf"]]
     correlated = [
         c["if"]["properties"]["action"]["const"] for c in schema["allOf"]
     ]
@@ -729,7 +729,7 @@ def test_one_context_root_survives_both_wires_with_action_input_correlation(tmp_
 
         chat = _build_tools(context_schemas)[0]["function"]["parameters"]
         responses = _build_responses_tools(context_schemas)[0]["parameters"]
-        for wire, combinator in ((chat, "oneOf"), (responses, "anyOf")):
+        for wire, combinator in ((chat, "anyOf"), (responses, "anyOf")):
             assert set(wire["properties"]) == {
                 "action", "input", "reasoning", "summarize",
             }
@@ -839,7 +839,7 @@ def test_rebuild_items_stays_optional_on_both_provider_wires(tmp_path):
         schemas = [s for s in _build_tool_schemas(live) if s.name == "context"]
         chat = _build_tools(schemas)[0]["function"]["parameters"]
         responses = _build_responses_tools(schemas)[0]["parameters"]
-        for wire, combinator in ((chat, "oneOf"), (responses, "anyOf")):
+        for wire, combinator in ((chat, "anyOf"), (responses, "anyOf")):
             branches = {
                 b["title"]: b for b in wire["properties"]["input"][combinator]
             }

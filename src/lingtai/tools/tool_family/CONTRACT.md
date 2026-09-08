@@ -90,12 +90,15 @@ both built from the same deep-copied canonical child schemas:
    `allOf`/`if`/`then` schema without error on the current route (see
    `_scrub_responses_schema` in `../../llm/openai/adapter.py` for the
    corresponding wire-level change and its own scope note).
-2. **Typed `input.oneOf` disclosure:** `input` explicitly declares the common
+2. **Typed `input.anyOf` disclosure:** `input` explicitly declares the common
    `type: object` constraint required of every action, then embeds the same
    per-child `input_schema`s verbatim under a `title` for model discoverability
-   of every action's exact shape in one place. The direct type is redundant for
-   a complete JSON Schema validator, but keeps the object contract unambiguous
-   for model/provider schema consumers that inspect only the immediate node.
+   of every action's exact shape in one place. `anyOf` is intentional: titles
+   and descriptions are annotations, not validation discriminators, so two
+   actions may have validation-equivalent input schemas. The direct type is
+   redundant for a complete JSON Schema validator, but keeps the object
+   contract unambiguous for model/provider schema consumers that inspect only
+   the immediate node.
 
 Both layers expose the envelope root `action`, `input`, required
 `reasoning`, and optional `summarize` — exactly the four public fields;
@@ -472,8 +475,10 @@ Guarded by: [T006](BEHAVIORS.md#behavior-t006) and
 - `build_schema()` MUST declare the aggregate `input` property as direct
   `type: object`, then embed each child's own object `input_schema` verbatim
   (no copy-and-reshape) under a branch pairing it with that child's `title`.
-  The branch keyword is `oneOf` for opted-out families and `anyOf` for an
-  opted-in settings family, avoiding duplicate strict-empty branch invalidity.
+  The branch keyword is always `anyOf`, including opted-out families. Input
+  branch annotations are not validation discriminators, so this avoids
+  rejecting a valid call when two actions have overlapping constraints (while
+  the root `allOf` correlation and fail-closed dispatch retain action safety).
   It MUST declare a root `reasoning` string property and include
   `reasoning` in the root `required` list — `reasoning` is Host
   InvocationContext/audit metadata, not left to Agent schema composition's
@@ -559,8 +564,8 @@ schema/dispatch non-regression evidence.
 
 `tests/test_tool_family_generic.py` proves the infrastructure is generic using
 a fake `widget` family unrelated to `web`: deterministic registration order,
-duplicate-name and reserved-`manual`-collision failures, `oneOf` schema
-composition with root `reasoning` REQUIRED and no unconstrained generic
+duplicate-name and reserved-`manual`-collision failures, overlap-tolerant
+`anyOf` schema composition with root `reasoning` REQUIRED and no unconstrained generic
 `input` object, dispatch selecting the correct child and passing only its
 `input`, unknown-action/non-boolean-summarize/unknown-root-field/cross-branch-
 key rejection, no double result wrapping, and two dedicated proofs that
@@ -568,10 +573,10 @@ key rejection, no double result wrapping, and two dedicated proofs that
 child's own canonical `input_schema`. It also proves the root `allOf`
 correlation directly: every condition's `action` const matches the child
 registry name, `then.input` exactly matches that child's own canonical
-schema, a minimal local `if`/`then` structural evaluator (no JSON Schema
-dependency added) shows the schema itself rejects a mismatched
+schema, a standards validator when available (with a faithful local
+fallback and no added dependency) shows the schema itself rejects a mismatched
 `action`/`input` pairing, `handle()` remains authoritative and fail-closed
-regardless, and both the `allOf` conditions and the `oneOf` branches are
+regardless, and both the `allOf` conditions and the `anyOf` branches are
 mutation-isolated from each other and from a child's own canonical schema.
 It also proves the "Diagnostics sidecar" contract using an opted-in fake
 `widget` child: the exact owner-declared `DiagnosticDescriptor` and
