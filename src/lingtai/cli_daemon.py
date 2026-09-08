@@ -1049,6 +1049,7 @@ def _progress_signature(snapshot: dict) -> tuple:
         snapshot.get("turn"),
         snapshot.get("current_tool"),
         checkpoint.get("sequence") if isinstance(checkpoint, dict) else None,
+        snapshot.get("last_output"),
         snapshot.get("last_output_at"),
         snapshot.get("pending_checkpoint_messages"),
         snapshot.get("resume_state"),
@@ -1172,8 +1173,20 @@ def _handle_wait(args) -> int:
         else:
             _print_wait_line(record, checkpoint_changed=changed)
 
+    def finish_timeout() -> int:
+        emit(_wait_record(
+            "timeout", snapshot, exit_code=_WAIT_EXIT_TIMEOUT,
+            timeout_s=args.timeout,
+        ))
+        return _WAIT_EXIT_TIMEOUT
+
     try:
         while True:
+            # The first read resolves the id/path and may immediately report an
+            # already-terminal run.  Every later read is deadline-gated so a
+            # run finishing after the caller's deadline cannot win the race.
+            if run_path is not None and deadline is not None and _monotonic() >= deadline:
+                return finish_timeout()
             if run_path is None:
                 observed = view._handle_check(args.id, last=1)
                 if observed.get("status") != "error":
@@ -1204,13 +1217,14 @@ def _handle_wait(args) -> int:
                 if signature != previous:
                     emit(_wait_record("progress", snapshot))
                     previous = signature
-            if deadline is not None and _monotonic() >= deadline:
-                emit(_wait_record(
-                    "timeout", snapshot, exit_code=_WAIT_EXIT_TIMEOUT,
-                    timeout_s=args.timeout,
-                ))
-                return _WAIT_EXIT_TIMEOUT
-            _sleep(args.interval)
+            if deadline is None:
+                sleep_for = args.interval
+            else:
+                remaining = deadline - _monotonic()
+                if remaining <= 0:
+                    return finish_timeout()
+                sleep_for = min(args.interval, remaining)
+            _sleep(sleep_for)
     except KeyboardInterrupt:
         emit(_wait_record("interrupted", snapshot, exit_code=_WAIT_EXIT_INTERRUPTED))
         return _WAIT_EXIT_INTERRUPTED

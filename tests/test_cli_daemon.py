@@ -1420,6 +1420,7 @@ def test_wait_json_emits_one_record_per_change_and_a_terminal_record(
     _script_sleeps(monkeypatch, [
         lambda: run_dir.update_state(turn=1, current_tool="file"),
         lambda: run_dir.record_checkpoint({"state": "implementing", "summary": "half way"}),
+        lambda: run_dir.update_state(last_output="new output"),
         lambda: run_dir.mark_done("finished"),
     ])
 
@@ -1428,12 +1429,15 @@ def test_wait_json_emits_one_record_per_change_and_a_terminal_record(
     ]) == 0
 
     records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert [r["event"] for r in records] == ["progress", "progress", "progress", "terminal"]
+    assert [r["event"] for r in records] == [
+        "progress", "progress", "progress", "progress", "terminal",
+    ]
     assert all(r["id"] == "em-1" for r in records)
     assert records[0]["state"] == "running" and records[0]["checkpoint"] is None
     assert records[1]["turn"] == 1 and records[1]["current_tool"] == "file"
     assert records[2]["checkpoint"]["sequence"] == 1
     assert records[2]["checkpoint"]["summary"] == "half way"
+    assert records[3]["last_output"] == "new output"
     assert records[-1]["state"] == "done" and records[-1]["exit_code"] == 0
     assert records[-1]["check"]["result_path"].endswith("result.txt")
 
@@ -1508,6 +1512,35 @@ def test_wait_timeout_exits_124_and_writes_nothing(tmp_path, monkeypatch, capsys
     assert records[-1]["state"] == "running" and records[-1]["exit_code"] == 124
     assert (run_path / "daemon.json").read_bytes() == before
     assert not (owner_dir / ".notification").exists()
+
+
+def test_wait_timeout_caps_sleep_and_wins_over_post_deadline_terminal(
+    tmp_path, monkeypatch, capsys,
+):
+    from lingtai.tools.daemon.run_dir import DaemonRunDir
+
+    owner_dir = _write_agent_dir(tmp_path)
+    run_dir = DaemonRunDir.attach(_seed_run_dir(owner_dir, state="running"))
+    clock = [0.0]
+    sleeps = []
+
+    def finish_after_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        clock[0] += seconds
+        run_dir.mark_done("finished after deadline")
+
+    monkeypatch.setattr("lingtai.cli_daemon._sleep", finish_after_sleep)
+    monkeypatch.setattr("lingtai.cli_daemon._monotonic", lambda: clock[0])
+
+    assert _run_cli(monkeypatch, [
+        "daemon", "wait", "em-1", "--timeout", "0.1", "--interval", "60", "--json",
+        "--owner-dir", str(owner_dir),
+    ]) == 124
+    assert sleeps == [pytest.approx(0.1)]
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [record["event"] for record in records] == ["progress", "timeout"]
+    assert records[-1]["state"] == "running"
+    assert records[-1]["exit_code"] == 124
 
 
 def test_wait_interrupt_exits_130_with_a_final_record(tmp_path, monkeypatch, capsys):
