@@ -376,11 +376,11 @@ class AvatarParentPort(Protocol):
 
 
 class DaemonRuntimePort(Protocol):
-    """Daemon's capability-native view of the current agent runtime.
+    """Daemon's capability-native view of its selected host runtime.
 
-    Daemon needs more than a directory: it inherits the parent model service,
-    the currently mounted regular tool surface, selected preset loading, one
-    notification route, compact runtime settings, and event logging.  Those
+    Daemon needs more than a directory: a host may supply an inherited model
+    service/tool surface or require direct presets, plus preset loading, one
+    notification route, compact runtime settings, and event logging. Those
     facts are exposed as named operations rather than as a whole ``Agent``.
     The port deliberately owns no model-facing mount operation; that remains
     registrar-only through :class:`ToolMountPort`.
@@ -388,7 +388,7 @@ class DaemonRuntimePort(Protocol):
 
     @property
     def service(self) -> Any:
-        """The parent service whose effective model configuration Daemon inherits."""
+        """The optional parent service used only by inherited no-preset bindings."""
 
     @property
     def tool_schemas(self) -> tuple[Any, ...]:
@@ -435,11 +435,15 @@ class DaemonRuntimePort(Protocol):
     ) -> tuple[dict[str, Any], dict[str, Callable[[dict], dict]]]:
         """Build one preset capability's isolated tool surface without mounting it."""
 
-    def read_preset_from_init(self) -> Mapping[str, Any]:
-        """Read the raw selected-preset policy block, or return an empty mapping."""
+    @property
+    def requires_explicit_preset(self) -> bool:
+        """Whether every native LingTai task must supply a preset path."""
+
+    def is_preset_authorized(self, name: str, working_dir: Any) -> bool:
+        """Authorize one explicit preset reference for this runtime binding."""
 
     def load_preset(self, name: str) -> dict:
-        """Load one parent-authorized preset through the host's canonical route."""
+        """Load one authorized or directly supplied preset through the canonical route."""
 
     def enqueue_daemon_notification(
         self,

@@ -21,6 +21,10 @@ related_files:
   - src/lingtai/kernel/tool_executor.py
   - src/lingtai/kernel/tool_result_summary.py
   - src/lingtai/services/mcp.py
+  - src/lingtai/services/ANATOMY.md
+  - src/lingtai/services/daemon.py
+  - src/lingtai/cli_daemon.py
+  - tests/test_cli_daemon.py
   - src/lingtai/llm/service.py
   - src/lingtai/llm/interface_converters.py
   - src/lingtai/llm/openai/ANATOMY.md
@@ -113,7 +117,13 @@ registrations serialized as YAML for all backends, loaded as task-scoped MCP
 tools by the LingTai backend, mounted through native stdio MCP config for
 the Claude print/Codex/OpenCode/Qwen CLI backends, and mounted through native
 stdio/HTTP MCP config for Kimi Code via a run-private `$KIMI_CODE_HOME/mcp.json`.
-The maintained unified daemon
+The reusable standalone boundary lives in `services/daemon.py`: it composes this
+same manager, family dispatcher, run directories, notification store, and ledger
+against one caller-selected state root. It constructs no Agent and owns no Agent
+lease, heartbeat, identity, prompt, or lifecycle. Native standalone tasks must
+name a directly loadable preset path before scheduling; external CLI backends
+retain their existing preset-free mechanics. `cli_daemon.py` is only the
+`--state-root` command driver over that object. The maintained unified daemon
 contract lives in `CONTRACT.md`. MCP-capable backends also get the built-in
 `daemon_common` MCP (`src/lingtai/mcp_servers/daemon_common/server.py`): its
 live-only `checkpoint` tool atomically records sequence/latest state, drains
@@ -398,6 +408,7 @@ intentional omission of the parent notification axis.
 
 ## Composition
 
+- **Standalone service:** `src/lingtai/services/daemon.py` composes `DaemonManager` and `DaemonFamilyDispatcher`; `src/lingtai/cli_daemon.py` only drives that API, while `tests/test_cli_daemon.py` proves direct-preset dispatch/readback without `init.json` or Agent artifacts.
 - **Parent:** `src/lingtai/tools/` (tool package).
 - **Siblings:** `avatar/`, `mcp/`, `knowledge/` (private durable memory), `skills/` (skill catalog), canonical `shell` (retained `bash/` implementation).
 - **Summary composition edge:** `_build_daemon_apriori_summarizer_fn` in

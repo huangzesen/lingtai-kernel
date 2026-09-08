@@ -5,6 +5,7 @@ related_files:
   - src/lingtai/ANATOMY.md
   - src/lingtai/services/__init__.py
   - src/lingtai/services/file_io.py
+  - src/lingtai/services/daemon.py
   - src/lingtai/services/file_io_sidecar.py
   - src/lingtai/tools/file/ANATOMY.md
   - src/lingtai/services/mail.py
@@ -12,6 +13,10 @@ related_files:
   - src/lingtai/services/session_mcp.py
   - src/lingtai/agent.py
   - src/lingtai/tools/daemon/__init__.py
+  - src/lingtai/tools/daemon/ANATOMY.md
+  - src/lingtai/kernel/tool_plugin/ANATOMY.md
+  - src/lingtai/kernel/tool_plugin/CONTRACT.md
+  - tests/test_cli_daemon.py
   - src/lingtai/services/mcp_registry.py
   - src/lingtai/services/mcp_inbox.py
   - src/lingtai/services/mcp_licc.py
@@ -52,6 +57,7 @@ Root services package — pluggable backends for intrinsic tools and MCP clients
 | File | LOC | Role |
 |---|---|---|
 | `__init__.py` | 1 | Docstring-only package marker |
+| `daemon.py` | — | `DaemonService(state_root)`: standalone, non-Agent composition of the existing `DaemonManager` and `DaemonFamilyDispatcher`; native calls require direct preset paths and readback uses ledger-driven mutation-free views |
 | `file_io.py` | 533 | `FileIOService` facade contract + `FileIOBackend`/`LocalFileIOBackend` — backs read/edit/write/glob/grep. `grep` accepts an optional basename `glob_filter` that prunes the candidate set before stat/read |
 | `file_io_sidecar.py` | 771 | Rust-backed grep/glob: `RustFileIOBackend`, `SidecarAdapter`, `SidecarError`, plus the `resolve_sidecar_binary` resolver and the `default_file_io_service` factory used by `Agent.__init__`. The factory retains an immutable File construction snapshot: normalized backend selection plus the applied canonical/legacy override source and resolved value; the sensitive value is excluded from repr and fully redacted by owner SHOW. `grep`'s `glob_filter` is applied as a Python-side basename post-filter (the sidecar wire protocol carries no glob field yet) |
 | `mail.py` | 19 | High-level compatibility surface: re-exports the Core `MailTransportPort` as `MailService` and the POSIX adapter as both `PosixFilesystemMailAdapter` and the legacy public name `FilesystemMailService` |
@@ -79,11 +85,13 @@ Root services package — pluggable backends for intrinsic tools and MCP clients
   factory-applied bounded construction snapshot for SHOW through a separate
   immutable host configuration port; the sensitive value is projected only
   through full redaction.
+- **← `lingtai.cli_daemon`** — thin command driver over `DaemonService`; it owns no daemon policy or Agent facade.
+- **→ `lingtai.tools.daemon`** — `DaemonService` composes the existing manager/family dispatcher and artifacts rather than implementing a second engine.
 - **← `lingtai.agent` / `lingtai.tools.daemon`** — stdio, HTTP, and task-scoped MCP handlers call `prepare_mcp_tool_arguments` immediately before provider dispatch, using the server's original input schema as authority.
 
 ## Composition
 
-`file_io.py` is a pure stdlib abstraction layer. `LocalFileIOService` is the tool-facing facade while `LocalFileIOBackend` owns the default Python local filesystem implementation. `file_io_sidecar.py` provides `RustFileIOBackend`, an opt-in alternative backend that delegates `read`/`write`/`edit` to a private `LocalFileIOBackend` but routes `grep`/`glob` to the Rust binary under `crates/lingtai-search-sidecar/` via short-lived JSON subprocess calls. `mail.py` is a high-level compatibility re-export across the Core Port and POSIX Adapter; it owns no implementation. `mcp.py` keeps two transport-specific client classes and composes them with one protocol-generic result decoder and one schema-aware host-private argument adapter shared by Agent and task-daemon handlers. `session_mcp.py` composes only the existing stdio client into an ephemeral, Agent-surface lease; it writes no registry or persistent configuration.
+`daemon.py` is the reusable standalone composition root: its only durable owner is the caller-selected state root, native configuration comes from each task’s direct preset path, and it never constructs or leases an Agent. `file_io.py` is a pure stdlib abstraction layer. `LocalFileIOService` is the tool-facing facade while `LocalFileIOBackend` owns the default Python local filesystem implementation. `file_io_sidecar.py` provides `RustFileIOBackend`, an opt-in alternative backend that delegates `read`/`write`/`edit` to a private `LocalFileIOBackend` but routes `grep`/`glob` to the Rust binary under `crates/lingtai-search-sidecar/` via short-lived JSON subprocess calls. `mail.py` is a high-level compatibility re-export across the Core Port and POSIX Adapter; it owns no implementation. `mcp.py` keeps two transport-specific client classes and composes them with one protocol-generic result decoder and one schema-aware host-private argument adapter shared by Agent and task-daemon handlers. `session_mcp.py` composes only the existing stdio client into an ephemeral, Agent-surface lease; it writes no registry or persistent configuration.
 
 ## State
 

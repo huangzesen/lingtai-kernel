@@ -7,8 +7,8 @@ description: >
   daemon_common completion signaling, support-status honesty, run artifacts,
   terminal notifications, and compaction boundaries.
 status: active
-contract_version: 14
-last_changed_at: "2026-08-29"
+contract_version: 15
+last_changed_at: "2026-09-08"
 related_files:
   - src/lingtai/tools/daemon/ANATOMY.md
   - src/lingtai/tools/daemon/BEHAVIORS.md
@@ -27,6 +27,8 @@ related_files:
   - src/lingtai/kernel/tool_executor.py
   - src/lingtai/kernel/tool_result_summary.py
   - src/lingtai/services/mcp.py
+  - src/lingtai/services/ANATOMY.md
+  - src/lingtai/services/daemon.py
   - src/lingtai/kernel/llm/base.py
   - src/lingtai/kernel/base_agent/ANATOMY.md
   - src/lingtai/kernel/notification_store/CONTRACT.md
@@ -53,6 +55,7 @@ related_files:
   - src/lingtai/tools/daemon/manual/SKILL.md
   - ENVIRONMENT_VARIABLES.md
   - src/lingtai/cli_daemon.py
+  - tests/test_cli_daemon.py
   - src/lingtai/tools/daemon/manual/reference/cli-backends/SKILL.md
   - src/lingtai/mcp_servers/daemon_common/server.py
   - src/lingtai/llm/openai/ANATOMY.md
@@ -97,6 +100,9 @@ review_triggers:
   - src/lingtai/adapters/posix/daemon_manager.py
   - src/lingtai/adapters/posix/daemon_supervisor.py
   - src/lingtai/tools/daemon/ANATOMY.md
+  - src/lingtai/services/daemon.py
+  - src/lingtai/cli_daemon.py
+  - tests/test_cli_daemon.py
   - src/lingtai/tools/daemon/manual/
   - src/lingtai/mcp_servers/daemon_common/
   - tests/test_daemon.py
@@ -253,6 +259,34 @@ Its legacy flat `action="manual"` branch remains for internal callers only; the
 registered `manual` is `build_manual_child(workdir, DECLARATION.manual)`,
 returning canonical `content[0].text` / `structuredContent.manual_path`
 verbatim with no manager operation or double wrap.
+
+### Standalone service boundary
+
+`lingtai.services.daemon.DaemonService(state_root)` is the reusable standalone
+composition of the same `DaemonManager`, `DaemonFamilyDispatcher`, resident
+manager path, task schema, ledger, notification store, and run artifacts. Its
+only owned filesystem namespace is the caller-selected state root. It is not an
+Agent, never creates one, and takes no Agent workdir lease, heartbeat, identity,
+prompt, or lifecycle ownership.
+
+For native `backend="lingtai"`, every standalone task MUST supply a nonblank
+`preset` path directly. The service MUST reject an omitted preset before preset
+load, capability setup, run-directory creation, or scheduling. A supplied path
+is loaded read-only through the canonical preset loader and its provider
+connectivity and requested capability surface are validated before scheduling;
+the service MUST NOT locate, parse, materialize, validate, or derive policy from
+`init.json`, an Agent preset allowlist, or a parent effective configuration.
+Agent-bound daemon composition retains its existing optional inherited-preset
+route and explicit-preset allowlist. External CLI backends return through their
+existing no-preset path before the native gate.
+
+The service exposes only `emanate`, `list`, `check`, and `reclaim` for this
+vertical slice. `list` and `check` bind the engine's ledger-driven handlers
+without constructing a manager, preserving read-only inspection. The
+`lingtai-agent daemon` CLI is a thin required-`--state-root` driver over this
+API; it has no `--agent-dir`, init compatibility, preview/confirmation, or
+standalone `ask` policy. `tests/test_cli_daemon.py` is the acceptance proof for
+both seams.
 
 ### Daemon settings ownership
 
@@ -1078,6 +1112,9 @@ Re-check this contract when touching:
   or completion enforcement.
 - `src/lingtai/tools/daemon/settings.py` row ownership, defaults, or manual
   pointers.
+- `src/lingtai/services/daemon.py`, `src/lingtai/cli_daemon.py`, or
+  `tests/test_cli_daemon.py` standalone state-root, direct-preset, API, CLI, or
+  readback semantics.
 - `src/lingtai/tools/daemon/run_dir.py` artifact paths, `daemon.json`
   `call_parameters`, checkpoint sequence/latest/inbox fields, redaction-sensitive
   fields, terminal markers, terminal-notification receipt fields, or manifests.
