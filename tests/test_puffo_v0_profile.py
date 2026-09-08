@@ -23,6 +23,7 @@ from lingtai.adapters.acp.puffo_v0 import (
     revoke_runtime,
 )
 from lingtai.adapters.acp.server import AcpStdioServer, INVALID_PARAMS
+from lingtai.adapters.acp.puffo_v1 import PUFFO_MCP_ARGS, validate_puffo_v1_mcp_servers
 from lingtai.agent import Agent
 from lingtai.kernel.execution_workspace import ExecutionWorkspace
 from lingtai.kernel.config import AgentConfig
@@ -35,6 +36,16 @@ from tests.test_deep_refresh import _make_init
 class _Agent:
     def __init__(self):
         self._shutdown = None
+        self.session_mcp_configs = None
+
+    def mount_session_mcp_stdio(self, configs):
+        self.session_mcp_configs = configs
+        return _SessionMCPLease()
+
+
+class _SessionMCPLease:
+    def close(self):
+        return None
 
 
 def _frames(output: io.StringIO) -> list[dict]:
@@ -61,6 +72,36 @@ def _new_profile_server(workspace: Path) -> tuple[AcpStdioServer, io.StringIO]:
             fixed_execution_workspace=ExecutionWorkspace(workspace),
             allow_session_mcp=False,
         ),
+        output,
+    )
+
+
+def _puffo_server_config(**overrides):
+    config = {
+        "name": "puffo",
+        "command": "/usr/local/bin/python3",
+        "args": ["-m", "puffo_agent.mcp.puffo_core_server"],
+        "env": [
+            {"name": "PUFFO_LOCAL_SERVICE_TOKEN", "value": "test-token"},
+            {"name": "PYTHONPATH", "value": "/tmp/editable"},
+        ],
+    }
+    config.update(overrides)
+    return config
+
+
+def _new_v1_profile_server(workspace: Path) -> tuple[AcpStdioServer, _Agent, io.StringIO]:
+    output = io.StringIO()
+    agent = _Agent()
+    return (
+        AcpStdioServer(
+            agent,
+            io.StringIO(),
+            output,
+            fixed_execution_workspace=ExecutionWorkspace(workspace),
+            session_mcp_validator=validate_puffo_v1_mcp_servers,
+        ),
+        agent,
         output,
     )
 
@@ -398,6 +439,83 @@ def test_profile_session_rejects_remote_workspace_and_mcp_inputs(tmp_path):
     server.close()
 
 
+def test_puffo_v1_session_mounts_only_the_fixed_puffo_core_service(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    server, agent, output = _new_v1_profile_server(workspace)
+    _request(server, 1, "initialize", {"protocolVersion": 1})
+    _request(
+        server,
+        2,
+        "session/new",
+        {"cwd": str(workspace), "mcpServers": [_puffo_server_config()]},
+    )
+
+    frames = _wait_for_frames(output, 2)
+    assert "result" in frames[1]
+    assert agent.session_mcp_configs is not None
+    assert len(agent.session_mcp_configs) == 1
+    assert agent.session_mcp_configs[0].name == "puffo"
+    assert agent.session_mcp_configs[0].args == (
+        "-m", "puffo_agent.mcp.puffo_core_server"
+    )
+    server.close()
+
+
+@pytest.mark.parametrize(
+    ("servers", "message"),
+    [
+        ([], "puffo-v1 requires exactly one Puffo MCP server"),
+        (
+            [_puffo_server_config(), _puffo_server_config(name="puffo-two")],
+            "puffo-v1 requires exactly one Puffo MCP server",
+        ),
+        ([_puffo_server_config(name="not-puffo")], "puffo-v1 MCP server must be named puffo"),
+        (
+            [_puffo_server_config(args=["-m", "another.server"])],
+            "puffo-v1 MCP server must run puffo_agent.mcp.puffo_core_server",
+        ),
+        (
+            [_puffo_server_config(env=[])],
+            "puffo-v1 MCP server requires a non-empty Puffo local service token",
+        ),
+        (
+            [_puffo_server_config(env=[{"name": "HOME", "value": "/tmp"}])],
+            "puffo-v1 MCP server requires a non-empty Puffo local service token",
+        ),
+        (
+            [_puffo_server_config(env=[{"name": "PUFFO_LOCAL_SERVICE_TOKEN", "value": ""}])],
+            "puffo-v1 MCP server requires a non-empty Puffo local service token",
+        ),
+    ],
+)
+def test_puffo_v1_session_rejects_any_other_mcp_shape(tmp_path, servers, message):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    server, _agent, output = _new_v1_profile_server(workspace)
+    _request(server, 1, "initialize", {"protocolVersion": 1})
+    _request(server, 2, "session/new", {"cwd": str(workspace), "mcpServers": servers})
+
+    frames = _wait_for_frames(output, 2)
+    assert frames[1]["error"] == {"code": INVALID_PARAMS, "message": message}
+    server.close()
+
+
+def test_puffo_v1_session_preserves_unknown_environment_names(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    server, agent, output = _new_v1_profile_server(workspace)
+    _request(server, 1, "initialize", {"protocolVersion": 1})
+    config = _puffo_server_config()
+    config["env"].append({"name": "HOME", "value": "/tmp"})
+    _request(server, 2, "session/new", {"cwd": str(workspace), "mcpServers": [config]})
+
+    frames = _wait_for_frames(output, 2)
+    assert "result" in frames[1]
+    assert ("HOME", "/tmp") in agent.session_mcp_configs[0].env
+    server.close()
+
+
 def test_profile_cli_resolves_an_opaque_id_before_composing_acp(monkeypatch, tmp_path):
     import lingtai.cli_acp as cli_acp
     from lingtai.adapters.acp.driver_authority import UnavailableDriverAuthorityAdapter
@@ -468,6 +586,247 @@ def test_profile_cli_composes_a_root_driver_for_both_admission_boundaries(monkey
     assert observed["derived_launch_admission_port"]._authority is authority
 
 
+def test_puffo_v1_cli_reuses_the_bound_runtime_with_fixed_mcp_ingress(monkeypatch, tmp_path):
+    import lingtai.cli_acp as cli_acp
+    from lingtai.adapters.acp.driver_authority import DriverAuthorityClient
+    from lingtai.adapters.acp.puffo_v1 import validate_puffo_v1_mcp_servers
+    from lingtai.adapters.acp.puffo_v0 import DirectoryBinding, PuffoV0Runtime
+
+    agent_dir = tmp_path / "identity"
+    agent_dir.mkdir()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    binding = DirectoryBinding(device=1, inode=2, owner=3, group=4)
+    runtime = PuffoV0Runtime(
+        "runtime-1", agent_dir, workspace, "digest", binding, binding,
+        RUNTIME_POLICY.policy_version,
+    )
+    observed = {}
+    monkeypatch.setattr("lingtai.adapters.acp.puffo_v0.resolve_runtime", lambda _id: runtime)
+    authority = object.__new__(DriverAuthorityClient)
+    monkeypatch.setattr(
+        "lingtai.adapters.acp.driver_authority.authority_adapter_from_environment",
+        lambda: authority,
+    )
+    monkeypatch.setattr(cli_acp, "run_acp", lambda directory, **kwargs: observed.update(directory=directory, **kwargs))
+
+    cli_acp.handle_acp_command(SimpleNamespace(profile="puffo-v1", runtime_id="runtime-1", agent_dir=None))
+
+    assert observed["directory"] == agent_dir
+    assert observed["fixed_execution_workspace"].root == workspace
+    assert observed["session_mcp_validator"] is validate_puffo_v1_mcp_servers
+    assert observed["turn_origin_policy"] is RUNTIME_POLICY
+
+
+class _CompositionAgent:
+    """Minimal Agent stand-in for driving the real ``run_acp`` composition.
+
+    Records the MCP configs handed to ``mount_session_mcp_stdio`` so a test can
+    prove the session validator's *return value* reached the mount, and reports
+    a clean bounded stop so ``run_acp``'s teardown returns instead of calling
+    ``os._exit``.
+    """
+
+    def __init__(self):
+        self._shutdown = None
+        self._venv_path = None
+        self.session_mcp_configs = None
+
+    def start(self):
+        return None
+
+    def stop(self, timeout=None):
+        return SimpleNamespace(
+            stopped=True, run_loop_alive=False, provider_worker_alive=False
+        )
+
+    def mount_session_mcp_stdio(self, configs):
+        self.session_mcp_configs = configs
+        return _SessionMCPLease()
+
+
+class _ScriptedWire:
+    """An ACP input stream that yields scripted lines then holds the wire open.
+
+    ``run_acp`` writes its responses from a background writer thread, so a
+    ``StringIO`` that hits EOF immediately can be closed before the last frame
+    is drained. This stream yields the scripted request lines and then blocks
+    the server's reader until the test has observed the expected frames and
+    calls ``release()`` — mirroring a real client that keeps stdin open.
+    """
+
+    def __init__(self, lines):
+        self._lines = list(lines)
+        self._index = 0
+        self._release = threading.Event()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._index < len(self._lines):
+            line = self._lines[self._index]
+            self._index += 1
+            return line
+        # Block until the test has observed its frames and releases the wire.
+        # Unbounded on purpose: a bounded wait here could expire while the test
+        # is still polling and EOF the server mid-write, reintroducing the
+        # close-before-drain race. ``_run_v1_composition``'s finally always calls
+        # release(), and this reader is a daemon thread, so it cannot wedge.
+        self._release.wait()
+        raise StopIteration
+
+    def release(self):
+        self._release.set()
+
+
+def _run_v1_composition(monkeypatch, tmp_path, mcp_servers):
+    """Drive the *real* ``run_acp`` puffo-v1 composition over a scripted ACP wire.
+
+    Only agent construction (orthogonal to validator forwarding) is stubbed;
+    every link of the forwarding seam stays real — ``run_acp`` builds the
+    ``AcpStdioServer`` from its own ``session_mcp_validator`` kwarg and a real
+    ``session/new`` applies it. Uses the minimal composition arg set that reaches
+    the forwarding branch (``fixed_execution_workspace`` set → the else-branch of
+    ``run_acp``); the turn-origin / derived-launch ports are deliberately omitted
+    because they feed the stubbed ``build_agent`` and would add failure modes
+    unrelated to the seam under test. Returns the two output frames (initialize
+    result + session/new result-or-error) and the mount-recording agent.
+    """
+    import lingtai.cli_acp as cli_acp
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    agent_dir = tmp_path / "identity"
+    agent_dir.mkdir()
+    agent = _CompositionAgent()
+
+    monkeypatch.setattr("lingtai.cli._check_duplicate_process", lambda *a, **k: None)
+    monkeypatch.setattr("lingtai.cli._clean_signal_files", lambda *a, **k: None)
+    monkeypatch.setattr("lingtai.cli.load_init", lambda _agent_dir: {})
+    monkeypatch.setattr(
+        "lingtai.cli.build_agent", lambda data, directory, **opts: agent
+    )
+    monkeypatch.setattr("lingtai.kernel.logging.setup_logging", lambda **k: None)
+    monkeypatch.setattr("lingtai.venv_resolve.resolve_venv", lambda data: tmp_path / "venv")
+
+    wire_in = _ScriptedWire(
+        [
+            json.dumps(
+                {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                 "params": {"protocolVersion": 1}}
+            ) + "\n",
+            json.dumps(
+                {"jsonrpc": "2.0", "id": 2, "method": "session/new",
+                 "params": {"cwd": str(workspace), "mcpServers": mcp_servers}}
+            ) + "\n",
+        ]
+    )
+    wire_out = io.StringIO()
+
+    def _serve():
+        cli_acp.run_acp(
+            agent_dir,
+            input_stream=wire_in,
+            output_stream=wire_out,
+            fixed_execution_workspace=ExecutionWorkspace(workspace),
+            session_mcp_validator=validate_puffo_v1_mcp_servers,
+        )
+
+    server_thread = threading.Thread(target=_serve, daemon=True)
+    server_thread.start()
+    try:
+        frames = _wait_for_frames(wire_out, 2)
+    finally:
+        wire_in.release()
+        server_thread.join(timeout=5.0)
+    return frames, agent
+
+
+def test_puffo_v1_composition_forwards_validator_into_a_live_session(monkeypatch, tmp_path):
+    """Real ``run_acp`` must thread ``session_mcp_validator`` into the server it builds.
+
+    Pins ``cli_acp.run_acp``'s forwarding line (``session_mcp_validator`` →
+    ``server_options`` → ``AcpStdioServer``) end to end: the existing
+    ``test_puffo_v1_session_*`` tests construct the server directly and
+    ``test_puffo_v1_cli_reuses...`` mocks ``run_acp``, so neither covers this
+    seam. Scope: asserts the validator's own return value reached
+    ``mount_session_mcp_stdio``; it does NOT assert ``allow_session_mcp``
+    semantics — the server consults the validator first, so that flag is
+    short-circuited when the validator is present, and the rejection test below
+    carries the validator-identity discriminator.
+    """
+    frames, agent = _run_v1_composition(monkeypatch, tmp_path, [_puffo_server_config()])
+
+    session_frame = next(f for f in frames if f.get("id") == 2)
+    assert "result" in session_frame, session_frame
+    assert agent.session_mcp_configs is not None
+    assert len(agent.session_mcp_configs) == 1
+    assert agent.session_mcp_configs[0].name == "puffo"
+    assert agent.session_mcp_configs[0].args == PUFFO_MCP_ARGS
+
+
+@pytest.mark.parametrize(
+    ("servers", "message"),
+    [
+        ([], "puffo-v1 requires exactly one Puffo MCP server"),
+        (
+            [_puffo_server_config(name="not-puffo")],
+            "puffo-v1 MCP server must be named puffo",
+        ),
+        (
+            [_puffo_server_config(env=[])],
+            "puffo-v1 MCP server requires a non-empty Puffo local service token",
+        ),
+    ],
+)
+def test_puffo_v1_composition_applies_validator_rejection_through_real_run_acp(
+    monkeypatch, tmp_path, servers, message
+):
+    """The forwarded validator's puffo-v1-specific rejection must reach the wire.
+
+    Distinguishes ``validate_puffo_v1_mcp_servers`` from the generic MCP parser
+    independent of ``allow_session_mcp``: the generic path would accept these
+    shapes (empty → no mount; wrong name / missing token → mount), so only a
+    validator actually forwarded through real ``run_acp`` yields these exact
+    messages and mounts nothing.
+    """
+    frames, agent = _run_v1_composition(monkeypatch, tmp_path, servers)
+
+    session_frame = next(f for f in frames if f.get("id") == 2)
+    assert session_frame.get("error") == {"code": INVALID_PARAMS, "message": message}
+    assert agent.session_mcp_configs is None
+
+
+def test_puffo_v1_cli_requires_an_authenticated_driver_authority(monkeypatch, tmp_path, capsys):
+    import lingtai.cli_acp as cli_acp
+    from lingtai.adapters.acp.driver_authority import UnavailableDriverAuthorityAdapter
+    from lingtai.adapters.acp.puffo_v0 import DirectoryBinding, PuffoV0Runtime
+
+    agent_dir = tmp_path / "identity"
+    agent_dir.mkdir()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    binding = DirectoryBinding(device=1, inode=2, owner=3, group=4)
+    runtime = PuffoV0Runtime(
+        "runtime-1", agent_dir, workspace, "digest", binding, binding,
+        RUNTIME_POLICY.policy_version,
+    )
+    monkeypatch.setattr("lingtai.adapters.acp.puffo_v0.resolve_runtime", lambda _id: runtime)
+    monkeypatch.setattr(
+        "lingtai.adapters.acp.driver_authority.authority_adapter_from_environment",
+        UnavailableDriverAuthorityAdapter,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_acp.handle_acp_command(
+            SimpleNamespace(profile="puffo-v1", runtime_id="runtime-1", agent_dir=None)
+        )
+
+    assert exc_info.value.code == 1
+    assert "puffo-v1 requires an authenticated Puffo Driver authority" in capsys.readouterr().err
+
+
 def test_constrained_acp_refuses_to_start_without_its_derived_launch_port(tmp_path):
     import lingtai.cli_acp as cli_acp
 
@@ -501,6 +860,39 @@ def test_profile_cli_rejects_agent_dir_instead_of_ignoring_it(capsys):
             "--runtime-id", "opaque-id",
         ])
     assert exc_info.value.code == 2
+
+
+def test_acp_parser_rejects_profile_flag_abbreviations():
+    """The ACP profile flag must be matched exactly, never abbreviated.
+
+    A constrained caller classifies the launch on the literal ``--profile``
+    token.  If argparse also accepted ``--prof``/``--p``/``--pro=``, a real
+    ``puffo-v0``/``puffo-v1`` profile could be admitted while bypassing that
+    classifier and its authority/controlled-spawn path, so every abbreviated
+    long-option form must exit 2 while the exact spellings still parse.
+    """
+    import lingtai.cli_acp as cli_acp
+
+    def _parse(argv):
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command", required=True)
+        cli_acp.add_acp_parser(subparsers)
+        return parser.parse_args(argv)
+
+    for exact in (
+        ["acp", "--profile", "puffo-v0", "--runtime-id", "opaque-id"],
+        ["acp", "--profile=puffo-v1", "--runtime-id", "opaque-id"],
+    ):
+        assert _parse(exact).profile in {"puffo-v0", "puffo-v1"}
+
+    for abbreviated in (
+        ["acp", "--prof", "puffo-v0", "--runtime-id", "opaque-id"],
+        ["acp", "--pro=puffo-v1", "--runtime-id", "opaque-id"],
+        ["acp", "--p", "puffo-v0", "--runtime-id", "opaque-id"],
+    ):
+        with pytest.raises(SystemExit) as exc_info:
+            _parse(abbreviated)
+        assert exc_info.value.code == 2
 
 
 def test_full_tool_profile_keeps_operator_managed_capabilities_available(tmp_path):

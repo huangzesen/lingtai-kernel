@@ -108,11 +108,15 @@ the evidence trail in the task report.
   with its original directory identity resolves; tampered, retargeted, or
   revoked entries, including a missing required revocation log, fail before
   composition. An active identity and workspace cannot be bound twice.
-3. Inspect the profile session and turn-origin cases: another workspace and
-   every non-empty `mcpServers` input fail; the operator-managed tool surface is
-   retained, but legacy/inbox/internal events cannot queue or dispatch any
-   provider/model turn. A direct ACP prompt carries the authenticated-adapter
-   origin.
+3. Inspect the profile session and turn-origin cases: `puffo-v0` rejects every
+   non-empty `mcpServers` input. `puffo-v1` accepts exactly one `puffo` service
+   with `-m puffo_agent.mcp.puffo_core_server`, a deployment-local absolute
+   Python path, ordinary unique string environment values, and
+   a non-empty `PUFFO_LOCAL_SERVICE_TOKEN`; unknown environment names pass through and do
+   not identify the service. Missing/extra/alternate descriptors fail. The
+   operator-managed tool surface is retained, but
+   legacy/inbox/internal events cannot queue or dispatch any provider/model
+   turn. A direct ACP prompt carries the authenticated-adapter origin.
 4. Inspect Driver authority composition: the launcher supplies exactly one
    inherited root AF_UNIX-stream descriptor in `LINGTAI_DRIVER_AUTHORITY_FD`.
    The profile consumes and removes the locator before Agent construction,
@@ -123,8 +127,9 @@ the evidence trail in the task report.
 
 ### Expected evidence
 
-- [ ] A remote ACP payload cannot provide a filesystem path or an MCP process
-  launch through the profile.
+- [ ] A remote ACP payload cannot provide a filesystem path or arbitrary MCP
+  process launch through either profile; `puffo-v1` can only mount the one
+  fixed Puffo Core service projected by its driver.
 - [ ] The profile denies unavailable identities and every non-ACP origin before
   provider dispatch, while preserving the configured local tool surface.
 - [ ] Root provider calls and derived-launch requests use the consumed Driver

@@ -139,6 +139,38 @@ composition and refresh. It does not add an `external_send` human-confirmation
 rule and does not promise shell confinement, workspace-only writes, network
 egress control, no background descendants, or OS process containment.
 
+### Puffo v1 full-service session ingress
+
+`puffo-v1` uses the same already-provisioned runtime id and the same Driver
+authority handoff, but selects the one intended change in the ACP session
+policy:
+
+```bash
+lingtai-agent acp --profile puffo-v1 --runtime-id puffo-agent-7
+```
+
+Unlike `puffo-v0`, this process refuses to start without a successfully
+authenticated root Driver-authority endpoint. That startup requirement makes
+the driver handoff the sole path that can reach the fixed MCP ingress.
+
+The Puffo driver supplies exactly one `mcpServers` descriptor to `session/new`.
+LingTai requires its name to be `puffo`, its arguments to be exactly
+`-m puffo_agent.mcp.puffo_core_server`, and a non-empty
+`PUFFO_LOCAL_SERVICE_TOKEN` in its ordinary unique name/value environment. Other environment entries are passed
+through unchanged, and their values are never logged; no env-name allowlist is
+used because Puffo can add deployment-specific variables independently. Env is
+not an identity or hostile-peer check—an interpreter and Python environment can
+change the executed code. The identity anchor is the unique service, exact
+name/module, and trusted Driver startup boundary; a future hostile-peer defense
+would need a launch nonce/capability. The command path is the local Python
+interpreter chosen by the Puffo installation, so LingTai validates its generic
+absolute stdio shape rather than a machine-specific path. The driver must pass
+the whole descriptor through unchanged except for the ACP field conversion:
+every tool the one Puffo service exports is available. A missing/extra service,
+alternate module/name, missing or empty local-service token, or any other MCP descriptor
+fails the `session/new` request. This is not a general MCP-import feature, and
+it does not weaken `puffo-v0`, which remains empty-only.
+
 Its capability-side boundary is ACP-only turn initiation. A direct ACP prompt
 is tagged as an authenticated driving-adapter turn; a profile policy denies any
 legacy, inbox, task-card, alarm, daemon, mail/MCP wake, or other independent

@@ -19,6 +19,7 @@ related_files:
   - src/lingtai/kernel/turn_events.py
   - src/lingtai/kernel/turn_permissions.py
   - src/lingtai/kernel/provider_admission.py
+  - src/lingtai/kernel/puffo_admission_witness.py
   - src/lingtai/kernel/tool_executor.py
   - src/lingtai/services/session_mcp.py
   - src/lingtai/kernel/base_agent/lifecycle.py
@@ -27,6 +28,7 @@ related_files:
   - pyproject.toml
   - tests/test_acp_stdio.py
   - tests/test_puffo_v0_profile.py
+  - tests/test_puffo_admission_witness.py
   - tests/test_driver_authority_adapter.py
   - tests/test_correlated_turns.py
   - tests/test_execution_workspace.py
@@ -143,7 +145,82 @@ argv, environment, or MCP command from the remote caller.
    content, locations, `rawInput`, `rawOutput`, and internal errors never cross
    the wire. Normal output is at most one completed-response
    `agent_message_chunk` followed by `{stopReason: "end_turn"}`; no hidden
-   thoughts or tool internals are projected.
+   thoughts or tool internals are projected. Additionally, the Adapter projects
+   a **Puffo admission committed-fact** as a `tool_call_update` carrying only
+   `_meta.puffo.admission/1 = {toolCallId, binding}`. The nested `toolCallId`
+   MUST be byte-identical to the update's own outer `toolCallId` — the
+   session-correlated wire id (`<correlation>:<raw Core id>`). This equality is
+   load-bearing, not cosmetic: the Puffo receiver derives its internal fact id
+   from the outer wire id and rejects the frame unless the nested id matches, so
+   emitting the raw Core id there is a deterministic non-admission. It is
+   still metadata-only (no arguments/results/content), and is the *reliable*
+   counterpart to the fail-open lifecycle projection above: Core emits it at a
+   caller settle point once a receipt-bearing tool result is durably present on
+   the canonical wire (see `src/lingtai/kernel/base_agent/`), and the Adapter
+   handler refuses the cosmetic fail-open suppression (per-call publication
+   lock, `_terminal`/`_announced`) used for lifecycle updates. It is idempotent
+   (at most one per `toolCallId` per generation) and the ONLY legitimate
+   non-delivery is genuine session teardown (closing / superseded generation /
+   claimed-or-replaced active prompt — a torn-down session has no wire to
+   publish onto). Three properties bound its meaning: (a) `binding =
+   sha256(toolCallId ‖ 0x00 ‖ raw_receipt)` where `toolCallId` is that same
+   correlated outer wire id — the receiver recomputes the binding over the outer
+   id and strictly compares, so the witness maps its kernel-namespace id through
+   the turn-bound observer's wire namespacer BEFORE hashing (correlation comes
+   down to the witness; the raw receipt never rises to the Adapter, preserving
+   the metadata-only event boundary). The wire id has ONE construction site in
+   this tree (`_PromptToolObserver.wire_tool_call_id`); the lifecycle,
+   permission, and admission frames all route through it. That single source is
+   itself load-bearing across the repo boundary: the receiver fills its
+   `_completed_tool_calls` from the lifecycle frame's id and admits the fact only
+   if the admission frame's id is absent from that set, so the two ids must be
+   byte-identical — which holds only because both are produced there. It proves the emitter *possessed the
+   receipt paired with this exact correlated toolCallId* — it does NOT itself prove commit;
+   "committed" rests entirely on the emission-point discipline (a settle point
+   is after a carrying `send(...)` has fully settled, incl. any
+   rollback/restore, or after a `commit_tool_results(...)` returns, scanning
+   real interface state so a rolled-back entry is naturally never witnessed).
+   (b) `read_inbox` results carry no receipt marker, so they are an explicit
+   no-receipt / no-fact exclusion. (c) Residual — if the process crashes after a
+   receipt-bearing result is committed to the wire but before its settle-point
+   scan runs, or AED retry compaction / large-result spill rewrites that block's
+   content (dropping the marker) before it is witnessed, the fact is never
+   emitted; Puffo then fail-closed denies an otherwise-legitimate result. This
+   benign-prohibited outcome is acceptable but must not be silent: Core logs a
+   bounded `puffo_admission_fact_not_delivered` event when a scanned fact has no
+   observer to receive it. The turn-start watermark is a monotonic
+   `ChatInterface` entry id; `from_dict` reseeds `_next_id = max(id)+1`, so a
+   narrow theoretical window exists where deleting a tail entry then serializing
+   and reloading could reuse a retired id and let the watermark admit a stale
+   entry — a known benign-prohibited residual in the same fail-closed direction
+   (at worst one extra at-most-once fact, which Puffo idempotency absorbs).
+   Settle-point test mapping: every production-reachable settle point — the
+   restore commit, the initial-send drain carrier, the three no-API terminal
+   commits (intercept / cancel / poll-backoff), and the main tool-loop send
+   success and exception points — is pinned by a real-path discriminating test
+   in `tests/test_puffo_admission_witness.py` (deleting the scan at any of
+   them turns a test red). The four tc_wake settle points (dispatch
+   `send([item.result])` success/exception and continue `send(None)`
+   success/exception) are EXEMPT from red-coverage by design: non-correlated
+   turns bind no witness scope, so those scans are lazy no-ops in production —
+   uniform defense-in-depth instrumentation, not reachable behavior. Any
+   change that binds a witness scope over tc_wake turns must add the
+   corresponding red tests in the same change. The scope itself — the
+   production `begin_admission_witness_scope` bind and its `end_..._scope`
+   teardown on the correlated-turn loop — is pinned separately by
+   `tests/test_correlated_turns.py::test_correlated_turn_binds_admission_witness_scope_on_production_path`,
+   which drives the real `_run_loop` across two turns with NO hand-assembled
+   scope: deleting the bind makes the in-turn scope absent (fail-silent: every
+   settle-point scan then early-returns and a real ACP turn emits zero facts),
+   deleting the teardown leaves the scope open after the loop, and hoisting the
+   bind out of the loop ("bind once per session") hands turn two turn one's
+   scope object — a per-turn re-bind probe reddens that last case. That probe
+   pins that the bind RUNS afresh each turn, not that the watermark's numeric
+   boundary is recomputed correctly; the value-level non-refire property is
+   pinned separately by `test_puffo_admission_witness.py::test_iv_two_turn_watermark_no_refire`
+   (real interface, hand-assembled scope). This closes the gap that the settle-point suite in
+   `test_puffo_admission_witness.py` cannot: those tests assemble the scope by
+   hand, so they stay green if the production bind regresses.
 4. `acp-local-stdio.cancel.v1` — `session/cancel` calls only the active
    correlated handle. Cancellation requested before exact terminal settlement
    wins and the original prompt returns `{stopReason: "cancelled"}`. The reader
@@ -273,12 +350,33 @@ argv, environment, or MCP command from the remote caller.
     is a controlled-entrypoint guard,
     not host isolation: an OS principal able to edit the registry or launch the
     generic `--agent-dir` command remains outside this profile's threat model.
+    The profile flag is matched by its exact `--profile` spelling only:
+    abbreviated long-option forms (`--prof`, `--p`, `--pro=`) are rejected with
+    argparse's usage error (`exit 2`), so a constrained `puffo-v0`/`puffo-v1`
+    launch cannot be smuggled past a trusted caller that classifies the launch on
+    the literal `--profile` token.
     The required Puffo integration seam is outside this repository: before ACP
     spawn, Puffo's trusted ACP driver must derive its `ValidatedLaunchPlan`
     (executable, complete argv, environment, workspace, and empty MCP session
     plan) from operator-managed binding/configuration, then emit only this
     profile command and opaque id. `puffo-v0` identity binding is valid only
     through that ACP entrypoint; Puffo's OpenCode driver is explicitly excluded.
+    `puffo-v1` consumes that same immutable identity/workspace binding but has
+    one intentionally different session ingress: `mcpServers` must contain
+    exactly one local stdio descriptor whose name is `puffo` and whose arguments
+    are exactly `-m puffo_agent.mcp.puffo_core_server`. Its interpreter path is
+    deployment-specific and is validated only as the ordinary non-empty absolute
+    stdio command. Its ordinary unique string name/value environment must
+    include a non-empty `PUFFO_LOCAL_SERVICE_TOKEN`; all other names and values pass through
+    unchanged and are never logged. Environment is not service identity or a
+    hostile-peer boundary: an executable path and Python environment can change
+    what code runs. Service identity is the unique service, exact name/module,
+    and trusted Puffo-to-LingTai startup boundary; a future hostile-peer defense
+    needs a launch nonce/capability, not an environment-name list. No second
+    service, alternate name/module, arbitrary MCP descriptor, missing local
+    service token, an empty local service token, or missing authenticated Driver authority is accepted. This
+    means *all* tools exported by that one Puffo service are available; it does
+    not mean arbitrary MCP ingress. `puffo-v0` remains strictly `mcpServers: []`.
 
 ## Contract tests
 
@@ -292,8 +390,8 @@ Agent-stop-with-open-stdin, Windows duplicate-before-cleanup, typed quiescence,
 and CLI Python-stdout quarantine/hard-exit ownership.
 `tests/test_puffo_v0_profile.py` pins opaque-id provisioning/resolution,
 tamper/revocation rejection, full-tool composition, fixed-workspace and
-empty-session-MCP rejection, authenticated-adapter admission, and profile CLI
-composition. `tests/test_driver_authority_adapter.py` pins the inherited root
+empty-session-MCP rejection, authenticated-adapter admission, profile CLI
+composition, and rejection of abbreviated `--profile` flag spellings. `tests/test_driver_authority_adapter.py` pins the inherited root
 endpoint configuration and its fail-closed missing/malformed/derived-role
 outcomes. `tests/test_correlated_turns.py` independently proves an
 untrusted inbox event cannot reach provider dispatch under this profile policy.
@@ -309,6 +407,15 @@ wire tests pin workspace rooting/escape/isolation, stdio validation, atomic
 publication/rollback, collisions, and close/EOF ownership.
 `tests/test_correlated_turns.py` pins the consumed Core Port's normal, matching
 active cancel, pending-cancel isolation, failure, and shutdown settlement.
+`tests/test_puffo_admission_witness.py` pins the Puffo admission committed-fact:
+receipt extraction rules (structured field vs. plain-text last-marker,
+malformed/absent, synthesized, `read_inbox` no-receipt), the
+`sha256(toolCallId ‖ 0x00 ‖ receipt)` binding, and the settle-point wire-scan
+(commit-interrupted → no fact, success → fact, parallel same-name → two correct
+facts, rolled-back-vs-survivor, per-turn idempotency, and the turn-start
+watermark that prevents cross-turn re-fire); `tests/test_acp_stdio.py`
+additionally pins the reliable ACP emit — no cosmetic suppression, idempotency,
+and teardown non-delivery.
 
 ## Maintenance
 

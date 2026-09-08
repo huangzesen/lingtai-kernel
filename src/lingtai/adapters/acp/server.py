@@ -7,7 +7,7 @@ import threading
 from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, Callable, TextIO
 from uuid import uuid4
 
 from lingtai.kernel.turns import TurnHandle, TurnOutcome
@@ -15,6 +15,7 @@ from lingtai.kernel.execution_workspace import ExecutionWorkspace
 from lingtai.kernel.turn_events import (
     ToolLifecycleEvent,
     ToolLifecycleState,
+    ToolResultsCommittedEvent,
 )
 from lingtai.kernel.turn_permissions import (
     PermissionDecision,
@@ -99,9 +100,32 @@ class _PromptToolObserver:
         self._started: set[str] = set()
         self._terminal: set[str] = set()
         self._publication_locks: dict[str, threading.Lock] = {}
+        # Correlated ids for which the Puffo committed-fact update was already
+        # emitted this generation. Idempotent: at most one per toolCallId.
+        self._committed: set[str] = set()
 
     def bind_active(self, active: _ActivePrompt) -> None:
         self._active = active
+
+    def wire_tool_call_id(self, tool_call_id: str) -> str:
+        """Map a kernel-namespace tool_call_id to this prompt's wire id.
+
+        THE single construction site for the ``<correlation>:<raw>`` wire id in
+        this tree: lifecycle, permission, and admission frames all route through
+        here, and the kernel witness fetches it from the turn-bound observer to
+        bind the ``puffo.admission/1`` receipt to the SAME string. That single
+        source is load-bearing across the repo boundary: the Puffo receiver
+        fills ``_completed_tool_calls`` from the lifecycle frame's id and admits
+        the committed fact only if its (nested == outer) id is not already
+        there and its binding recomputes over that id, so the lifecycle id and
+        the admission id MUST be byte-identical — which they are only because
+        both are produced here. It also keeps the raw receipt in the kernel:
+        the correlation prefix comes DOWN to the witness rather than the receipt
+        going UP to the adapter (which would breach the metadata-only event
+        boundary).
+        """
+
+        return f"{self._correlation_id}:{tool_call_id}"
 
     def _track_permission(
         self, tool_call_id: str, publication_lock: threading.Lock
@@ -126,7 +150,7 @@ class _PromptToolObserver:
 
     def on_tool_lifecycle(self, event: ToolLifecycleEvent) -> None:
         server = self._server
-        tool_call_id = f"{self._correlation_id}:{event.tool_call_id}"
+        tool_call_id = self.wire_tool_call_id(event.tool_call_id)
         with server._state_lock:
             publication_lock = self._publication_locks.get(tool_call_id)
         if publication_lock is not None and not publication_lock.acquire(
@@ -210,12 +234,73 @@ class _PromptToolObserver:
             if publication_lock is not None:
                 publication_lock.release()
 
+    def on_tool_results_committed(
+        self, event: ToolResultsCommittedEvent
+    ) -> None:
+        """Emit the reliable Puffo committed-fact update.
+
+        Unlike :meth:`on_tool_lifecycle`, this handler does NOT apply the
+        cosmetic fail-open suppression (publication-lock non-blocking acquire,
+        ``_terminal``/``_announced`` gating): those exist to keep the tool
+        lifecycle projection tidy, but the committed fact is the reliable path
+        Puffo depends on to admit a durable result, so it must not be dropped
+        for cosmetic reasons.  It still respects genuine session teardown —
+        closing, a superseded generation, or a claimed/replaced active prompt —
+        which is the only legitimate non-delivery (a torn-down session has no
+        wire to publish onto).  Idempotent: at most one update per toolCallId
+        per generation, guarded under the server state lock like the sibling
+        lifecycle bookkeeping sets.
+        """
+
+        server = self._server
+        # ``event.tool_call_id`` is already the wire id: the witness mapped it
+        # through ``wire_tool_call_id`` before computing the binding
+        # over it, so the outer frame id and the nested admission id are the
+        # same string by construction and the binding is bound to that id.
+        tool_call_id = event.tool_call_id
+        with server._state_lock:
+            active = self._active
+            if (
+                active is None
+                or server._active is not active
+                or active.terminal_claimed
+                or server._closing
+                or server._generation != self._generation
+            ):
+                # Genuine teardown — the documented legitimate non-delivery.
+                return
+            if tool_call_id in self._committed:
+                return
+            self._committed.add(tool_call_id)
+            update = {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": tool_call_id,
+                "_meta": {
+                    "puffo.admission/1": {
+                        "toolCallId": tool_call_id,
+                        "binding": event.binding,
+                    },
+                },
+            }
+            server._enqueue_messages(
+                ({
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": "session/update",
+                    "params": {
+                        "sessionId": self._session_id,
+                        "update": update,
+                    },
+                },),
+                generation=self._generation,
+                active=active,
+            )
+
     def request_permission(
         self, request: ToolPermissionRequest
     ) -> PermissionDecision:
         return self._server._request_tool_permission(
             observer=self,
-            tool_call_id=f"{self._correlation_id}:{request.tool_call_id}",
+            tool_call_id=self.wire_tool_call_id(request.tool_call_id),
             tool_name=request.tool_name,
             generation=self._generation,
         )
@@ -252,6 +337,7 @@ class AcpStdioServer:
         *,
         fixed_execution_workspace: ExecutionWorkspace | None = None,
         allow_session_mcp: bool = True,
+        session_mcp_validator: Callable[[Any], tuple[StdioMCPServerConfig, ...]] | None = None,
     ):
         self._agent = agent
         self._input = input_stream
@@ -263,6 +349,7 @@ class AcpStdioServer:
         self._execution_workspace: ExecutionWorkspace | None = None
         self._fixed_execution_workspace = fixed_execution_workspace
         self._allow_session_mcp = allow_session_mcp
+        self._session_mcp_validator = session_mcp_validator
         self._session_mcp_lease = None
         self._active: _ActivePrompt | None = None
         self._closing = False
@@ -557,7 +644,9 @@ class AcpStdioServer:
                     INVALID_PARAMS,
                     "cwd must match the profile's fixed execution workspace",
                 )
-        if not self._allow_session_mcp:
+        if self._session_mcp_validator is not None:
+            configs = self._session_mcp_validator(mcp_servers)
+        elif not self._allow_session_mcp:
             if mcp_servers != []:
                 raise _RpcError(
                     INVALID_PARAMS,

@@ -209,6 +209,93 @@ def test_consecutive_correlated_turns_reset_tool_observer(tmp_path, monkeypatch)
     assert current_turn_tool_observer() is None
 
 
+def test_correlated_turn_binds_admission_witness_scope_on_production_path(
+    tmp_path, monkeypatch,
+):
+    """Pin the PRODUCTION admission-witness bind/teardown on the real loop path.
+
+    Every test in ``test_puffo_admission_witness.py`` assembles the witness
+    scope by hand (``begin_admission_witness_scope(agent)``) and then drives
+    ``_process_response`` directly, so none of them traverse the correlated-turn
+    loop where the production bind actually lives (``turn.py`` ~1227) or its
+    teardown (~1856).  Deleting either line therefore leaves that whole suite
+    green while a real ACP turn silently emits zero committed facts:
+    ``scan_and_emit_committed_facts`` early-returns when
+    ``_puffo_admission_emitted is None`` (a fail-silent liveness bug — Puffo
+    never admits).  This test drives the real ``_run_loop`` across two
+    consecutive correlated turns with NO manual ``begin_admission_witness_scope``
+    anywhere, so:
+
+    * deleting the bind (~1227) makes the in-handler scope ``"UNSET"`` -> red;
+    * deleting the teardown (~1856) leaves the scope open after the loop -> red;
+    * hoisting the bind OUT of the loop ("bind once per session") hands turn two
+      turn one's scope object -> a per-turn re-bind probe reddens it.
+
+    Scope of the re-bind probe: it proves the bind RUNS afresh each turn (so a
+    hoisted "bind once" regression reddens it); it does NOT prove the watermark's
+    numeric boundary is recomputed correctly (a ``_current_last_entry_id``
+    regression to a constant/stale id would keep this green).  That value-level
+    non-refire property is pinned separately by
+    ``test_puffo_admission_witness.py::test_iv_two_turn_watermark_no_refire``,
+    which uses a real interface with growing entries (but a hand-assembled
+    scope).  The two together cover both halves; neither claims the other's.
+    """
+    rebind_probe = "__rebind_probe__"
+    agent = _agent(tmp_path)
+    first = submit_turn(agent, "one", correlation_id="turn-one")
+    second = submit_turn(agent, "two", correlation_id="turn-two")
+    seen = []
+
+    def fake_handle(current, msg):
+        # ``begin_admission_witness_scope`` runs at ~1227, before
+        # ``_handle_message`` at ~1315: on the production path the scope must be
+        # OPEN and FRESH here every turn (a new empty ``emitted`` set + a
+        # watermark).
+        live = getattr(current, "_puffo_admission_emitted", "UNSET")
+        is_scope = isinstance(live, set)
+        seen.append({
+            "content": msg.content,
+            # Snapshot the scope's contents at entry (a copy, so stamping the
+            # probe below cannot rewrite what we recorded for this turn).
+            "emitted": set(live) if is_scope else live,
+            "watermark": getattr(current, "_puffo_admission_watermark", "UNSET"),
+            # Did this turn's scope object already carry the PRIOR turn's probe?
+            # True only if turn two was handed the same object (no re-bind).
+            "saw_prior_probe": (rebind_probe in live) if is_scope else False,
+        })
+        # Stamp the live scope so the next turn can tell a fresh object (re-bind)
+        # from a reused one (bind hoisted out of the loop).
+        if is_scope:
+            live.add(rebind_probe)
+        if msg.content == "two":
+            current._shutdown.set()
+        return {"text": msg.content, "failed": False, "errors": []}
+
+    monkeypatch.setattr(turn, "_handle_message", fake_handle)
+    turn._run_loop(agent)
+
+    assert first.result(timeout=1).outcome is TurnOutcome.NORMAL
+    assert second.result(timeout=1).outcome is TurnOutcome.NORMAL
+    assert [r["content"] for r in seen] == ["one", "two"]
+    for r in seen:
+        # Bind ran this turn: a scope object exists (not the "UNSET" sentinel).
+        # Deleting begin_admission_witness_scope(~1227) makes this "UNSET" -> red.
+        assert r["emitted"] != "UNSET", f"scope not bound for {r['content']!r}"
+        assert r["watermark"] != "UNSET", f"watermark not set for {r['content']!r}"
+        # The scope was FRESH this turn: empty at entry and not carrying the
+        # previous turn's probe.  Hoisting the bind out of the loop hands turn
+        # two turn one's object -> both of these redden.
+        assert r["emitted"] == set(), f"scope not fresh for {r['content']!r}: {r['emitted']!r}"
+        assert not r["saw_prior_probe"], (
+            f"scope reused across turns for {r['content']!r}: bind is not per-turn"
+        )
+    # After the loop tears the last turn down, the production teardown (~1856)
+    # has closed the scope.  Deleting the teardown leaves the last turn's set in
+    # place and reddens this.
+    assert getattr(agent, "_puffo_admission_emitted", "UNSET") is None
+    assert getattr(agent, "_puffo_admission_watermark", "UNSET") == -1
+
+
 def test_consecutive_correlated_turns_reset_permission_broker(tmp_path, monkeypatch):
     agent = _agent(tmp_path)
     broker = SimpleNamespace(request_permission=lambda _request: None)
