@@ -404,6 +404,8 @@ class TaskCardEventProjection:
                     row.pop("_ts", None)
                     row.pop("_usage", None)
                     row.pop("_api_call_id", None)
+                    row.pop("_result_ts", None)
+                    row.pop("_apriori_summary", None)
                 if row.get("kind") == "tool":
                     row.pop("kind", None)
                 rows.append(row)
@@ -590,8 +592,109 @@ class TaskCardEventProjection:
                     # Keep the raw ms so sub-second durations render exactly
                     # (e.g. ``412ms``) instead of rounding to ``0s``.
                     row["elapsed_ms"] = elapsed_ms
+                raw_ts = result.get("ts")
+                if type(raw_ts) in (int, float) and not isinstance(raw_ts, bool):
+                    result_ts = float(raw_ts)
+                    if math.isfinite(result_ts):
+                        row["_result_ts"] = result_ts
                 changed = True
         return changed
+
+    @staticmethod
+    def project_apriori_summary_event(
+        event: dict[str, Any],
+    ) -> tuple[str, float] | None:
+        """Project only correlation and completion time from a generated summary.
+
+        Generated summary text, provider fields, and arbitrary event payload stay
+        outside the Task Card projection.
+        """
+        if event.get("type") != "apriori_summary_generated":
+            return None
+        call_id = event.get("tool_call_id")
+        raw_ts = event.get("ts")
+        if (
+            not isinstance(call_id, str)
+            or not call_id
+            or type(raw_ts) not in (int, float)
+            or isinstance(raw_ts, bool)
+        ):
+            return None
+        summary_ts = float(raw_ts)
+        if not math.isfinite(summary_ts):
+            return None
+        return call_id, summary_ts
+
+    @classmethod
+    def apply_apriori_summary_metrics(
+        cls,
+        groups: list[dict[str, Any]],
+        summary_times: dict[str, float],
+        summary_usages: dict[str, dict[str, int]],
+    ) -> bool:
+        """Attach safe existing summary timing/token facts to successful tools."""
+        changed = False
+        for group in groups:
+            for row in group.get("events", []):
+                if row.get("status") != "success":
+                    continue
+                call_id = row.get("_tool_call_id")
+                summary_ts = summary_times.get(call_id)
+                usage = summary_usages.get(call_id)
+                result_ts = row.get("_result_ts")
+                if (
+                    type(summary_ts) not in (int, float)
+                    or isinstance(summary_ts, bool)
+                    or type(result_ts) not in (int, float)
+                    or isinstance(result_ts, bool)
+                    or not isinstance(usage, dict)
+                ):
+                    continue
+                delta_ms = (float(summary_ts) - float(result_ts)) * 1000
+                if (
+                    not math.isfinite(delta_ms)
+                    or delta_ms < 0
+                    or delta_ms > cls.MAX_ELAPSED_MS
+                ):
+                    continue
+                input_tokens = usage.get("input")
+                output_tokens = usage.get("output")
+                if (
+                    type(input_tokens) is not int
+                    or input_tokens < 0
+                    or type(output_tokens) is not int
+                    or output_tokens < 0
+                ):
+                    continue
+                metrics = {
+                    "elapsed_ms": int(round(delta_ms)),
+                    "input": input_tokens,
+                    "output": output_tokens,
+                }
+                if row.get("_apriori_summary") == metrics:
+                    continue
+                row["_apriori_summary"] = metrics
+                changed = True
+        return changed
+
+    @classmethod
+    def format_apriori_summary_metrics(cls, value: object) -> str | None:
+        """Format the requested summary time/input/output line."""
+        if not isinstance(value, dict):
+            return None
+        elapsed_ms = value.get("elapsed_ms")
+        input_text = cls.format_count(value.get("input"))
+        output_text = cls.format_count(value.get("output"))
+        if (
+            type(elapsed_ms) is not int
+            or elapsed_ms < 0
+            or elapsed_ms > cls.MAX_ELAPSED_MS
+            or input_text is None
+            or output_text is None
+        ):
+            return None
+        elapsed = cls.format_elapsed_ms(elapsed_ms)
+        return f"(summary, {elapsed}, {input_text} in, {output_text} out)"
 
     @classmethod
     def render_event_groups(
@@ -1117,7 +1220,7 @@ class TaskCardEventProjection:
         display_expression: tuple[str, ...] | None = None,
     ) -> str:
         footer = cls.footer(normal_rows, locale)
-        tool_prepared: list[tuple[int, str, str, str, bool, str | None]] = []
+        tool_prepared: list[tuple[int, str, str, str, bool, str | None, str | None]] = []
         text_prepared: list[tuple[int, str]] = []
         api_prepared: list[tuple[int, str]] = []
         for idx, row in enumerate(rows):
@@ -1165,7 +1268,14 @@ class TaskCardEventProjection:
             else:
                 status_suffix = f", {status}" if status else ""
                 suffix = f" ({elapsed}{status_suffix})"
-            tool_prepared.append((idx, label, redacted, suffix, done, status))
+            summary_metrics = (
+                cls.format_apriori_summary_metrics(row.get("_apriori_summary"))
+                if status == "success"
+                else None
+            )
+            tool_prepared.append(
+                (idx, label, redacted, suffix, done, status, summary_metrics)
+            )
 
         metadata_lines = cls.format_metadata(metadata, locale)
         time_line = f"{cls.time_prefix(locale)}{cls.render_time(now)}"
@@ -1193,10 +1303,13 @@ class TaskCardEventProjection:
             suffix,
             done,
             status,
+            summary_metrics,
         ) in tool_prepared:
             marker = "✓ " if done or status == "success" else "• "
             prefix = f"{marker}{label}: " if label else marker
             tool_scaffold += len(prefix) + len(suffix) + 2
+            if summary_metrics:
+                tool_scaffold += len(summary_metrics) + 2
         fixed = (
             len(cls.header(locale))
             + 1
@@ -1218,7 +1331,7 @@ class TaskCardEventProjection:
         per_row_cap = max(0, min(cls.REASONING_CAP, budget // divisor))
 
         by_idx: dict[int, str] = {}
-        for idx, label, redacted, suffix, done, status in tool_prepared:
+        for idx, label, redacted, suffix, done, status, summary_metrics in tool_prepared:
             excerpt = (
                 redacted[:per_row_cap] + "…"
                 if len(redacted) > per_row_cap
@@ -1226,7 +1339,10 @@ class TaskCardEventProjection:
             )
             marker = "✓ " if done or status == "success" else "• "
             prefix = f"{marker}{label}: " if label else marker
-            by_idx[idx] = f"{prefix}{excerpt}{suffix}"
+            line = f"{prefix}{excerpt}{suffix}"
+            if summary_metrics:
+                line += f"\n {summary_metrics}"
+            by_idx[idx] = line
         for idx, text in text_prepared:
             excerpt = text[:per_row_cap] + "…" if len(text) > per_row_cap else text
             by_idx[idx] = f"• {excerpt}"

@@ -1,9 +1,10 @@
 ---
 name: telegram-task-card-projection
-contract_version: 7
+contract_version: 8
 root_contract: CONTRACT.md
 related_files:
   - src/lingtai/mcp_servers/telegram/task_card/ANATOMY.md
+  - src/lingtai/mcp_servers/telegram/task_card/BEHAVIORS.md
   - src/lingtai/mcp_servers/telegram/task_card/resident.py
   - src/lingtai/mcp_servers/task_card/resident.py
   - src/lingtai/mcp_servers/telegram/task_card/SKILL.md
@@ -27,7 +28,7 @@ maintenance: |
 # Telegram Task Card Projection
 
 ## Purpose
-Guarded by: [TT001](BEHAVIORS.md#behavior-tt001), [TT002](BEHAVIORS.md#behavior-tt002)
+Guarded by: [TT001](BEHAVIORS.md#behavior-tt001), [TT002](BEHAVIORS.md#behavior-tt002), [TT003](BEHAVIORS.md#behavior-tt003)
 
 
 Own Telegram's provider adapter and read-only projection of the intrinsic
@@ -94,6 +95,14 @@ semantics live here. The public producer contract lives in
    `thinking_tokens` fallback produce the same representation. A missing,
    malformed, or output-less count is omitted without a dangling parenthesis,
    preserving old-event rendering and never exposing reasoning text.
+10. When an existing `apriori_summary_generated` event, its preceding successful
+    `tool_result`, and the already-recorded `source=summarize_apriori` main-ledger
+    row correlate by `tool_call_id`, the automatic card appends
+    `(summary, <elapsed>, <input> in, <output> out)` immediately after that tool
+    row. Elapsed time derives only from the two existing event timestamps; token
+    counts come from a bounded recent read of `logs/token_ledger.jsonl`. Missing,
+    malformed, unsuccessful, unmatched, or out-of-bound data preserves the old
+    output. Generated summary text and provider metadata are never projected.
 
 ## Port
 
@@ -144,6 +153,10 @@ There is no public MCP `task_card` family in this component.
     must never rewrite the file from a cache older than the file it is about
     to overwrite; only genuinely concurrent writers overlapping at the same
     instant remain last-writer-wins.
+11. Summary metrics reuse only existing producer data. Telegram must not add or
+    require a new kernel event/accounting path, may read at most
+    `_TASK_CARD_TOKEN_LEDGER_TAIL_BYTES` recent ledger bytes per correlation
+    attempt, and must expose only validated elapsed/input/output integers.
 
 ## Tests
 
@@ -155,7 +168,9 @@ There is no public MCP `task_card` family in this component.
   hidden-finalize clear semantics.
 - `tests/test_telegram_task_card_event_tail.py` continues to cover the automatic
   channel independently, including identical parenthesized reasoning-token
-  rendering from current-call carriers and `llm_response` fallbacks.
+  rendering from current-call carriers and `llm_response` fallbacks, plus
+  correlated a-priori summary time/input/output rendering from existing events
+  and a bounded ledger tail with fail-closed legacy/malformed cases.
 - `tests/test_task_card_event_projection_shared.py` pins shared-core safety and
   byte compatibility with Telegram's established render surface.
 - `tests/test_task_card_resident_shared.py` pins provider-neutral route/slot,
