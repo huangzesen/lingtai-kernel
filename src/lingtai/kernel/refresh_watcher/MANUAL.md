@@ -89,7 +89,13 @@ data afterward.
    callable in tests, independent of a real subprocess), but it performs no
    watcher policy of its own — it is a thin decode→render→exec pipeline, so
    the watcher's actual runtime behavior remains entirely owned by
-   `render_watcher_script`.
+   `render_watcher_script`. The namespace also carries `WORKDIR_LEASE`, the
+   platform workdir-lease adapter: the lock phase waits for the *lease* to be
+   free (a `.agent.lock` pathname left by a dead holder is probed, not
+   trusted), treats only a heartbeat that advances past the lock-release
+   baseline as a live owner or child, clears `.refresh.taken` at every
+   terminal outcome, and exits nonzero on every failure (see the Contract's
+   rule 12).
 5. **The watcher program runs independently of the parent's live objects.**
    Once running it gets every request-derived value from literals embedded by
    `render_watcher_script` and outlives the parent process. Its runtime imports

@@ -402,19 +402,25 @@ def run(working_dir: Path) -> None:
     try:
         agent.start()
 
-        # Kick-start after refresh — wake agent with a system message.
-        # Not after a WorkerStillRunning poison recovery: that relaunch only
-        # discards the unsafe in-process interface, and the still-pending
-        # recovery artifact is the durable proof. The new logical agent stays
-        # ASLEEP until a genuinely later request/notification, whose first safe
-        # text request then carries the one-shot recovery notice
-        # (`maybe_prepend_worker_hang_recovery_prompt`).
-        if is_refresh:
-            from lingtai.kernel.base_agent.worker_recovery import (
-                has_pending_worker_hang_recovery_prompt,
-            )
+        # A WorkerStillRunning poison recovery leaves an open artifact whose
+        # `redo` block is redriven here, on every boot, once per boot: the
+        # interrupted turn is enqueued as this fresh process's AED redo and is
+        # the wake, so no generic refresh-success request is synthesized. A
+        # pending recovery with nothing replayable keeps the agent ASLEEP until
+        # a genuinely later request/notification (its first safe text request
+        # carries the one-shot notice); ordinary refreshes kick-start as before.
+        from lingtai.kernel.base_agent.worker_recovery import (
+            has_pending_worker_hang_recovery_prompt,
+            redrive_worker_hang_redo,
+        )
 
-            if has_pending_worker_hang_recovery_prompt(agent):
+        redo = redrive_worker_hang_redo(agent)
+        if is_refresh:
+            if redo == "enqueued":
+                agent._log("refresh_kickstart_deferred", reason="worker_hang_redo_enqueued")
+            elif redo == "error":
+                agent._log("refresh_kickstart_deferred", reason="recovery_discovery_failed")
+            elif has_pending_worker_hang_recovery_prompt(agent):
                 agent._log(
                     "refresh_kickstart_deferred",
                     reason="pending_worker_hang_recovery",

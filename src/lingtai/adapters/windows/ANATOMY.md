@@ -78,7 +78,8 @@ only method execution requires Windows.
 - `WindowsRefreshWatcherAdapter` — detached `-m` watcher handoff with the
   shared creation flags (`src/lingtai/adapters/windows/refresh_watcher.py`);
   `refresh_watcher_entrypoint.main` decodes/renders the Core policy and
-  injects the workdir-bound process mechanism
+  injects the workdir-bound process mechanism and the workdir-bound
+  `WindowsWorkdirLeaseAdapter` (`WORKDIR_LEASE`) for the lock-phase lease probe
   (`src/lingtai/adapters/windows/refresh_watcher_entrypoint.py`).
 - `WindowsRefreshWatcherProcessAdapter` — watcher-local process mechanism:
   CIM `Win32_Process` command-line observation, handle-based liveness,

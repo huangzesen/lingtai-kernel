@@ -26,6 +26,7 @@ related_files:
   - tests/test_aed_recovery.py
   - tests/test_notification_sync.py
   - tests/test_cli_worker_poison_recovery.py
+  - tests/test_worker_hang_aed_redo.py
   - tests/test_silence_kill.py
   - tests/test_system.py
   - tests/test_system_declared_plugin.py
@@ -248,27 +249,67 @@ Clause IDs are stable; each rule composes the linked normative source.
    lifetime even if logging or shutdown signaling after it fails.
    Guarded by: [BA002](BEHAVIORS.md#behavior-ba002)
    A forced refresh after `WorkerStillRunningError` (provider timeout plus
-   grace with the worker thread still alive) physically relaunches only to
-   discard the unsafe in-process interface; it is not a request for work.
-   While the bounded recovery artifact under `history/unfinished_turns/` is
-   still open and has not delivered its one-shot notice
-   (`prompt_injected_at` unset), the relaunched process MUST NOT synthesize
-   an inference round: the CLI host skips the `system.refresh_successful`
-   kick-start, and `_start` baselines the coherent notification observation
-   already present at boot before the heartbeat may sync — but only when
-   that observation is solely the rehydrated `kernel.llm_worker_hang`
-   recovery event (every `system` event a WorkerStillRunning reference, no
-   other channel, nothing beyond the virtual quiet daemon baseline). It
-   dismisses, clears, and hides nothing. Any external notification already
-   pending at boot (mail, Telegram, another system event) is a real wake:
-   no baseline is seeded and the first heartbeat tick wakes normally and
-   delivers every channel. Otherwise the agent remains ASLEEP until a
-   genuinely later request or notification change, which wakes normally
-   with the full current payload; the next safe text request then carries
-   the one-shot recovery notice. An unstable or failed baseline read seeds
-   nothing and fails toward waking. Ordinary user/System refreshes,
+   grace with the worker thread still alive) relaunches to discard the
+   unsafe in-process interface AND to redo the turn it abandoned — in the
+   fresh process, never against the poisoned interface. The single durable
+   record is the existing unfinished-turn artifact
+   `history/unfinished_turns/<artifact_id>.json` (filename only from the
+   validated id pattern; `0700` directory, `0600` file; every write is an
+   exclusive temp file, fsync, atomic replace, then on POSIX a
+   parent-directory fsync barrier — on Windows the file fsync plus atomic
+   replace is the portable boundary — and a barrier failure propagates so
+   `provider_started` is never treated as durable), whose compact `redo`
+   block is honest about what can be redone:
+   `request` (the first round-trip never reached durable history; the exact
+   text, bounded by `MAX_REDO_CONTENT_CHARS`/`MAX_REDO_CONTENT_BYTES` with a
+   chars/sha256 witness, is carried until the redo is terminal),
+   `continuation` (the round-trip was saved; the redo is the localized
+   `system.stuck_revive` AED request, no request copy), `tc_wake` (the
+   saved notification pair makes the wire ready; an explicit `MSG_TC_WAKE`
+   with the original id is re-enqueued), or `unavailable` (correlated turn —
+   its caller already received terminal settlement — budget, size, type).
+   Lifecycle `pending -> provider_started -> completed | abandoned`
+   (terminal statuses strip the text), serialized in-process by one lock:
+   on every boot (`redrive_worker_hang_redo`, called by the CLI host) the
+   newest open artifact's `pending` redo is validated (defect ⇒
+   `abandoned/invalid:<reason>`) and its message enqueued once with its
+   original id — that redo is the wake, so a refresh boot sends no
+   `system.refresh_successful`; a `provider_started` redo found at boot is
+   abandoned (`provider_started_before_crash`), never replayed, and stays
+   visible through the open artifact; nothing durable marks "enqueued", so a
+   process that dies before `provider_started` is persisted lets the next
+   boot enqueue again (no provider side effect began). The run loop binds
+   the redo by message id only (a merge keeps that id), persists
+   `provider_started` immediately before the provider call in
+   `_handle_request` and in `_handle_tc_wake` on both of its sending paths —
+   before the first nonempty legacy `tc_inbox` splice/send and before the
+   wire-drive `send(None)` (fail closed: no provider call, and legacy items
+   are re-enqueued in order, if it cannot be written durably — and a failed
+   mark settles `no_provider_call` from process-local truth even if the
+   directory entry already shows `provider_started`), and settles
+   the block when the turn ends
+   (`completed`, `failed`, `worker_still_running_again`, or
+   `no_provider_call`); a repeat hang writes the next artifact with
+   `attempt + 1`, bounded by `max_aed_attempts`. Dismissing the recovery
+   notification abandons a still-`pending` redo in the same write; an
+   already-terminal redo is authoritative and settlement never rewrites it;
+   the one-shot notice marking runs under the same lock so it can never
+   overwrite a concurrent resolution. This is at-most-once per recorded
+   provider start, not exactly-once end to end.
+   Discovery failure never degrades into an ordinary kick-start. With a
+   pending recovery that has nothing replayable, the earlier behavior holds:
+   the host skips the kick-start (`pending_worker_hang_recovery`) and
+   `_start` baselines the coherent notification observation already present
+   at boot before the heartbeat may sync — only when that observation is
+   solely the rehydrated `kernel.llm_worker_hang` event (every `system`
+   event a WorkerStillRunning reference, no other channel, nothing beyond
+   the virtual quiet daemon baseline); it dismisses, clears, and hides
+   nothing; any external notification already pending at boot is a real
+   wake delivered on the first tick; an unstable or failed baseline read
+   seeds nothing and fails toward waking. Ordinary user/System refreshes,
    already-prompted artifacts, and resolved artifacts keep the pre-existing
-   kick-start.
+   kick-start. Partial-stream and `no_aed_retry` terminal markers remain
+   terminal and never reach this path.
    Guarded by: [BA006](BEHAVIORS.md#behavior-ba006)
 6. `agent-runtime.process-identity.v1` — An agent-run process is identified
    by its command line through the canonical matcher; runtime relaunches

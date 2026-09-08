@@ -163,7 +163,10 @@ co-located owning ANATOMY.md files.
   `watcher_program.render_watcher_script(request)`, and `exec`s it in a fresh
   namespace — this is the only place the previously argv-embedded
   generated program text is materialized, replacing the earlier
-  `sys.executable -c <script>` transport. `main` performs no watcher policy
+  `sys.executable -c <script>` transport; the namespace injects
+  `PosixRefreshWatcherProcessAdapter` as `PROCESS_MECHANISM` and
+  `PosixWorkdirLeaseAdapter(request.working_dir)` as `WORKDIR_LEASE`, and an
+  unhandled failure goes through `watcher_failure_to_raise`. `main` performs no watcher policy
   itself and is directly callable in tests independent of a real subprocess.
 - `PosixGitCliAdapter` implements both `SnapshotPort` and `SourceRevisionPort`
   through fixed Git command families. Separate composed instances target the

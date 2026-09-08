@@ -335,9 +335,11 @@ def test_undying_duplicate_records_still_alive_and_fails_permanently(tmp_path):
     script = _fast_policy_script(working_dir, max_attempts="3")
     mechanism = UnkillableDuplicateProcess(working_dir)
 
-    # The loop runs to exhaustion and publishes the terminal alert; it does not
-    # exit early, so no SystemExit is raised here.
-    exec(compile(script, "<refresh-policy>", "exec"), {"PROCESS_MECHANISM": mechanism})
+    # The loop runs to exhaustion, publishes the terminal alert, settles the
+    # marker, and exits nonzero: permanent failure is never a 0 exit.
+    with pytest.raises(SystemExit) as exit_info:
+        exec(compile(script, "<refresh-policy>", "exec"), {"PROCESS_MECHANISM": mechanism})
+    assert exit_info.value.code == 1
 
     assert mechanism.launches == 3
     assert ("force_stop", 4242) in mechanism.calls

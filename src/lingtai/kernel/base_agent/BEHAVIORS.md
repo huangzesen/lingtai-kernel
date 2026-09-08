@@ -22,6 +22,7 @@ related_files:
   - tests/test_aed_recovery.py
   - tests/test_notification_sync.py
   - tests/test_cli_worker_poison_recovery.py
+  - tests/test_worker_hang_aed_redo.py
   - tests/test_silence_kill.py
   - tests/test_system.py
   - tests/test_system_declared_plugin.py
@@ -190,28 +191,24 @@ record the evidence trail in the task report.
 
 Pass when the focused suite proves fresh fail-closed admission and the one-hop limit, and the inventory sensitivity cases match the Contract. Fail if a child mints another child, an unavailable/denied call reaches provider I/O, a second call reuses an earlier decision, or an advertised static constructor form is invisible; record the evidence trail in the task report.
 
-## Behavior BA006 — a poison-recovery relaunch stays ASLEEP until a genuinely later wake
+## Behavior BA006 — a poison-recovery relaunch redoes the interrupted turn from the recovery artifact, never in-process, and otherwise stays ASLEEP
 
 - **id**: BA006
-- **title**: a poison-recovery relaunch stays ASLEEP until a genuinely later wake
+- **title**: a poison-recovery relaunch redoes the interrupted turn from the recovery artifact, never in-process, and otherwise stays ASLEEP
 - **guards**: `agent-runtime` § Contract rules, rule 5 (`agent-runtime.refresh.v1`), poison-recovery paragraph — see [CONTRACT.md](CONTRACT.md#contract-rules)
-- **pinned by**: `tests/test_cli_worker_poison_recovery.py::test_refresh_boot_with_pending_worker_recovery_stays_asleep_without_kickstart`, `tests/test_notification_sync.py::test_start_with_pending_worker_recovery_does_not_self_wake_on_first_sync`, `tests/test_notification_sync.py::test_baseline_refuses_when_external_notification_already_pending` (bottom asserts added with this behavior; no legacy pytest was converted)
+- **pinned by**: `tests/test_worker_hang_aed_redo.py` (all tests), `tests/test_cli_worker_poison_recovery.py::test_refresh_boot_with_pending_worker_recovery_stays_asleep_without_kickstart`, `tests/test_notification_sync.py::test_start_with_pending_worker_recovery_does_not_self_wake_on_first_sync`, `tests/test_notification_sync.py::test_baseline_refuses_when_external_notification_already_pending`, `tests/test_aed_recovery.py::test_worker_hang_request_artifact_is_bounded_and_redacted`
 - **runner**: any LingTai coding agent with `shell` and `file` access to this repository
 - **prerequisites**: a clean checkout of `<repo>` and the project Python with pytest; no live agent sharing pytest scratch state
-- **estimate**: ≈ 5 minutes
-- **motivation**: production defect 2026-09-08 — after a 300 s provider timeout plus grace (`WorkerStillRunningError`) the agent went ACTIVE → STUCK → ASLEEP and was force-relaunched to discard the poisoned interface, but the fresh process treated the relaunch as a user refresh: the CLI sent `system.refresh_successful`, the agent woke (`woke from asleep: request`) and started a new LLM call 250 ms after boot with no external request; the rehydrated worker-hang notification would likewise have woken it on the first heartbeat because a fresh `_notification_fp` starts empty.
+- **estimate**: ≈ 10 minutes
+- **motivation**: production defect 2026-09-08 (Runyuan). After a 300 s provider timeout plus grace (`WorkerStillRunningError`) the agent was force-relaunched to discard the poisoned interface; #1663 stopped the relaunch from self-waking but the interrupted LLM call was never redone ("at 300s the agent SHOULD go to aed mode and REDO the llm call"). The 11:38Z recurrence was a `tc_wake_wire` turn with no notification sources, so a passive resync could not redrive it.
 
 ### Steps
-1. From `<repo>`, run `python -m pytest -q -x tests/test_cli_worker_poison_recovery.py tests/test_notification_sync.py -k "refresh_boot or non_refresh_boot or pending_worker_recovery or baseline or foreign"` and capture the outcome.
-2. Inspect `src/lingtai/cli.py::run`: on a `.refresh.taken` boot the refresh-success `send` is skipped exactly when `has_pending_worker_hang_recovery_prompt(agent)` is true, logging `refresh_kickstart_deferred`; every other refresh boot still sends it.
-3. Inspect `src/lingtai/kernel/base_agent/lifecycle.py::_start`: `baseline_notifications_for_pending_worker_recovery` runs after `rehydrate_worker_hang_recovery` and before `_heartbeat_runtime_ready = True`; confirm it seeds only `_notification_fp`/`_notification_raw_fp`, only from a stable coherent read whose sole content is the worker-hang recovery event (only the `system` channel, every event a WorkerStillRunning ref, nothing beyond the virtual quiet daemon baseline), never arms the consumer-delay timer, and never dismisses, clears, or hides `.notification/` bytes or mutates the artifact.
-4. Inspect the wake tests: after a seeded baseline, a later genuine channel publish moves the agent ASLEEP → IDLE with one `MSG_TC_WAKE` and delivers the full current payload including the worker-hang event; with an external `email`/`mcp.telegram` payload or a non-worker-hang system event already pending at boot, no baseline is seeded (`foreign_notifications_pending`) and the FIRST sync wakes and delivers every channel. The artifact remains open and un-prompted for `maybe_prepend_worker_hang_recovery_prompt` in every case.
+1. From `<repo>`, run `python -m pytest -q tests/test_worker_hang_aed_redo.py tests/test_aed_recovery.py tests/test_cli_worker_poison_recovery.py tests/test_notification_sync.py -k "redo or worker_hang or refresh_boot or non_refresh_boot or pending_worker_recovery or baseline or foreign"`.
+2. Inspect `worker_recovery.py` (`_plan_redo`, `redrive_worker_hang_redo`, `mark_worker_hang_redo_provider_started`, `settle_worker_hang_redo`, `resolve_worker_hang_artifact`), the `turn.py` WorkerStillRunning branch and pre-send marks, and `cli.py::run` against the Contract paragraph.
 
 ### Expected evidence
-- [ ] Step 1: the focused group passes without a provider or network call.
-- [ ] Step 2: pending recovery ⇒ no `send`, state ASLEEP, `refresh_kickstart_deferred(reason=pending_worker_hang_recovery)`; ordinary refresh, already-prompted artifact, and resolved artifact ⇒ exactly one localized refresh-success request from `system`.
-- [ ] Step 3: with only the worker-hang event present, the first sync after boot leaves a pending-recovery relaunch ASLEEP with an empty inbox; an unstable or failed read logs `worker_hang_notification_baseline_skipped` and seeds nothing.
-- [ ] Step 4: a later change wakes normally; an already-pending external notification wakes on the first tick with all channels delivered; nothing was hidden or resolved.
+- [ ] Step 1: the group passes with no provider or network call; the redo suite shows one `_handle_message` call per hang, the four modes, an exact `request` text in a `0600` artifact, boot enqueue with the original id and no refresh-success send (on refresh and non-refresh boots), `provider_started` on disk before the provider call (both `_handle_tc_wake` paths, including a nonempty legacy `tc_inbox` whose items are re-enqueued in order on failure) and `completed` with the text stripped afterwards, the POSIX parent-directory fsync barrier after replace (Windows boundary opens no directory) with a barrier failure failing the mark closed, fail-closed on a `provider_started` record found at boot and on a mark-write failure, tampered records abandoned, attempts bounded by `max_aed_attempts`, id-preserving concatenation, dismissal abandoning a pending redo, and ordinary refresh/unreplayable recovery unchanged.
+- [ ] Step 2: no second replay file, no content-based binding, no in-process retry.
 
 ### Pass / Fail
-Pass when a pending poison recovery whose boot-time notification state is solely the recovery event yields no synthesized inference round in the relaunched process, while any already-pending external notification is delivered on the first tick, and the next genuine change still wakes with the full payload. Fail if the relaunch sends the refresh-success request, if the rehydrated notification alone wakes the agent, if a pre-existing external message is deferred past the first tick, if the baseline dismisses/hides any payload or touches the artifact, if a prompted/resolved artifact suppresses an ordinary refresh kick-start, or if an unstable read is treated as quiet; record the evidence trail in the task report.
+Pass when the suite is green and the inspection matches the Contract. Fail if the poisoned process retries, if a refresh-success request is sent while a redo is enqueued, if a `provider_started` record is replayed, if a `continuation` redo carries the original text, if a `tc_wake` hang is left to notification resync, or if replay text survives a terminal status; record the evidence trail in the task report.
