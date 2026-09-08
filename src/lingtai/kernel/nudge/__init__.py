@@ -173,9 +173,14 @@ def _parse_duration(value: str) -> float | None:
 
 
 def _format_duration(seconds: float) -> str:
-    # Preserve the product default's documented spelling (`24h`) while using
-    # day units for intervals longer than one day.
-    if seconds % 3600 == 0 and seconds > 86400:
+    # Zero is a degenerate interval, but it is still rendered in the smallest
+    # unit rather than looking like a one-hour policy value. Preserve the
+    # product default's documented spelling (`24h`) for positive values. Use
+    # day units only for an exact whole-day interval; 25h/36h/47h must not lose
+    # their remaining hours through floor-to-days truncation.
+    if seconds == 0:
+        return "0s"
+    if seconds % 86400 == 0 and seconds > 86400:
         return f"{int(seconds // 86400)}d"
     if seconds % 3600 == 0:
         return f"{int(seconds // 3600)}h"

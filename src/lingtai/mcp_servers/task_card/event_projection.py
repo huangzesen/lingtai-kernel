@@ -857,17 +857,24 @@ class TaskCardEventProjection:
     def format_count(value: object) -> str | None:
         if type(value) is not int or value < 0:
             return None
-        for threshold, suffix in (
+        tiers = (
             (1_000_000_000_000, "T"),
             (1_000_000_000, "B"),
             (1_000_000, "M"),
             (1_000, "k"),
-        ):
-            if value >= threshold:
+        )
+        for index, (threshold, suffix) in enumerate(tiers):
+            if value < threshold:
+                continue
+            tenths = (value * 10 + threshold // 2) // threshold
+            # Half-up rounding can carry 999.95 of a tier to 1000.0. Select
+            # the next tier rather than emitting a value outside X.Y<suffix>.
+            if tenths >= 10_000 and index > 0:
+                threshold, suffix = tiers[index - 1]
                 tenths = (value * 10 + threshold // 2) // threshold
-                if suffix == "T":
-                    tenths = min(tenths, 9_999)
-                return f"{tenths // 10}.{tenths % 10}{suffix}"
+            if suffix == "T":
+                tenths = min(tenths, 9_999)
+            return f"{tenths // 10}.{tenths % 10}{suffix}"
         return str(value)
 
     @classmethod
