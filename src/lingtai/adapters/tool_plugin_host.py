@@ -688,7 +688,8 @@ class AgentDaemonRuntimeAdapter:
         "_authorize_derived_launch",
         "_manager_options",
         "_setup_preset_capability",
-        "_read_preset",
+        "_requires_explicit_preset",
+        "_is_preset_authorized",
         "_load_preset",
         "_enqueue_notification",
         "_read_task_card_watch",
@@ -711,7 +712,8 @@ class AgentDaemonRuntimeAdapter:
         authorize_derived_launch: Callable[[Any], Any],
         manager_options: Mapping[str, Any],
         setup_preset_capability: Callable[[str, Mapping[str, Any]], tuple[dict[str, Any], dict[str, Callable[[dict], dict]]]],
-        read_preset: Callable[[], Mapping[str, Any]],
+        requires_explicit_preset: Callable[[], bool],
+        is_preset_authorized: Callable[[str, Any], bool],
         load_preset: Callable[[str], dict],
         enqueue_notification: Callable[..., None],
         read_task_card_watch: Callable[[], bool | None],
@@ -729,7 +731,8 @@ class AgentDaemonRuntimeAdapter:
         self._authorize_derived_launch = authorize_derived_launch
         self._manager_options = dict(manager_options)
         self._setup_preset_capability = setup_preset_capability
-        self._read_preset = read_preset
+        self._requires_explicit_preset = requires_explicit_preset
+        self._is_preset_authorized = is_preset_authorized
         self._load_preset = load_preset
         self._enqueue_notification = enqueue_notification
         self._read_task_card_watch = read_task_card_watch
@@ -781,8 +784,12 @@ class AgentDaemonRuntimeAdapter:
     ) -> tuple[dict[str, Any], dict[str, Callable[[dict], dict]]]:
         return self._setup_preset_capability(name, kwargs)
 
-    def read_preset_from_init(self) -> Mapping[str, Any]:
-        return self._read_preset()
+    @property
+    def requires_explicit_preset(self) -> bool:
+        return self._requires_explicit_preset()
+
+    def is_preset_authorized(self, name: str, working_dir: Any) -> bool:
+        return self._is_preset_authorized(name, working_dir)
 
     def load_preset(self, name: str) -> dict:
         return self._load_preset(name)
@@ -847,15 +854,18 @@ def daemon_runtime_for_agent(
         value = getattr(getattr(agent, "_config", None), "max_aed_attempts", 3)
         return value if isinstance(value, int) and not isinstance(value, bool) else 3
 
-    def _read_preset() -> Mapping[str, Any]:
+    def _is_preset_authorized(name: str, working_dir: Any) -> bool:
+        from lingtai.kernel.presets import _preset_ref_in
+
         read = getattr(agent, "_read_preset_from_init", None)
         if not callable(read):
-            return {}
+            return False
         try:
             value = read()
         except Exception:
-            return {}
-        return value if isinstance(value, Mapping) else {}
+            return False
+        allowed = value.get("allowed") if isinstance(value, Mapping) else None
+        return _preset_ref_in(name, allowed, working_dir=working_dir)
 
     def _read_task_card_watch() -> bool | None:
         check = getattr(getattr(agent, "_task_card_manager", None), "has_active_watch", None)
@@ -937,7 +947,8 @@ def daemon_runtime_for_agent(
         authorize_derived_launch=_authorize_derived_launch,
         manager_options=manager_options,
         setup_preset_capability=_setup_preset_capability,
-        read_preset=_read_preset,
+        requires_explicit_preset=lambda: False,
+        is_preset_authorized=_is_preset_authorized,
         load_preset=getattr(agent, "load_preset", _missing_load_preset),
         enqueue_notification=_enqueue_notification_live,
         read_task_card_watch=_read_task_card_watch,

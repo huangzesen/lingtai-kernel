@@ -22,8 +22,6 @@ related_files:
   - tests/test_daemon_settings.py
   - src/lingtai/kernel/base_agent/__init__.py
   - src/lingtai/tools/daemon/supervisor_runtime.py
-  - src/lingtai/cli_daemon.py
-  - tests/test_cli_daemon.py
 maintenance: |
   Written by the daemon CONVERT_BEHAVIOR migration (2026-08). Keep in sync
   with CONTRACT.md clauses this file guards and ANATOMY.md entries for the
@@ -37,9 +35,6 @@ maintenance: |
   D010 guards the daemon owner's exact read-only five-field settings inventory;
   update it whenever row ownership, defaults, configurability, or manual
   section pointers change.
-  D011 guards the external-owner CLI (`--owner-dir`, `ask`, `wait`) in
-  CONTRACT.md § External owner CLI; update it whenever the command set,
-  owner-directory rules, or `wait` progress/exit semantics change.
 ---
 # Daemon Behavior Tests
 
@@ -536,53 +531,3 @@ delta is negative; record the evidence trail in the task report.
 Pass when all evidence holds. Fail on a missing or extra key, a sixth public
 field, a dangling manual pointer, any settings mutation route, partial output
 on failure, or a regression in the unchanged `list` action.
-
-## Behavior D011 — an external owner drives its own daemon run from the CLI
-
-- **id**: D011
-- **title**: `lingtai-agent daemon` with `--owner-dir` emanates, asks, and
-  waits on a run without a live Agent, with state and notifications anchored
-  to the owner directory
-- **guards**: `daemon-contract` § External owner CLI
-  ([CONTRACT.md](CONTRACT.md#external-owner-cli))
-- **supersedes**: none (pytest `tests/test_cli_daemon.py` keeps the bottom asserts)
-- **runner**: any LingTai agent with the `shell` and `file` tools, or a human
-  shell operator, on a machine where `lingtai-agent` is installed
-- **prerequisites**: a scratch directory `<owner>` containing a minimal valid
-  `init.json` (an `llm` block with a usable credential and an empty
-  `capabilities` object); no Agent running there
-- **estimate**: 5 min
-
-### Steps
-1. Write `<owner>/tasks.json` as
-   `[{"task": "Create scratch/owner-evidence.txt containing the word evidence, then call checkpoint once with state 'validating', then reply DONE", "tools": ["file"]}]`.
-2. Run `lingtai-agent daemon emanate --tasks <owner>/tasks.json --owner-dir <owner> --yes`
-   and record `ids[0]` from the JSON output as `<id>`.
-3. Run `lingtai-agent daemon wait <id> --owner-dir <owner> --json --timeout 600`
-   and keep every output line; record the process exit status.
-4. While the run is live (or after it, expecting a refusal), run
-   `lingtai-agent daemon ask <id> "acknowledged, continue" --owner-dir <owner>`
-   and record the JSON output and exit status.
-5. Run `lingtai-agent daemon list --json --owner-dir <owner>` and inspect
-   `<owner>/daemons/` and `<owner>/.notification/daemon/`.
-
-### Expected evidence
-- [ ] Step 2 prints a `dispatched` result; `<owner>/daemons/<run_id>/daemon.json`
-      exists and no `<owner>/.agent.lock`, `.agent.heartbeat`, or `.agent.json`
-      was created.
-- [ ] Step 3 prints one JSON object per line: `progress` records whose
-      `checkpoint.sequence` increases at most once per line and never repeats
-      an unchanged observation, then exactly one `terminal` record with
-      `state: "done"` and `exit_code: 0`; the shell exit status is 0.
-- [ ] Step 4 prints the engine's own result: `sent` or `queued` (exit 0) while
-      the run is live, or an `error`/`busy` result (exit 1) once it is terminal;
-      no other delivery path or extra file appears.
-- [ ] Step 5 lists `<id>` under the owner directory, and a
-      `<owner>/.notification/daemon/<id>.json` terminal notification exists
-      while no `.notification` was created anywhere else.
-
-### Pass / Fail
-Pass when all evidence holds. Fail on any lease/identity marker in `<owner>`, a
-duplicated unchanged `progress` line, a `terminal` record whose `exit_code`
-disagrees with the shell exit status, an `ask` result that did not come from the
-daemon engine, or a notification anchored outside the owner directory.

@@ -20,6 +20,9 @@ related_files:
   - src/lingtai/tools/context/manual/SKILL.md
   - src/lingtai/tools/daemon/ANATOMY.md
   - src/lingtai/tools/daemon/__init__.py
+  - src/lingtai/services/ANATOMY.md
+  - src/lingtai/services/daemon.py
+  - tests/test_cli_daemon.py
   - src/lingtai/tools/daemon/execution_host.py
   - src/lingtai/tools/daemon/shell_prompt_events.py
   - tests/test_daemon_shell_prompt_events.py
@@ -126,7 +129,7 @@ is in [`BEHAVIORS.md`](BEHAVIORS.md).
     `DuplicateToolPluginNameError`, `HostPortError`);
   - the twenty-one kernel host/value Port Protocols `WorkdirPort`,
     `PromptSectionPort`, `FileIOPort`, `AvatarParentPort`, `ContextRuntimePort`,
-    `DaemonRuntimePort`, read-only `PluginCatalogPort` (with detached
+    `DaemonRuntimePort` (including host-selected explicit-preset requirement and authorization operations), read-only `PluginCatalogPort` (with detached
     `PluginCatalogState`), read-only `PsycheSettingsPort` (returning the
     structural `PsycheSettingsSnapshotPort`),
     `NotificationStatePort`, Shell's narrow durable `NotificationPort` and

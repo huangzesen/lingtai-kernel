@@ -1696,7 +1696,6 @@ class DaemonManager:
                 system_prompt_budget_chars, DAEMON_SYSTEM_PROMPT_BUDGET_CHARS
             ),
         )
-        self._default_model = self._runtime.service.model
         self._notify_threshold = notify_threshold
         # Direct construction is a supported test/in-process composition path
         # as well as setup(). POSIX and Windows each have one production
@@ -5359,27 +5358,32 @@ class DaemonManager:
                     "message": f"context_token_limit must be ≥ 1 (got {raw_limit})",
                 }
 
-        # --- Authorization gate (LingTai backend only): explicit per-task
-        # presets must be in the parent's manifest.preset.allowed. This runs
-        # before ANY LingTai side effect (preset load/connectivity/capability
-        # setup, run-dir/thread-pool/schedule/dispatch). Omitted tasks[].preset
-        # is unaffected — it is the documented parent-derived/no-preset path —
-        # and the raw allowlist is only read when at least one task actually
-        # requests an explicit preset, so the no-preset path never consults it.
-        if any(spec.get("preset") for spec in tasks):
-            from lingtai.kernel.presets import _preset_ref_in
-
-            raw_preset_block = self._runtime.read_preset_from_init()
-            allowed = (
-                raw_preset_block.get("allowed")
-                if isinstance(raw_preset_block, dict) else None
-            )
-
+        # --- Native preset policy gate. Standalone service bindings require a
+        # direct preset path on every task; Agent bindings retain their own
+        # explicit-preset authorization policy and may still use the inherited
+        # no-preset path. This runs before preset load, capability setup,
+        # run-directory creation, or scheduling. External CLI backends returned
+        # above and keep their established no-preset mechanics.
+        requires_explicit = self._runtime.requires_explicit_preset
+        if requires_explicit:
+            for i, spec in enumerate(tasks):
+                requested = spec.get("preset")
+                if not isinstance(requested, str) or not requested.strip():
+                    return {
+                        "status": "error",
+                        "message": (
+                            f"tasks[{i}].preset is required for standalone "
+                            "LingTai daemon dispatch"
+                        ),
+                    }
+        else:
             for spec in tasks:
                 requested = spec.get("preset")
                 if not requested:
                     continue
-                if not _preset_ref_in(requested, allowed, working_dir=self._workdir.path):
+                if not self._runtime.is_preset_authorized(
+                    requested, self._workdir.path
+                ):
                     self._log("daemon_preset_refused_unauthorized", requested=requested)
                     return {
                         "status": "error",

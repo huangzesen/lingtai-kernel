@@ -4,11 +4,14 @@ description: >
   Read before delegating work, diagnosing a slow/stuck/failed/timed-out
   emanation, or reclaiming on a hunch. Routes daemon call shape, task context,
   settings, backend support, inspection, compaction, and cleanup procedures.
-version: 0.15.0
-last_changed_at: 2026-09-06T00:00:00Z
+version: 0.16.0
+last_changed_at: 2026-09-08T00:00:00Z
 related_files:
 - src/lingtai/tools/daemon/CONTRACT.md
 - src/lingtai/tools/daemon/ANATOMY.md
+- src/lingtai/services/daemon.py
+- src/lingtai/cli_daemon.py
+- tests/test_cli_daemon.py
 - src/lingtai/tools/daemon/system_prompt.py
 - src/lingtai/tools/daemon/settings.py
 - src/lingtai/tools/daemon/execution_host.py
@@ -211,11 +214,36 @@ or cleanup outside an authorized scope.
 
 ## Programmatic use / CLI
 
-For scripts and CI, use `lingtai-agent daemon --help` for the current command
-surface and options. The CLI caller is an external owner: `--owner-dir` is any
-directory with its own `init.json` (no running Agent or lease required), and
-that directory anchors the runs' `daemons/` state and `.notification/daemon/`
-terminal notifications; `wait` observes a run to its terminal state read-only.
+For scripts and CI, the reusable boundary is
+`lingtai.services.daemon.DaemonService(state_root)`. It owns daemon artifacts
+under that existing caller-chosen directory and never constructs an Agent. A
+native LingTai task must carry its preset path directly; this mode never reads
+or requires `init.json`:
+
+```python
+from lingtai.services.daemon import DaemonService
+
+service = DaemonService("/absolute/path/to/daemon-state")
+result = service.emanate([{
+    "task": "Do the bounded task and leave reviewable artifacts.",
+    "tools": ["file"],
+    "preset": "/absolute/path/to/preset.json",
+}])
+snapshot = service.check(result["ids"][0])
+```
+
+The CLI is only a driver over that object. Its state root and existing task
+payload are sufficient; there is no preview confirmation or Agent-directory
+compatibility path:
+
+```text
+lingtai-agent daemon emanate --state-root /absolute/state --tasks tasks.json
+lingtai-agent daemon check em-1234 --state-root /absolute/state
+```
+
+Use `lingtai-agent daemon --help` for exact options. External CLI backends keep
+the engine's existing no-preset mechanics; the direct-preset requirement is for
+native `lingtai` work.
 
 ## Maintenance
 

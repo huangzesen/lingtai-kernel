@@ -8,7 +8,7 @@ description: >
   terminal notifications, and compaction boundaries.
 status: active
 contract_version: 15
-last_changed_at: "2026-09-07"
+last_changed_at: "2026-09-08"
 related_files:
   - src/lingtai/tools/daemon/ANATOMY.md
   - src/lingtai/tools/daemon/BEHAVIORS.md
@@ -27,6 +27,8 @@ related_files:
   - src/lingtai/kernel/tool_executor.py
   - src/lingtai/kernel/tool_result_summary.py
   - src/lingtai/services/mcp.py
+  - src/lingtai/services/ANATOMY.md
+  - src/lingtai/services/daemon.py
   - src/lingtai/kernel/llm/base.py
   - src/lingtai/kernel/base_agent/ANATOMY.md
   - src/lingtai/kernel/notification_store/CONTRACT.md
@@ -98,6 +100,9 @@ review_triggers:
   - src/lingtai/adapters/posix/daemon_manager.py
   - src/lingtai/adapters/posix/daemon_supervisor.py
   - src/lingtai/tools/daemon/ANATOMY.md
+  - src/lingtai/services/daemon.py
+  - src/lingtai/cli_daemon.py
+  - tests/test_cli_daemon.py
   - src/lingtai/tools/daemon/manual/
   - src/lingtai/mcp_servers/daemon_common/
   - tests/test_daemon.py
@@ -255,40 +260,33 @@ registered `manual` is `build_manual_child(workdir, DECLARATION.manual)`,
 returning canonical `content[0].text` / `structuredContent.manual_path`
 verbatim with no manager operation or double wrap.
 
-### External owner CLI
+### Standalone service boundary
 
-Guarded by: [D011](BEHAVIORS.md#behavior-d011)
+`lingtai.services.daemon.DaemonService(state_root)` is the reusable standalone
+composition of the same `DaemonManager`, `DaemonFamilyDispatcher`, resident
+manager path, task schema, ledger, notification store, and run artifacts. Its
+only owned filesystem namespace is the caller-selected state root. It is not an
+Agent, never creates one, and takes no Agent workdir lease, heartbeat, identity,
+prompt, or lifecycle ownership.
 
-`lingtai-agent daemon emanate | list | check | ask | wait | reclaim` is the
-same engine driven by an **external owner**: a same-machine principal (a coding
-agent acting for a human, CI, a shell operator) that owns the runs it dispatches
-instead of borrowing a live Agent's identity. Every command takes `--owner-dir`
-(`--agent-dir` is the legacy spelling of the same argument), which MUST be a
-directory holding a valid `init.json` and MAY be a standalone directory the
-caller prepared itself; no Agent needs to be running there and the CLI never
-takes the directory's `.agent.lock` lease, heartbeat, or agent identity. A
-standalone owner supplies its own minimal `init.json`; the CLI copies no other
-agent's credentials or preset allowlist and creates no secrets or configuration.
-Run directories, the dispatch ledger, and resident manager pools are anchored
-to the owner directory exactly as for a live agent, and the detached
-supervisor publishes terminal and follow-up notifications to
-`<owner>/.notification/daemon/<daemon-id>.json` from the manifest's
-`parent_working_dir` alone (§ 6). `emanate`, `ask`, and `reclaim` dispatch
-through `setup()` and the `DaemonFamilyDispatcher` envelope, so `ask` follows
-the engine's own delivery rules unchanged (`sent`/`queued` exit 0; `busy`/`error`
-exit 1 with the engine result printed). `list` (`--json` for the engine payload),
-`check`, and `wait` are read-only: they construct no manager and run no
-reconciliation or repair. `wait <id>` resolves the id/path through one durable
-`check`, polls only the run's atomic `daemon.json` every `--interval` seconds
-(never rescanning a growing events log), and performs one final full `check`. It
-reports each progress change (state, turn, current tool, latest checkpoint
-sequence, last output, pending checkpoint messages, resume/follow-up state)
-exactly once and ends with one final record: exit 0
-for `done`, 1 for `failed`/`cancelled`/`timeout`, 124 when `--timeout` elapses,
-130 on interrupt; non-finite bounds are refused and `--json` emits one object
-per line. `emanate` preview publishes primary `owner_dir` plus the retained
-machine-readable `agent_dir` compatibility key. `wait` never adopts
-execution ownership — the run's detached supervisor stays its only owner.
+For native `backend="lingtai"`, every standalone task MUST supply a nonblank
+`preset` path directly. The service MUST reject an omitted preset before preset
+load, capability setup, run-directory creation, or scheduling. A supplied path
+is loaded read-only through the canonical preset loader and its provider
+connectivity and requested capability surface are validated before scheduling;
+the service MUST NOT locate, parse, materialize, validate, or derive policy from
+`init.json`, an Agent preset allowlist, or a parent effective configuration.
+Agent-bound daemon composition retains its existing optional inherited-preset
+route and explicit-preset allowlist. External CLI backends return through their
+existing no-preset path before the native gate.
+
+The service exposes only `emanate`, `list`, `check`, and `reclaim` for this
+vertical slice. `list` and `check` bind the engine's ledger-driven handlers
+without constructing a manager, preserving read-only inspection. The
+`lingtai-agent daemon` CLI is a thin required-`--state-root` driver over this
+API; it has no `--agent-dir`, init compatibility, preview/confirmation, or
+standalone `ask` policy. `tests/test_cli_daemon.py` is the acceptance proof for
+both seams.
 
 ### Daemon settings ownership
 
@@ -1114,8 +1112,9 @@ Re-check this contract when touching:
   or completion enforcement.
 - `src/lingtai/tools/daemon/settings.py` row ownership, defaults, or manual
   pointers.
-- `src/lingtai/cli_daemon.py` owner-directory resolution, command set, `wait`
-  progress/exit semantics, or JSON output shapes.
+- `src/lingtai/services/daemon.py`, `src/lingtai/cli_daemon.py`, or
+  `tests/test_cli_daemon.py` standalone state-root, direct-preset, API, CLI, or
+  readback semantics.
 - `src/lingtai/tools/daemon/run_dir.py` artifact paths, `daemon.json`
   `call_parameters`, checkpoint sequence/latest/inbox fields, redaction-sensitive
   fields, terminal markers, terminal-notification receipt fields, or manifests.
@@ -1141,10 +1140,6 @@ Re-check this contract when touching:
 | Per-agent `system_prompt_budget_chars` defaults to 20,000, accepts a positive `daemon/daemon.json` override, and safely falls back for malformed/non-positive values while retaining fail-loud/no-truncation rendering | `src/lingtai/tools/daemon/__init__.py`, `src/lingtai/tools/daemon/system_prompt.py` | `tests/test_daemon.py::test_daemon_default_system_prompt_budget_is_20000_without_config`, `::test_daemon_config_system_prompt_budget_allows_larger_complete_prompt`, `::test_daemon_invalid_system_prompt_budget_falls_back_to_default` |
 | `settings` returns exactly the four owner rows and five public fields, has no mutation route, and fails as one fixed response when current manager truth is unavailable | `src/lingtai/tools/daemon/settings.py`, `src/lingtai/tools/daemon/_tool_family.py` | `tests/test_daemon_settings.py` |
 | Budget precedence: a valid `LINGTAI_DAEMON_SYSTEM_PROMPT_BUDGET_CHARS` wins at manager construction (including `lingtai-agent daemon emanate` via the agent's `env_file`); invalid env or explicit capability values retain the file/default resolution and never drop the capability | `src/lingtai/tools/daemon/__init__.py`, `src/lingtai/cli_daemon.py` | `tests/test_daemon.py::test_daemon_system_prompt_budget_env_overrides_config`, `::test_daemon_invalid_system_prompt_budget_env_keeps_config_value`, `::test_daemon_invalid_explicit_system_prompt_budget_keeps_file_or_env`, `tests/test_cli_daemon.py::test_emanate_env_file_budget_overrides_daemon_json` |
-| Every daemon CLI command takes `--owner-dir` (legacy `--agent-dir`, one destination), speaks "owner" in help/errors, needs no live Agent, and leaves no lease/heartbeat/identity marker; run directories stay under `<owner>/daemons/` | `src/lingtai/cli_daemon.py` | `tests/test_cli_daemon.py::test_owner_dir_and_legacy_agent_dir_share_one_destination`, `::test_every_daemon_command_documents_owner_dir`, `::test_owner_dir_errors_speak_owner`, `::test_standalone_owner_dispatch_keeps_state_owner_local_without_a_lease` |
-| The detached supervisor's terminal notification lands under the manifest's owner directory | `src/lingtai/tools/daemon/supervisor_runtime.py` | `tests/test_cli_daemon.py::test_supervisor_terminal_notification_anchors_to_the_owner_dir` |
-| CLI `ask` routes id/message through the tool-family `ask` child only; `sent`/`queued` exit 0, `busy`/`error` exit 1, blank messages never reach the engine | `src/lingtai/cli_daemon.py` | `tests/test_cli_daemon.py::test_ask_dispatches_through_the_daemon_family`, `::test_ask_exit_status_tracks_the_engine_result`, `::test_ask_unknown_id_is_refused_by_the_real_engine`, `::test_ask_refuses_a_blank_message_before_dispatch` |
-| CLI `wait` reports each progress change once, maps terminal state to exit 0/1, exits 124 on `--timeout` and 130 on interrupt, emits JSONL under `--json`, and constructs no manager and writes nothing | `src/lingtai/cli_daemon.py` | `tests/test_cli_daemon.py::test_wait_reports_each_progress_change_once_then_exits_zero_on_done`, `::test_wait_json_emits_one_record_per_change_and_a_terminal_record`, `::test_wait_exit_status_reflects_the_terminal_state`, `::test_wait_timeout_exits_124_and_writes_nothing`, `::test_wait_interrupt_exits_130_with_a_final_record` |
 | Backend schema enum matches the ordered alias contract | `src/lingtai/tools/daemon/__init__.py` | `tests/test_daemon_backend_options.py::test_backend_schema_enum_matches_ordered_contract`, `::test_backend_metadata_consistency_keeps_hidden_legacy_claude` |
 | `check` returns state + events, honors `last`/`truncate`, validates inputs | `src/lingtai/tools/daemon/__init__.py` | `tests/test_daemon_check.py` |
 | CLI-backend terminal `ask` returns immediately and enforces its own timeout | `src/lingtai/tools/daemon/__init__.py` | `tests/test_daemon.py::test_ask_codex_returns_immediately_when_subprocess_hangs`, `::test_ask_codex_silent_subprocess_enforces_timeout` |
