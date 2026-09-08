@@ -8,6 +8,7 @@ from pathlib import Path
 
 from lingtai.adapters.acp.puffo_v0 import (
     PuffoV0RegistryError,
+    discover_runtimes,
     provision_runtime,
     revoke_runtime,
 )
@@ -35,6 +36,12 @@ def add_puffo_v0_parser(
     )
     revoke.add_argument("--runtime-id", required=True)
     revoke.add_argument("--json", action="store_true", dest="as_json")
+    discover = commands.add_parser(
+        "discover",
+        help="List initialized agents below one user-selected directory",
+    )
+    discover.add_argument("--root", type=Path, required=True)
+    discover.add_argument("--json", action="store_true", dest="as_json")
 
 
 def handle_puffo_v0_command(args: argparse.Namespace) -> None:
@@ -51,6 +58,31 @@ def handle_puffo_v0_command(args: argparse.Namespace) -> None:
         elif args.puffo_v0_command == "revoke":
             revoke_runtime(args.runtime_id)
             payload = {"status": "revoked", "runtime_id": args.runtime_id}
+        elif args.puffo_v0_command == "discover":
+            candidates = discover_runtimes(args.root)
+            payload = {
+                "runtimes": [
+                    {
+                        "agent_dir": str(candidate.agent_dir),
+                        "display_name": candidate.display_name,
+                        "runtime_id": candidate.runtime_id,
+                        # Status comes straight from the classifier so a third
+                        # state (drifted / integrity-failed / ...) can never be
+                        # flattened into the bound/available pair a caller acts on.
+                        "status": candidate.state.value,
+                        "workspace": (
+                            str(candidate.workspace)
+                            if candidate.workspace is not None
+                            else None
+                        ),
+                        # Advisory reuse sign (option C): present on an `available`
+                        # directory whose exact path a prior runtime recorded but no
+                        # longer holds. null otherwise. Does not change `status`.
+                        "formerly_bound_runtime_id": candidate.formerly_bound_runtime_id,
+                    }
+                    for candidate in candidates
+                ]
+            }
         else:
             raise SystemExit(2)
     except PuffoV0RegistryError as exc:
@@ -58,6 +90,17 @@ def handle_puffo_v0_command(args: argparse.Namespace) -> None:
         raise SystemExit(1) from None
     if args.as_json:
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    elif args.puffo_v0_command == "discover":
+        for candidate in payload["runtimes"]:
+            runtime_id = candidate["runtime_id"]
+            suffix = f" {runtime_id}" if runtime_id else ""
+            formerly = candidate["formerly_bound_runtime_id"]
+            note = (
+                f" [path previously bound {formerly}; its identity has moved or is gone]"
+                if formerly
+                else ""
+            )
+            print(f"{candidate['agent_dir']} ({candidate['status']}{suffix}){note}")
     else:
         print(f"puffo-v0 runtime {payload['runtime_id']} {payload['status']}.")
 
