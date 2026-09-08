@@ -14,6 +14,8 @@ from .config import (
     CONTEXT_PRESSURE_HIGH_RATIO,
     AgentConfig,
     THINKING_OWNED_PROVIDERS,
+    THINKING_TOKENS_SEMANTICS_KEY,
+    THINKING_TOKENS_SEPARATE,
     # Re-exported for backward compatibility: the streak logic now lives in
     # ``ContextPressureReminder`` and reads these off ``config`` directly, but
     # ``from lingtai.kernel.session import CONTEXT_PRESSURE_*`` remains a public
@@ -222,6 +224,11 @@ class SessionManager:
         self._total_input_tokens = 0
         self._total_output_tokens = 0
         self._total_thinking_tokens = 0
+        # Provider adapters declare whether thinking is disjoint from output
+        # via UsageMetadata.extra. Legacy/custom responses default to subset
+        # semantics (false), which is fail-safe against double counting.
+        self._thinking_tokens_separate = False
+        self._total_separate_thinking_tokens = 0
         self._total_cached_tokens = 0
         self._api_calls = 0
         # Runtime-session baselines. The ``_total_*``/``_api_calls`` counters
@@ -667,8 +674,16 @@ class SessionManager:
         if self._token_decomp_dirty:
             self._update_token_decomposition()
 
-        # Detect zero-usage responses and estimate locally
+        # Providers may omit usage entirely (notably some streaming/error
+        # responses). Treat that as an uncounted round rather than dereferencing
+        # None in the shared accumulator; there is no semantic marker to carry.
         usage = response.usage
+        if usage is None:
+            self._thinking_tokens_separate = False
+            self._latest_token_usage_snapshot = None
+            return
+
+        # Detect zero-usage responses and estimate locally
         fallback = False
         if usage and usage.input_tokens == 0 and usage.output_tokens == 0:
             estimated_output = count_tokens(response.text or "")
@@ -704,6 +719,16 @@ class SessionManager:
                     f"using local tokenizer estimate"
                 )
                 self._log("token_fallback", reason="provider returned 0 tokens")
+
+        usage_extra = getattr(response.usage, "extra", None) if response.usage else None
+        self._thinking_tokens_separate = (
+            isinstance(usage_extra, dict)
+            and usage_extra.get(THINKING_TOKENS_SEMANTICS_KEY) == THINKING_TOKENS_SEPARATE
+        )
+        if self._thinking_tokens_separate and response.usage:
+            self._total_separate_thinking_tokens += int(
+                getattr(response.usage, "thinking_tokens", 0) or 0
+            )
 
         token_state = {
             "input": self._total_input_tokens,
@@ -819,10 +844,17 @@ class SessionManager:
             "output_tokens": self._total_output_tokens,
             "thinking_tokens": self._total_thinking_tokens,
             "cached_tokens": self._total_cached_tokens,
+            # Persist the disjoint Gemini counter so a session restore can
+            # round-trip the same total without guessing from provider names.
+            "separate_thinking_tokens": self._total_separate_thinking_tokens,
+            # OpenAI-compatible and Anthropic adapters report thinking as a
+            # subset of output. Gemini declares ``separate`` because thoughts
+            # and candidates are disjoint provider counters. Custom/legacy
+            # adapters without the marker use the safe subset default.
             "total_tokens": (
                 self._total_input_tokens
                 + self._total_output_tokens
-                + self._total_thinking_tokens
+                + self._total_separate_thinking_tokens
             ),
             "api_calls": self._api_calls,
             "ctx_system_tokens": self._system_prompt_tokens,
@@ -1063,6 +1095,11 @@ class SessionManager:
         self._total_input_tokens = 0
         self._total_output_tokens = 0
         self._total_thinking_tokens = 0
+        # Provider adapters declare whether thinking is disjoint from output
+        # via UsageMetadata.extra. Legacy/custom responses default to subset
+        # semantics (false), which is fail-safe against double counting.
+        self._thinking_tokens_separate = False
+        self._total_separate_thinking_tokens = 0
         self._total_cached_tokens = 0
         self._api_calls = 0
         if context_tokens is not None:
@@ -1082,6 +1119,7 @@ class SessionManager:
         self._total_input_tokens = state.get("input_tokens", 0)
         self._total_output_tokens = state.get("output_tokens", 0)
         self._total_thinking_tokens = state.get("thinking_tokens", 0)
+        self._total_separate_thinking_tokens = state.get("separate_thinking_tokens", 0)
         self._total_cached_tokens = state.get("cached_tokens", 0)
         self._api_calls = state.get("api_calls", 0)
         # Re-baseline so post-restore deltas begin at zero.

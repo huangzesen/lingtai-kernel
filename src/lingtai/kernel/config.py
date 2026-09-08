@@ -36,6 +36,13 @@ THINKING_NATIVE_PROVIDERS = ("anthropic", "openai", "deepseek", "claude-code", "
 # and ``lingtai/agent.py``) against the provider's own module.
 THINKING_OWNED_PROVIDERS = ("deepseek",)
 
+# Usage adapters attach this explicit, provider-neutral semantic to
+# ``UsageMetadata.extra``. The kernel defaults to ``subset`` when a legacy or
+# custom adapter omits it, avoiding any provider-name/alias guessing.
+THINKING_TOKENS_SEMANTICS_KEY = "thinking_tokens_semantics"
+THINKING_TOKENS_SUBSET = "subset"
+THINKING_TOKENS_SEPARATE = "separate"
+
 
 def llm_supports_thinking(llm: dict) -> bool:
     """Return whether a manifest LLM block accepts explicit thinking effort.

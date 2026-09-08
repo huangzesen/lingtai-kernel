@@ -315,6 +315,103 @@ def test_track_usage_accumulates():
     assert usage["api_calls"] == 2
 
 
+def test_total_tokens_uses_explicit_subset_or_separate_thinking_semantics():
+    subset_sm, _, _ = make_session_manager()
+    subset = MagicMock()
+    subset.usage.input_tokens = 100
+    subset.usage.output_tokens = 50
+    subset.usage.thinking_tokens = 10
+    subset.usage.cached_tokens = 0
+    subset.usage.extra = {"thinking_tokens_semantics": "subset"}
+    subset_sm._track_usage(subset)
+    assert subset_sm.get_token_usage()["total_tokens"] == 150
+
+    separate_sm, _, _ = make_session_manager()
+    separate = MagicMock()
+    separate.usage.input_tokens = 100
+    separate.usage.output_tokens = 50
+    separate.usage.thinking_tokens = 10
+    separate.usage.cached_tokens = 0
+    separate.usage.extra = {"thinking_tokens_semantics": "separate"}
+    separate_sm._track_usage(separate)
+    assert separate_sm.get_token_usage()["total_tokens"] == 160
+
+
+def test_custom_or_alias_adapter_without_semantics_marker_fails_safe_to_subset():
+    sm, _, _ = make_session_manager()
+    response = MagicMock()
+    response.usage.input_tokens = 100
+    response.usage.output_tokens = 50
+    response.usage.thinking_tokens = 10
+    response.usage.cached_tokens = 0
+    response.usage.extra = {"provider": "custom-openai-alias"}
+    sm._track_usage(response)
+    assert sm.get_token_usage()["total_tokens"] == 150
+
+
+@pytest.mark.parametrize(
+    ("provider_case", "extra", "streaming", "expected_total"),
+    [
+        ("openai-compatible", {}, False, 150),
+        ("anthropic", {}, False, 150),
+        ("gemini-declared-total", {"thinking_tokens_semantics": "separate"}, False, 160),
+        ("gemini-streaming", {"thinking_tokens_semantics": "separate"}, True, 160),
+        ("openai-alias", {"provider": "openai-compatible-alias"}, False, 150),
+        ("custom", {"provider": "custom-adapter"}, False, 150),
+    ],
+)
+def test_provider_semantic_matrix_for_streaming_and_aliases(
+    provider_case, extra, streaming, expected_total
+):
+    """Provider names never infer semantics; adapters must declare ``separate``."""
+    sm, _, _ = make_session_manager(streaming=streaming)
+    response = MagicMock(text="response", tool_calls=[], thoughts=[], api_call_id=None)
+    response.usage.input_tokens = 100
+    response.usage.output_tokens = 50
+    response.usage.thinking_tokens = 10
+    response.usage.cached_tokens = 0
+    response.usage.extra = extra
+
+    if streaming:
+        with patch(
+            "lingtai.kernel.session.send_with_timeout_stream", return_value=response
+        ):
+            response = sm._send_streaming("prompt", retry_timeout=1.0)
+    sm._track_usage(response)
+
+    assert sm.get_token_usage()["total_tokens"] == expected_total, provider_case
+
+
+def test_provider_semantic_matrix_missing_usage_is_conservative():
+    sm, _, _ = make_session_manager()
+    response = MagicMock(text="response", tool_calls=[], thoughts=[], api_call_id=None)
+    response.usage = None
+
+    sm._track_usage(response)
+
+    usage = sm.get_token_usage()
+    assert usage["total_tokens"] == 0
+    assert usage["api_calls"] == 0
+
+
+def test_provider_semantic_matrix_restore_preserves_declared_gemini_total():
+    sm, _, _ = make_session_manager()
+    response = MagicMock(text="response", tool_calls=[], thoughts=[], api_call_id=None)
+    response.usage.input_tokens = 100
+    response.usage.output_tokens = 50
+    response.usage.thinking_tokens = 10
+    response.usage.cached_tokens = 0
+    response.usage.extra = {"thinking_tokens_semantics": "separate"}
+    sm._track_usage(response)
+    persisted = sm.get_token_usage()
+
+    restored, _, _ = make_session_manager()
+    restored.restore_token_state(persisted)
+
+    assert persisted["separate_thinking_tokens"] == 10
+    assert restored.get_token_usage()["total_tokens"] == 160
+
+
 def test_track_usage_triggers_decomposition_update():
     sm, _, _ = make_session_manager()
     assert sm.token_decomp_dirty  # starts dirty

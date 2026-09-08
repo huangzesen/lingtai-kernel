@@ -14,6 +14,7 @@ from google import genai
 from google.genai import errors as genai_errors, types
 
 from lingtai.kernel.logging import get_logger
+from lingtai.kernel.config import THINKING_TOKENS_SEMANTICS_KEY, THINKING_TOKENS_SEPARATE
 
 from lingtai.kernel.llm.base import (
     ChatSession,
@@ -101,9 +102,10 @@ def _parse_response(raw) -> LLMResponse:
             output_tokens=getattr(meta, "candidates_token_count", 0) or 0,
             thinking_tokens=getattr(meta, "thoughts_token_count", 0) or 0,
             cached_tokens=getattr(meta, "cached_content_token_count", 0) or 0,
+            extra={THINKING_TOKENS_SEMANTICS_KEY: THINKING_TOKENS_SEPARATE},
         )
         if meta
-        else UsageMetadata()
+        else UsageMetadata(extra={THINKING_TOKENS_SEMANTICS_KEY: THINKING_TOKENS_SEPARATE})
     )
 
     return LLMResponse(
@@ -273,9 +275,10 @@ def _parse_interaction_response(interaction) -> LLMResponse:
             output_tokens=getattr(usage_obj, "total_output_tokens", 0) or 0,
             thinking_tokens=getattr(usage_obj, "total_thought_tokens", 0) or 0,
             cached_tokens=getattr(usage_obj, "total_cached_tokens", 0) or 0,
+            extra={THINKING_TOKENS_SEMANTICS_KEY: THINKING_TOKENS_SEPARATE},
         )
         if usage_obj
-        else UsageMetadata()
+        else UsageMetadata(extra={THINKING_TOKENS_SEMANTICS_KEY: THINKING_TOKENS_SEPARATE})
     )
 
     return LLMResponse(
@@ -481,7 +484,9 @@ class InteractionsChatSession(ChatSession):
             kwargs["previous_interaction_id"] = self._interaction_id
 
         acc = StreamingAccumulator()
-        usage = UsageMetadata()
+        usage = UsageMetadata(
+            extra={THINKING_TOKENS_SEMANTICS_KEY: THINKING_TOKENS_SEPARATE}
+        )
         interaction_id: str | None = None
 
         for event in self._client.interactions.create(**kwargs):
@@ -541,6 +546,7 @@ class InteractionsChatSession(ChatSession):
                         thinking_tokens=getattr(usage_obj, "total_thought_tokens", 0)
                         or 0,
                         cached_tokens=getattr(usage_obj, "total_cached_tokens", 0) or 0,
+                        extra={THINKING_TOKENS_SEMANTICS_KEY: THINKING_TOKENS_SEPARATE},
                     )
 
         if interaction_id:
