@@ -299,19 +299,401 @@ def make_invocation_for_kind(
     )
 
 
-def extract_posix_commands(command: str) -> tuple[str, ...]:
-    """Extract command names using the existing POSIX Bash policy rules."""
-    flat = re.sub(r"\$\([^)]*\)", lambda m: "; " + m.group()[2:-1] + " ;", command)
-    flat = re.sub(r"`[^`]*`", lambda m: "; " + m.group()[1:-1] + " ;", flat)
-    parts = re.split(r"\|{1,2}|&&|;|\n", flat)
+_POSIX_UNSUPPORTED = "__posix_unsupported__"
+_POSIX_RESERVED = {
+    "!", "case", "coproc", "do", "done", "elif", "else", "esac", "fi",
+    "for", "function", "if", "in", "select", "then", "time", "until",
+    "while",
+}
+_POSIX_CONTROL = {";", "|", "||", "&", "&&", "(", ")", "{", "}", "\n"}
+_POSIX_REDIRECTION_RE = re.compile(
+    r"^(?:[0-9]{1,3})?(?P<operator>&>>|&>|>>|<<-|<<<|<<|<>|>&|<&|>|<)(?P<target>.*)$"
+)
+_POSIX_LITERAL_COMMAND_RE = re.compile(r"^[A-Za-z0-9_./:+@=-]+$")
+
+
+def _posix_redirection(token: str) -> tuple[bool, bool, bool]:
+    """Return ``(is_redirection, needs_target, is_heredoc)`` for a token."""
+    match = _POSIX_REDIRECTION_RE.fullmatch(token)
+    if match is None:
+        return False, False, False
+    operator = match.group("operator")
+    return True, not bool(match.group("target")), operator.startswith("<<")
+
+
+def _posix_literal_command(token: str) -> bool:
+    """Whether *token* is a static executable name, not shell expansion text."""
+    return bool(_POSIX_LITERAL_COMMAND_RE.fullmatch(token))
+
+
+def _posix_command_name(token: str) -> str:
+    """Normalize a literal command path to its executable basename for policy."""
+    return token.rsplit("/", 1)[-1]
+
+
+def _balanced_parenthesis(text: str, opening: int) -> int | None:
+    """Return the close index for a shell parenthesis, honoring quotes/escapes."""
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for index in range(opening, len(text)):
+        char = text[index]
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and quote != "'":
+            escaped = True
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+            continue
+        if char in "'\\\"":
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _peel_posix_expansions(command: str) -> tuple[str, list[str], bool]:
+    """Remove executable command substitutions while recursively extracting them."""
+    flat: list[str] = []
+    nested: list[str] = []
+    unsupported = False
+    quote: str | None = None
+    escaped = False
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if escaped:
+            flat.append(char)
+            escaped = False
+            index += 1
+            continue
+        if char == "\\" and quote != "'":
+            flat.append(char)
+            escaped = True
+            index += 1
+            continue
+        if quote == "'":
+            flat.append(char)
+            if char == "'":
+                quote = None
+            index += 1
+            continue
+        if quote == '"':
+            if char == '"':
+                quote = None
+                flat.append(char)
+                index += 1
+                continue
+            # Parameter expansion remains a normal argument; command and
+            # arithmetic substitutions are still active inside double quotes.
+        elif char in "'\"":
+            quote = char
+            flat.append(char)
+            index += 1
+            continue
+
+        if char in "<>" and index + 1 < len(command) and command[index + 1] == "(":
+            # Process substitutions execute an opaque command asynchronously;
+            # policy cannot prove its command set from this extractor.
+            unsupported = True
+            flat.extend((char, " "))
+            index += 2
+            continue
+        if (
+            char == "$"
+            and index + 2 < len(command)
+            and command[index + 1:index + 3] == "(("
+        ):
+            # Arithmetic expansion is evaluated data, not a command body.
+            closing = _balanced_parenthesis(command, index + 1)
+            if closing is None:
+                return "", nested, True
+            flat.append(" ")
+            index = closing + 1
+            continue
+        if char == "$" and index + 1 < len(command) and command[index + 1] == "(":
+            opening = index + 1
+            closing = _balanced_parenthesis(command, opening)
+            if closing is None:
+                return "", nested, True
+            inner_commands, inner_unsupported = _extract_posix(command[index + 2:closing])
+            nested.extend(inner_commands)
+            unsupported = unsupported or inner_unsupported
+            flat.append(" ")
+            index = closing + 1
+            continue
+        if char == "`":
+            closing = index + 1
+            while closing < len(command):
+                if command[closing] == "`" and command[closing - 1] != "\\":
+                    break
+                closing += 1
+            if closing >= len(command):
+                return "", nested, True
+            inner_commands, inner_unsupported = _extract_posix(command[index + 1:closing])
+            nested.extend(inner_commands)
+            unsupported = unsupported or inner_unsupported
+            flat.append(" ")
+            index = closing + 1
+            continue
+        flat.append(char)
+        index += 1
+    return "".join(flat), nested, unsupported
+
+
+def _posix_tokens(command: str) -> list[str]:
+    """Tokenize enough POSIX shell syntax to identify command positions."""
+    tokens: list[str] = []
+    word: list[str] = []
+    quote: str | None = None
+    escaped = False
+
+    def flush() -> None:
+        if word:
+            tokens.append("".join(word))
+            word.clear()
+
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if escaped:
+            # POSIX backslash-newline is a line continuation, not a command
+            # separator and not part of the resulting argument.
+            if char != "\n":
+                word.append(char)
+            escaped = False
+            index += 1
+            continue
+        if char == "\\" and quote != "'":
+            escaped = True
+            index += 1
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+            else:
+                word.append(char)
+            index += 1
+            continue
+        if char in "'\"":
+            quote = char
+            index += 1
+            continue
+        if char == "#" and not word:
+            # A comment begins only at the start of a shell word. Keep the
+            # terminating newline so a following command remains visible.
+            while index < len(command) and command[index] != "\n":
+                index += 1
+            continue
+        if char == "\n":
+            flush()
+            tokens.append("\n")
+            index += 1
+            continue
+        if char.isspace():
+            flush()
+            index += 1
+            continue
+        # Braces inside a word are parameter/brace expansion text, not a
+        # group delimiter (e.g. ``${HOME}`` and ``{a,b}``). A standalone
+        # no-whitespace brace expansion is also one argument; a group opener
+        # such as ``{ rm`` remains punctuation.
+        if char == "{" and not word:
+            closing = command.find("}", index + 1)
+            if closing >= index + 1 and not any(c.isspace() for c in command[index + 1:closing]):
+                word.append(command[index:closing + 1])
+                index = closing + 1
+                continue
+        if char in "{}" and word:
+            word.append(char)
+            index += 1
+            continue
+        # Keep ``>&``/``<&`` and the Bash ``&>`` redirections together rather
+        # than treating their ampersand as a command-control operator.
+        if char == "&" and word and word[-1] in "<>":
+            word.append(char)
+            index += 1
+            continue
+        if char == "&" and not word and index + 1 < len(command) and command[index + 1] == ">":
+            word.append("&>")
+            index += 2
+            continue
+        if char in "|&;(){}":
+            flush()
+            if index + 1 < len(command) and command[index:index + 2] in {"&&", "||", ";;"}:
+                tokens.append(command[index:index + 2])
+                index += 2
+            else:
+                tokens.append(char)
+                index += 1
+            continue
+        word.append(char)
+        index += 1
+    if escaped:
+        word.append("\\")
+    flush()
+    return tokens
+
+
+def _extract_posix(command: str) -> tuple[list[str], bool]:
+    flat, nested, unsupported = _peel_posix_expansions(command)
+    tokens = _posix_tokens(flat)
     commands: list[str] = []
-    for part in parts:
-        tokens = part.strip().split()
-        while tokens and re.fullmatch(r"[A-Za-z_]\w*=\S*", tokens[0]):
-            tokens = tokens[1:]
-        if tokens:
-            commands.append(tokens[0])
-    return tuple(commands)
+    at_command_start = True
+    find_command = False
+    expect_find_exec_command = False
+    find_exec_active = False
+    case_pattern = False
+    case_active = False
+    for_header = False
+    redirection_target = False
+    saw_redirection = False
+
+    for token in tokens:
+        if redirection_target:
+            # A control token cannot be a redirection operand. Let it go
+            # through the normal control-state transition after recording the
+            # malformed redirection; an ordinary next word is just the target.
+            if token not in _POSIX_CONTROL and token != ";;":
+                redirection_target = False
+                continue
+            unsupported = True
+            redirection_target = False
+
+        if for_header:
+            # The loop variable, ``in`` list, separators, and ``do`` are
+            # grammar, not executable command positions.
+            if token == "do":
+                for_header = False
+                at_command_start = True
+            continue
+
+        if case_pattern:
+            # Case alternatives (including ``a|b``) are patterns, never
+            # executable names. A closing ``)`` opens the arm command body.
+            if token == ")":
+                case_pattern = False
+                case_active = True
+                at_command_start = True
+            elif token == "esac":
+                case_pattern = False
+                case_active = False
+                at_command_start = False
+            continue
+
+        if token == ";;":
+            if case_active:
+                case_pattern = True
+            at_command_start = True
+            find_command = False
+            expect_find_exec_command = False
+            find_exec_active = False
+            continue
+
+        if token in _POSIX_CONTROL:
+            # ``find -exec ... \\;`` uses a shell-looking semicolon as the
+            # find expression terminator, not as the outer command separator.
+            # Keep scanning options belonging to the same find invocation.
+            if expect_find_exec_command:
+                unsupported = True
+                expect_find_exec_command = False
+            if token == ";" and find_command and find_exec_active:
+                find_exec_active = False
+                continue
+            at_command_start = True
+            find_command = False
+            expect_find_exec_command = False
+            find_exec_active = False
+            continue
+
+        if token == "+" and find_command and find_exec_active:
+            if expect_find_exec_command:
+                unsupported = True
+            find_exec_active = False
+            expect_find_exec_command = False
+            continue
+
+        if find_command and token in {"-exec", "-execdir"}:
+            expect_find_exec_command = True
+            find_exec_active = True
+            continue
+
+        if expect_find_exec_command:
+            # ``{}``, variables, substitutions, and other non-literal words
+            # cannot be proven safe as the utility executed by find.
+            if not _posix_literal_command(token) or token == "{}":
+                unsupported = True
+            else:
+                commands.append(_posix_command_name(token))
+            expect_find_exec_command = False
+            continue
+
+        if at_command_start:
+            is_redirection, needs_target, is_heredoc = _posix_redirection(token)
+            if is_redirection:
+                saw_redirection = True
+                unsupported = unsupported or is_heredoc
+                redirection_target = needs_target
+                continue
+            if token in _POSIX_RESERVED or re.fullmatch(r"[A-Za-z_]\w*=.*", token):
+                if token == "case":
+                    case_pattern = True
+                    case_active = True
+                elif token in {"for", "select"}:
+                    for_header = True
+                elif token == "esac":
+                    case_active = False
+                continue
+            if not _posix_literal_command(token):
+                unsupported = True
+                at_command_start = False
+                continue
+            command_name = _posix_command_name(token)
+            commands.append(command_name)
+            at_command_start = False
+            find_command = command_name == "find"
+            expect_find_exec_command = False
+            continue
+
+        is_redirection, needs_target, is_heredoc = _posix_redirection(token)
+        if is_redirection:
+            saw_redirection = True
+            unsupported = unsupported or is_heredoc
+            redirection_target = needs_target
+
+    if redirection_target or expect_find_exec_command:
+        unsupported = True
+    # A redirection without an executable is not a command that policy can
+    # safely authorize. Comments and grammar-only input, however, remain a
+    # harmless empty extraction rather than a synthetic command name.
+    if saw_redirection and not commands:
+        unsupported = True
+
+    # Preserve ordinary command order; substitutions are appended after the
+    # outer command scan while still ensuring every nested command is checked.
+    commands.extend(nested)
+    return commands, unsupported
+
+
+def extract_posix_commands(command: str) -> tuple[str, ...]:
+    """Extract all provable command names from POSIX compound forms.
+
+    Unknown process substitutions, malformed command substitutions, dynamic
+    command-position expansions, and non-empty input with no provable command
+    produce a fail-closed sentinel. Parameter/arithmetic expansion and normal
+    quoting remain benign arguments.
+    """
+    commands, unsupported = _extract_posix(command)
+    if unsupported:
+        commands.append(_POSIX_UNSUPPORTED)
+    return tuple(dict.fromkeys(commands))
 
 
 def _key_subsets(optional: set[str]) -> list[frozenset[str]]:

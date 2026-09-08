@@ -27,6 +27,7 @@ from ._shell_dialect import (
     ShellDialect,
     ShellInvocation,
     ShellKind,
+    _POSIX_UNSUPPORTED,
     extract_posix_commands,
 )
 
@@ -557,6 +558,11 @@ class ShellPolicy:
         if self._allow is None and self._deny is None:
             return True
         commands = self._extract_commands(command)
+        # The extractor emits this sentinel when static policy cannot prove
+        # command safety. A configured allow/deny policy must reject it rather
+        # than treating the sentinel as an ordinary, non-denied command.
+        if _POSIX_UNSUPPORTED in commands:
+            return False
         return all(self._check_single(cmd) for cmd in commands)
 
     def _check_single(self, cmd: str, *, case_insensitive: bool = False) -> bool:
@@ -713,6 +719,7 @@ class ShellManager:
         case_insensitive = state_key in {"powershell", "cmd"}
         powershell = state_key == "powershell"
         cmd = state_key == "cmd"
+        posix = state_key == "posix"
         # PowerShell and cmd.exe both fail closed on syntax the static
         # extractor cannot prove (dynamic invocation, ``%`` expansion): the
         # refusal marker is only enforced when a policy is actually
@@ -720,6 +727,7 @@ class ShellManager:
         unsupported = (
             (powershell and "__powershell_unsupported__" in commands)
             or (cmd and "__cmd_unsupported__" in commands)
+            or (posix and "__posix_unsupported__" in commands)
         )
         if unsupported and (
             self._policy._allow is not None or self._policy._deny is not None
@@ -731,12 +739,19 @@ class ShellManager:
                     "refusing to run it"
                     if cmd
                     else (
-                        "PowerShell policy validation does not support this syntax; refusing "
-                        "to run it. The parser could not statically extract all commands "
-                        "(likely variable-based invocation, here-strings, or complex "
-                        "expressions). Options: (1) simplify the script to use only literal "
-                        "command names, (2) run with yolo=true to bypass policy, or "
-                        "(3) split into multiple simpler commands."
+                        "POSIX policy validation does not support this syntax; refusing "
+                        "to run it. The parser could not statically extract all commands; "
+                        "simplify the command or use yolo=true only when bypassing policy "
+                        "is intentional."
+                        if posix
+                        else (
+                            "PowerShell policy validation does not support this syntax; refusing "
+                            "to run it. The parser could not statically extract all commands "
+                            "(likely variable-based invocation, here-strings, or complex "
+                            "expressions). Options: (1) simplify the script to use only literal "
+                            "command names, (2) run with yolo=true to bypass policy, or "
+                            "(3) split into multiple simpler commands."
+                        )
                     )
                 ),
             }

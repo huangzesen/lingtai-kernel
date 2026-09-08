@@ -33,6 +33,135 @@ def manager(tmp_path, dialect=None, policy=None):
     )
 
 
+# PR1 fail-first boundary tests.  These assert the security/correctness
+# contract exposed by the manager, not merely tokenizer implementation details.
+@pytest.mark.parametrize(
+    "command, expected",
+    [
+        ("echo ok" + "\n" + "rm -f victim", ("echo", "rm")),
+        ("echo ok" + chr(92) + "\n" + "rm -f victim", ("echo",)),
+        (">out echo ok", ("echo",)),
+        ("> out echo ok", ("echo",)),
+        ("2>/dev/null echo ok", ("echo",)),
+        ("2> /dev/null echo ok", ("echo",)),
+        ("2>&1 echo ok", ("echo",)),
+        (">out", ("__posix_unsupported__",)),
+        ("echo ok >out" + "\n" + "rm -f victim", ("echo", "rm")),
+        (r"find . -exec $CMD {} \;", ("find", "__posix_unsupported__")),
+        (r"find . -exec {} \;", ("find", "__posix_unsupported__")),
+        (r"find . -execdir ${CMD} {} \;", ("find", "__posix_unsupported__")),
+        (r"find . -exec echo$CMD {} \;", ("find", "__posix_unsupported__")),
+        (r"find . -exec \"$CMD\" {} \;", ("find", "__posix_unsupported__")),
+        (r"find . -exec \;", ("find", "__posix_unsupported__")),
+        ("for item in one two; do echo ok; done", ("echo",)),
+        (
+            "case x in a|b) echo ok;; c|d) printf ok;; esac",
+            ("echo", "printf"),
+        ),
+        ("# rm -f victim" + "\n" + "echo ok; # also-not-a-command", ("echo",)),
+        ("echo ok; # rm -f victim" + "\n" + "printf ok", ("echo", "printf")),
+    ],
+)
+def test_pr1_posix_extraction_handles_control_grammar_and_dynamic_targets(
+    command, expected
+):
+    assert select_bash_shell_dialect().extract_commands(command) == expected
+
+
+def test_pr1_manager_policy_enforces_extracted_boundaries(tmp_path):
+    dialect = select_bash_shell_dialect()
+    allow_echo = manager(tmp_path, dialect=dialect, policy=BashPolicy(allow=["echo"]))
+    assert allow_echo.handle({"command": ">out echo ok"})["status"] == "ok"
+    assert allow_echo.handle({"command": "echo ok" + "\n" + "rm -f victim"})["status"] == "error"
+    assert allow_echo.handle({"command": r"find . -exec $CMD {} \;"})["status"] == "error"
+    assert allow_echo.handle({"command": "for item in one; do echo ok; done"})["status"] == "ok"
+    assert allow_echo.handle({"command": "case x in a|b) echo ok;; c|d) echo ok;; esac"})["status"] == "ok"
+    assert allow_echo.handle({"command": "# rm -f victim" + "\n" + "echo ok"})["status"] == "ok"
+
+    deny_rm = manager(tmp_path, dialect=dialect, policy=BashPolicy(deny=["rm"]))
+    assert deny_rm.handle({"command": "echo ok" + "\n" + "printf ok"})["status"] == "ok"
+    assert deny_rm.handle({"command": "echo ok" + "\n" + "rm -f victim"})["status"] == "error"
+    assert deny_rm.handle({"command": r"find . -exec {} \;"})["status"] == "error"
+    assert deny_rm.handle({"command": r"find . -exec /bin/rm {} \;"})["status"] == "error"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm -f x & echo ok",
+        "{ rm -f x; }",
+        "(rm -f x)",
+        "if true; then rm -f x; fi",
+        "while false; do rm -f x; done",
+        "for x in one; do rm -f x; done",
+        "case x in x) rm -f x;; esac",
+        "find . -exec rm -f {} \\;",
+        "echo $(printf x; rm -f y)",
+    ],
+)
+def test_posix_compound_extraction_finds_nested_denial(command):
+    dialect = select_bash_shell_dialect()
+    assert "rm" in dialect.extract_commands(command)
+
+
+def test_posix_benign_expansions_do_not_trigger_unsupported_marker():
+    dialect = select_bash_shell_dialect()
+    assert dialect.extract_commands("echo $((1 + 2)) ${HOME} {a,b}") == ("echo",)
+
+
+def test_posix_unsupported_marker_fails_closed_only_with_policy(tmp_path):
+    dialect = select_bash_shell_dialect()
+    assert "__posix_unsupported__" in dialect.extract_commands("cat <(echo x)")
+    guarded = manager(tmp_path, dialect=dialect, policy=BashPolicy(allow=["cat", "echo"]))
+    assert guarded.handle({"command": "cat <(echo x)"})["status"] == "error"
+    assert not guarded._policy.is_allowed("cat <(echo x)")
+    yolo = manager(tmp_path, dialect=dialect, policy=BashPolicy.yolo())
+    assert yolo._validate_command("cat <(echo x)") is None
+
+
+@pytest.mark.parametrize(
+    "command, allowed",
+    [
+        ("echo 'rm; x' \"echo && rm\"", True),
+        (r"echo rm\;x; printf ok", True),
+        ("echo $((1 + (2 * 3))) ${HOME} {a,b}", True),
+        ("FOO='a b' rm -f x", False),
+        ("if true; then rm -f x; fi", False),
+        ("while false; do rm -f x; done", False),
+        ("for x in one; do rm -f x; done", False),
+        ("case x in x) rm -f x;; esac", False),
+        (r"find . -exec echo {} \; -exec rm {} +", False),
+        ("echo `printf x; rm x`", False),
+        ("echo $(printf x; echo $(rm x))", False),
+        ("$CMD x", False),
+    ],
+)
+def test_posix_policy_table_keeps_benign_forms_and_denies_compound_forms(
+    tmp_path, command, allowed
+):
+    mgr = manager(tmp_path, dialect=select_bash_shell_dialect(), policy=BashPolicy(deny=["rm"]))
+    assert (mgr._validate_command(command) is None) is allowed
+
+
+def test_posix_quoted_and_escaped_separators_are_arguments_not_commands():
+    dialect = select_bash_shell_dialect()
+    assert dialect.extract_commands("echo 'rm; x' \"echo && rm\"") == ("echo",)
+    assert dialect.extract_commands(r"echo rm\;x; printf ok") == ("echo", "printf")
+
+
+def test_posix_find_exec_collects_each_literal_target_and_ignores_terminators():
+    dialect = select_bash_shell_dialect()
+    assert dialect.extract_commands(r"find . -exec echo {} \; -exec rm {} +") == (
+        "find", "echo", "rm",
+    )
+
+
+def test_posix_malformed_or_dynamic_command_positions_are_unsupported():
+    dialect = select_bash_shell_dialect()
+    assert "__posix_unsupported__" in dialect.extract_commands("echo $(printf x")
+    assert "__posix_unsupported__" in dialect.extract_commands("$CMD x")
+
+
 def test_posix_policy_extraction_and_invocation_are_compatible():
     dialect = select_bash_shell_dialect()
     assert dialect.state_key() == "posix"
