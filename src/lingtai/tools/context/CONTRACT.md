@@ -18,6 +18,7 @@ related_files:
   - src/lingtai/tools/pad/CONTRACT.md
   - src/lingtai/tools/lingtai/CONTRACT.md
   - src/lingtai/tools/context/manual/SKILL.md
+  - src/lingtai/tools/context/manual/reference/molt-manual/SKILL.md
   - src/lingtai/kernel/tool_plugin/CONTRACT.md
   - src/lingtai/adapters/tool_plugin_host.py
   - tests/test_context_ownership_redesign.py

@@ -417,10 +417,18 @@ def test_skills_setup_hard_copies_standalone_intrinsic_skills(tmp_path):
         assert context_manual_md.is_file()
         context_manual_body = context_manual_md.read_text(encoding="utf-8")
         assert "name: context-manual" in context_manual_body
-        assert "## Asset catalog" in context_manual_body
+        assert "## Reference and asset catalog" in context_manual_body
+        assert "reference/molt-manual/SKILL.md" in context_manual_body
+        assert "reference/summarize-manual/SKILL.md" in context_manual_body
         assert "assets/molt-template.md" in context_manual_body
-        assert "9-section summary scaffold" in context_manual_body
         assert "9. **Context Status**" not in context_manual_body
+        molt_reference = context_manual_md.parent / "reference" / "molt-manual" / "SKILL.md"
+        assert molt_reference.is_file()
+        molt_reference_body = molt_reference.read_text(encoding="utf-8")
+        assert "name: molt-manual" in molt_reference_body
+        assert "nine-section scaffold" in molt_reference_body
+        assert "## Input field dictionary" in molt_reference_body
+        assert "type: session-journal" in molt_reference_body
 
         file_manual_md = (
             workdir
@@ -1165,12 +1173,16 @@ def test_skills_manual_documents_external_skill_intake_default():
 
 
 def test_context_manual_routes_skill_sharing_through_custom_by_default():
-    manual = (
-        Path(__file__).resolve().parents[1]
-        / "src/lingtai/tools/context/manual/SKILL.md"
-    ).read_text(encoding="utf-8")
-    assert "peers install it into their own `.library/custom/<name>/`" in manual
-    assert "explicit opt-in local-network shared root" in manual
+    root = Path(__file__).resolve().parents[1]
+    manual_path = root / "src/lingtai/tools/context/manual/SKILL.md"
+    manual = manual_path.read_text(encoding="utf-8")
+    assert "reference/molt-manual/SKILL.md" in manual
+    detail = (manual_path.parent / "reference" / "molt-manual" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    assert "peers install it into their own `.library/custom/<name>/`" in detail
+    assert "explicit opt-in" in detail
+    assert "local-network shared root" in detail
 
 
 def test_resident_layers_query_settings_instead_of_copying_adjustable_defaults():
