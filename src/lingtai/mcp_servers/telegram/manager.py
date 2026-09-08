@@ -2657,9 +2657,65 @@ class TelegramManager:
     _TASK_CARD_MAX_EVENTS_PER_CALL = TaskCardEventProjection.MAX_EVENTS_PER_CALL
     # The same quiet horizontal rule used by the TUI between provider calls.
     _TASK_CARD_API_CALL_DIVIDER = TaskCardEventProjection.API_CALL_DIVIDER
+    # Summary accounting is already durable in the main token ledger. Read only
+    # its newest bounded bytes when a matching generated-summary event appears.
+    _TASK_CARD_TOKEN_LEDGER_TAIL_BYTES = 65536
 
     def _task_card_events_path(self) -> Path:
         return self._working_dir / "logs" / "events.jsonl"
+
+    def _task_card_token_ledger_path(self) -> Path:
+        return self._working_dir / "logs" / "token_ledger.jsonl"
+
+    def _read_apriori_summary_usages(
+        self, tool_call_ids: set[str],
+    ) -> dict[str, dict[str, int]]:
+        """Read safe a-priori input/output counts from a bounded ledger tail."""
+        wanted = {
+            value for value in tool_call_ids
+            if isinstance(value, str) and value
+        }
+        if not wanted:
+            return {}
+        path = self._task_card_token_ledger_path()
+        try:
+            size = path.stat().st_size
+            start = max(0, size - self._TASK_CARD_TOKEN_LEDGER_TAIL_BYTES)
+            with open(path, "rb") as handle:
+                handle.seek(start)
+                data = handle.read(self._TASK_CARD_TOKEN_LEDGER_TAIL_BYTES)
+        except OSError:
+            return {}
+        if start:
+            first_newline = data.find(b"\n")
+            if first_newline < 0:
+                return {}
+            data = data[first_newline + 1 :]
+        last_newline = data.rfind(b"\n")
+        if last_newline < 0:
+            return {}
+        usages: dict[str, dict[str, int]] = {}
+        for raw in data[: last_newline + 1].split(b"\n"):
+            row = self._decode_event_line(raw)
+            if not isinstance(row, dict):
+                continue
+            call_id = row.get("tool_call_id")
+            input_tokens = row.get("input")
+            output_tokens = row.get("output")
+            if (
+                row.get("source") != "summarize_apriori"
+                or row.get("apriori_tool_result_summary") is not True
+                or not isinstance(call_id, str)
+                or call_id not in wanted
+                or type(input_tokens) is not int
+                or input_tokens < 0
+                or type(output_tokens) is not int
+                or output_tokens < 0
+            ):
+                continue
+            # Ledger order is authoritative; a later valid correlated row wins.
+            usages[call_id] = {"input": input_tokens, "output": output_tokens}
+        return usages
 
     def _event_tail_offset(self) -> int:
         with self._task_card_event_lock:
@@ -3120,7 +3176,7 @@ class TelegramManager:
 
     def _reverse_tail_latest_rows(
         self, path: Path, size: int,
-    ) -> tuple[list[dict], int, dict | None] | None:
+    ) -> tuple[list[dict], int, dict | None, dict[str, dict]] | None:
         """Reverse-scan bounded chunks from EOF to collect the latest-N matches.
 
         Reads growing chunks backward from the end of the file until either
@@ -3129,7 +3185,7 @@ class TelegramManager:
         The tail chunk may start mid-line; the leading partial fragment is
         discarded (its predecessor chunk will complete it on the next round).
 
-        Returns ``(rows, offset, metadata)`` where ``offset`` is the forward
+        Returns ``(rows, offset, metadata, usages)`` where ``offset`` is the forward
         byte offset the poller should resume from and ``metadata`` is the latest
         final-carrier session projection (or ``None`` when no carrier exists)
         — ``size`` unless the file's final line
@@ -3143,6 +3199,8 @@ class TelegramManager:
         projected_events: list[tuple[dict, dict]] = []
         latest_metadata: dict | None = None
         per_call_usages: dict[str, dict] = {}
+        tool_results: dict[str, dict] = {}
+        summary_times: dict[str, float] = {}
         tail_offset = size
         try:
             with open(path, "rb") as f:
@@ -3185,6 +3243,17 @@ class TelegramManager:
                         event = self._decode_event_line(raw)
                         if event is None:
                             continue
+                        call_id = event.get("tool_call_id")
+                        if (
+                            event.get("type") == "tool_result"
+                            and isinstance(call_id, str)
+                            and call_id
+                        ):
+                            tool_results[call_id] = event
+                        summary = TaskCardEventProjection.project_apriori_summary_event(event)
+                        if summary is not None:
+                            summary_call_id, summary_ts = summary
+                            summary_times[summary_call_id] = summary_ts
                         row = self._project_task_card_event(event)
                         if row is not None:
                             round_projected.append((event, row))
@@ -3210,7 +3279,12 @@ class TelegramManager:
         # Chunks were prepended above, so projected events are already in
         # journal order before grouping; one API call receives one divider.
         groups = self._group_task_card_events(projected_events)
+        TaskCardEventProjection.apply_tool_results(groups, tool_results)
         TaskCardEventProjection.apply_tool_usages(groups, per_call_usages)
+        summary_usages = self._read_apriori_summary_usages(set(summary_times))
+        TaskCardEventProjection.apply_apriori_summary_metrics(
+            groups, summary_times, summary_usages,
+        )
         return self._flatten_task_card_groups(
             groups, include_group_id=True,
         ), tail_offset, latest_metadata, per_call_usages
@@ -3313,6 +3387,7 @@ class TelegramManager:
         latest_metadata: dict | None = None
         tool_results: dict[str, dict] = {}
         per_call_usages: dict[str, dict] = {}
+        summary_times: dict[str, float] = {}
         for raw in complete.split(b"\n"):
             event = self._decode_event_line(raw)
             if event is None:
@@ -3320,6 +3395,10 @@ class TelegramManager:
             call_id = event.get("tool_call_id")
             if event.get("type") == "tool_result" and isinstance(call_id, str) and call_id:
                 tool_results[call_id] = event
+            summary = TaskCardEventProjection.project_apriori_summary_event(event)
+            if summary is not None:
+                summary_call_id, summary_ts = summary
+                summary_times[summary_call_id] = summary_ts
             carrier = TaskCardEventProjection.project_current_call_usage(event)
             if carrier is not None:
                 carrier_call_id, usage = carrier
@@ -3337,6 +3416,7 @@ class TelegramManager:
                 # candidate is the only current snapshot.
                 latest_metadata = candidate
 
+        summary_usages = self._read_apriori_summary_usages(set(summary_times))
         with self._task_card_event_lock:
             metadata_changed = (
                 latest_metadata is not None
@@ -3363,7 +3443,16 @@ class TelegramManager:
                 self._task_card_event_groups,
                 per_call_usages,
             )
-        return bool(projected_events) or metadata_changed or result_changed or usage_changed
+            summary_changed = TaskCardEventProjection.apply_apriori_summary_metrics(
+                self._task_card_event_groups, summary_times, summary_usages,
+            )
+        return (
+            bool(projected_events)
+            or metadata_changed
+            or result_changed
+            or usage_changed
+            or summary_changed
+        )
 
     def _resident_task_card_targets(self) -> list[tuple[str, int]]:
         """Enumerate every ``(account, chat_id)`` with a resident Task Card.

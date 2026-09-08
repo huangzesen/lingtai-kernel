@@ -44,10 +44,12 @@ onto its one tracked resident Task Card target per account+chat.
 - `../../task_card/resident.py` — provider-neutral route, dual-slot composition,
   route locks, commit-after-success, edit/rotation/delete/send/persist state
   machine, and explicit partial/indeterminate outcomes.
-- `manager.py` — the Telegram adapter that tails `events.jsonl`, supplies safe
-  events to the shared projection core, and implements compound-ID binding,
-  high-water supersession, Telegram API classification, real transport,
-  resident persistence, and programmable file projection callbacks.
+- `manager.py` — the Telegram adapter that tails `events.jsonl`, reads only a bounded
+  recent tail of the existing main `token_ledger.jsonl` when a generated-summary
+  event needs token correlation, and supplies safe facts to the shared projection
+  core. It also implements compound-ID binding, high-water supersession, Telegram
+  API classification, real transport, resident persistence, and programmable
+  file projection callbacks.
   `_taskcard_display_expression()` reads the durable declarative display
   expression from `TelegramService` at each automatic projection tick
   (`_broadcast_task_card_event_window`, `_ensure_task_card_resident`) and
@@ -68,8 +70,9 @@ onto its one tracked resident Task Card target per account+chat.
 - `../../task_card/event_projection.py` — the channel-neutral pure core for safe
   event allowlisting, redaction, API-call grouping, budgets, metadata, and text
   rendering, including compact per-call output/thinking/cache metrics from the
-  normalized current-call carrier or `llm_response` fallback. It owns no journal
-  I/O, route, resident, or transport state.
+  normalized current-call carrier or `llm_response` fallback and the safe
+  `(summary, time, input in, output out)` line correlated from already-recorded
+  event/ledger facts. It owns no journal I/O, route, resident, or transport state.
   `DISPLAY_SLOTS`/`DEFAULT_DISPLAY_EXPRESSION`/`validate_display_expression`/
   `compose_display` define and enforce the small declarative display-expression
   grammar: an ordered, allowlisted selection of the fragments
@@ -87,8 +90,11 @@ onto its one tracked resident Task Card target per account+chat.
 
 - The intrinsic producer writes `<workdir>/taskcard/status` and
   `<workdir>/taskcard/taskcard.md`.
-- `TelegramManager` alone tails `<workdir>/logs/events.jsonl`; it delegates only
-  pure event projection/grouping/rendering to `TaskCardEventProjection` and
+- `TelegramManager` alone tails `<workdir>/logs/events.jsonl`; when an existing
+  `apriori_summary_generated` event appears, it additionally reads at most 64 KiB
+  from the end of `<workdir>/logs/token_ledger.jsonl` to find the existing
+  correlated summary accounting row. It delegates only pure safe-field
+  correlation/projection/grouping/rendering to `TaskCardEventProjection` and
   keeps the existing private helpers as compatibility wrappers.
 - `TelegramManager` constructs `TaskCardResidentTransport` with dynamic provider
   callbacks. The shared core never imports Telegram, reads its state file, or

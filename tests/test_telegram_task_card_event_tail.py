@@ -1,8 +1,10 @@
 """Automatic Task Card as a broadcast projection of the agent's ``events.jsonl``.
 
 The automatic slot mechanically consumes the agent's authoritative
-``logs/events.jsonl`` in file order, keeps the most recent N provider-call groups
-of canonical ``diary`` text and safe tool fields, and projects
+``logs/events.jsonl`` in file order plus a bounded recent slice of existing
+``logs/token_ledger.jsonl`` for correlated a-priori summary input/output counts,
+keeps the most recent N provider-call groups of canonical ``diary`` text and safe
+tool fields, and projects
 current session telemetry only from the latest final-carrier ``notification_block_injected``,
 and broadcasts the same projection to every resident Task Card for the agent
 (no per-route correlation — this is an agent-behavior broadcast, not per-chat
@@ -11,7 +13,7 @@ visibility).
 These tests exercise ``TelegramManager``'s tailer directly: no durable
 cursor/checkpoint file, no BaseAgent pre-dispatch/result callback dependency,
 no full-file scan on every poll, and restart rehydration from the same
-durable file only.
+durable files only.
 """
 from __future__ import annotations
 
@@ -120,6 +122,12 @@ def _manager(tmp_path, *accounts):
 
 def _events_path(tmp_path: Path) -> Path:
     path = Path(tmp_path) / "logs" / "events.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _ledger_path(tmp_path: Path) -> Path:
+    path = Path(tmp_path) / "logs" / "token_ledger.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -496,6 +504,152 @@ def test_tool_result_updates_status_and_elapsed(tmp_path):
     ])
     manager._poll_event_tail()
     assert "(0.4s, error)" in [c for c in acct.calls if c[0] == "edit_message"][-1][3]
+
+
+def test_apriori_summary_metrics_render_after_completed_tool(tmp_path):
+    acct = FakeAccount()
+    manager, _ = _manager(tmp_path, acct)
+    _pre_resident(acct, 555, manager)
+    _write_lines(_ledger_path(tmp_path), [json.dumps({
+        "source": "summarize_apriori",
+        "apriori_tool_result_summary": True,
+        "tool_call_id": "c1",
+        "input": 12_345,
+        "output": 456,
+        "provider": "PROVIDER_SECRET",
+    })])
+    _write_lines(_events_path(tmp_path), [
+        _tool_call_line(tool_name="file", action="edit", call_id="c1", ts=100.0),
+        json.dumps({
+            "type": "tool_result", "tool_call_id": "c1", "status": "ok",
+            "elapsed_ms": 15, "ts": 102.0, "result": "RESULT_SECRET",
+        }),
+        json.dumps({
+            "type": "apriori_summary_generated", "tool_call_id": "c1",
+            "ts": 103.234, "generated_summary": "SUMMARY_SECRET",
+            "provider": "EVENT_PROVIDER_SECRET",
+        }),
+    ])
+
+    manager._poll_event_tail()
+
+    rendered = [c for c in acct.calls if c[0] == "edit_message"][-1][3]
+    lines = rendered.splitlines()
+    tool_index = next(i for i, line in enumerate(lines) if "file.edit:" in line)
+    assert lines[tool_index].endswith("(15ms, success)")
+    assert lines[tool_index + 1] == " (summary, 1.2s, 12.3k in, 456 out)"
+    assert all(secret not in rendered for secret in (
+        "RESULT_SECRET", "SUMMARY_SECRET", "PROVIDER_SECRET",
+        "EVENT_PROVIDER_SECRET",
+    ))
+    assert all(
+        "_apriori_summary" not in row and "_result_ts" not in row
+        for row in manager._task_card_event_window()
+    )
+
+
+def test_apriori_summary_metrics_rehydrate_from_existing_data(tmp_path):
+    acct = FakeAccount()
+    manager, _ = _manager(tmp_path, acct)
+    _pre_resident(acct, 555, manager)
+    _write_lines(_ledger_path(tmp_path), [json.dumps({
+        "source": "summarize_apriori",
+        "apriori_tool_result_summary": True,
+        "tool_call_id": "c1",
+        "input": 100,
+        "output": 20,
+    })])
+    _write_lines(_events_path(tmp_path), [
+        _tool_call_line(call_id="c1", ts=10.0),
+        json.dumps({
+            "type": "tool_result", "tool_call_id": "c1", "status": "ok",
+            "elapsed_ms": 4, "ts": 11.0,
+        }),
+        json.dumps({
+            "type": "apriori_summary_generated", "tool_call_id": "c1",
+            "ts": 11.031,
+        }),
+    ])
+
+    manager._init_event_tail()
+    manager._broadcast_task_card_event_window()
+
+    rendered = [c for c in acct.calls if c[0] == "edit_message"][-1][3]
+    assert "\n (summary, 31ms, 100 in, 20 out)" in rendered
+
+
+def test_apriori_summary_metrics_fail_closed_on_unmatched_or_unsafe_data(tmp_path):
+    acct = FakeAccount()
+    manager, service = _manager(tmp_path, acct)
+    _pre_resident(acct, 555, manager)
+    service.normal_rows = 2
+    _write_lines(_ledger_path(tmp_path), [
+        json.dumps({
+            "source": "main", "apriori_tool_result_summary": True,
+            "tool_call_id": "c1", "input": 10, "output": 2,
+        }),
+        json.dumps({
+            "source": "summarize_apriori",
+            "apriori_tool_result_summary": True,
+            "tool_call_id": "c2", "input": True, "output": 2,
+        }),
+        json.dumps({
+            "source": "summarize_apriori",
+            "apriori_tool_result_summary": True,
+            "tool_call_id": "other", "input": 10, "output": 2,
+        }),
+    ])
+    _write_lines(_events_path(tmp_path), [
+        _tool_call_line(call_id="c1", ts=1.0),
+        json.dumps({
+            "type": "tool_result", "tool_call_id": "c1", "status": "ok",
+            "elapsed_ms": 4, "ts": 2.0,
+        }),
+        json.dumps({
+            "type": "apriori_summary_generated", "tool_call_id": "c1",
+            "ts": 2.1, "generated_summary": "MUST_NOT_RENDER",
+        }),
+        _tool_call_line(call_id="c2", ts=3.0),
+        json.dumps({
+            "type": "tool_result", "tool_call_id": "c2", "status": "error",
+            "elapsed_ms": 4, "ts": 4.0,
+        }),
+        json.dumps({
+            "type": "apriori_summary_generated", "tool_call_id": "c2",
+            "ts": 4.1,
+        }),
+    ])
+
+    manager._poll_event_tail()
+
+    rendered = [c for c in acct.calls if c[0] == "edit_message"][-1][3]
+    assert "(summary," not in rendered
+    assert "MUST_NOT_RENDER" not in rendered
+
+
+def test_apriori_summary_usage_reader_is_bounded_to_recent_ledger_tail(tmp_path):
+    manager, _ = _manager(tmp_path)
+    manager._TASK_CARD_TOKEN_LEDGER_TAIL_BYTES = 256
+    path = _ledger_path(tmp_path)
+    old = json.dumps({
+        "source": "summarize_apriori",
+        "apriori_tool_result_summary": True,
+        "tool_call_id": "old",
+        "input": 999,
+        "output": 111,
+    })
+    current = json.dumps({
+        "source": "summarize_apriori",
+        "apriori_tool_result_summary": True,
+        "tool_call_id": "current",
+        "input": 42,
+        "output": 7,
+    })
+    _write_lines(path, [old, "x" * 512, current])
+
+    usages = manager._read_apriori_summary_usages({"old", "current"})
+
+    assert usages == {"current": {"input": 42, "output": 7}}
 
 
 def test_second_tool_call_api_delay_is_previous_tool_ts_delta(tmp_path):

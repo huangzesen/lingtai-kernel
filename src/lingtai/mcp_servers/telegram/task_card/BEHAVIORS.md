@@ -1,6 +1,6 @@
 ---
 name: telegram-task-card-behavior-tests
-behavior_version: 1
+behavior_version: 2
 labt_version: 2
 contract: CONTRACT.md
 anatomy: ANATOMY.md
@@ -67,3 +67,25 @@ Pass when the suite passes and the active/diff-only observations hold. Fail on p
 
 ### Pass / Fail
 Pass when both normalized usage paths render the same parenthesized reasoning count immediately after output and legacy missing-field input remains unchanged. Fail if the count is misplaced, reasoning text is exposed, or missing/malformed data leaves a dangling marker.
+
+## Behavior TT003 — generated a-priori summaries add an existing-data-only cost line after the successful tool row
+
+- **id**: TT003
+- **title**: generated a-priori summaries add an existing-data-only cost line after the successful tool row
+- **guards**: `telegram-task-card-projection` § Behavior rule 10 and Contract rule 11
+- **runner**: any LingTai agent with `shell` access to this repository
+- **prerequisites**: a clean checkout of `<repo>`
+- **estimate**: ≈ 2 minutes
+
+### Steps
+1. From `<repo>`, run `python -m pytest tests/test_telegram_task_card_event_tail.py -q` and capture the outcome.
+2. Project an existing successful `tool_result` followed by `apriori_summary_generated`, plus its already-recorded `source=summarize_apriori` token-ledger row, all sharing one `tool_call_id`.
+3. Repeat with missing, malformed, mismatched, and unsuccessful inputs, and restart-rehydrate the valid case.
+
+### Expected evidence
+- [ ] Step 1: the automatic event-tail suite passes.
+- [ ] Step 2: exactly one `(summary, <elapsed>, <input> in, <output> out)` line follows the completed tool row; elapsed derives from event timestamps and tokens from the bounded ledger tail.
+- [ ] Step 3: valid data survives restart rehydration; all invalid/legacy cases preserve old output, while generated summary text, tool-result bodies, and provider metadata never render.
+
+### Pass / Fail
+Pass when only fully correlated existing data produces the second line in the required order and all unsafe/malformed cases omit it. Fail if a new producer event is required, more than the bounded ledger tail is read, an unsuccessful tool receives a summary line, or private payload fields render.
