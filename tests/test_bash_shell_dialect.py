@@ -125,6 +125,17 @@ def test_script_process_args_omits_unset_executable():
     )
 
 
+def test_policy_refusal_names_only_actual_denials_in_order(tmp_path):
+    policy = BashPolicy(deny=["rm"])
+    mgr = manager(tmp_path, policy=policy)
+
+    result = mgr.handle({"command": "echo before; rm -f file; echo after; rm -f other"})
+
+    assert result["status"] == "error"
+    assert result["message"].endswith("Denied command(s): rm")
+    assert "echo" not in result["message"]
+
+
 def test_selected_dialect_drives_policy_and_sync_execution(tmp_path):
     dialect = MarkerDialect()
     policy = BashPolicy(deny=["blocked"])

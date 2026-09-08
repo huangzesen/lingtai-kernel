@@ -740,8 +740,11 @@ class ShellManager:
                     )
                 ),
             }
-        if not all(self._policy._check_single(cmd, case_insensitive=case_insensitive) for cmd in commands):
-            denied = commands
+        denied = list(dict.fromkeys(
+            cmd for cmd in commands
+            if not self._policy._check_single(cmd, case_insensitive=case_insensitive)
+        ))
+        if denied:
             return {
                 "status": "error",
                 "message": f"Command not allowed by policy. "
