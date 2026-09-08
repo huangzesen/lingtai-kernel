@@ -24,8 +24,10 @@ teardown when the interface was poisoned.
 """
 from __future__ import annotations
 
+import json
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -42,11 +44,13 @@ class _ForceExit(Exception):
 
 
 class _FakeAgent:
-    def __init__(self, poisoned: bool):
+    def __init__(self, poisoned: bool, working_dir: Path | None = None):
         self._llm_worker_interface_poisoned = poisoned
         self._llm_worker_poison_artifact = (
             "history/unfinished_turns/worker_still_running_x.json" if poisoned else None
         )
+        self._working_dir = working_dir
+        self._config = SimpleNamespace(language="en")
         self._shutdown = threading.Event()
         self._shutdown.set()  # run()'s _shutdown.wait() returns immediately
         self._asleep = threading.Event()
@@ -54,6 +58,7 @@ class _FakeAgent:
         self._venv_path = None
         self.started = False
         self.stop_calls = 0
+        self.send_calls: list[tuple[str, str | None]] = []
         self.logs: list[tuple[str, dict]] = []
 
     def start(self):
@@ -65,11 +70,39 @@ class _FakeAgent:
         # reclaimed — modeled by leaving the poison flag set after stop().
         self.stop_calls += 1
 
-    def send(self, *a, **k):  # pragma: no cover - only on refresh boot
-        pass
+    def send(self, content, sender=None, **k):
+        # Only the refresh-boot kick-start reaches this in `cli.run`.
+        self.send_calls.append((content, sender))
 
     def _log(self, event_type: str, **fields):
         self.logs.append((event_type, fields))
+
+
+def _write_worker_hang_artifact(
+    working_dir: Path,
+    artifact_id: str = "worker_still_running_20260908T094700Z_abc123",
+    *,
+    status: str = "open",
+    resolved_at: str | None = None,
+    prompt_injected_at: str | None = None,
+) -> Path:
+    """Mirror the bounded artifact `write_worker_hang_artifact` persists."""
+    directory = working_dir / "history" / "unfinished_turns"
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "type": "worker_still_running_recovery",
+        "status": status,
+        "created_at": "2026-09-08T09:47:00Z",
+        "recovery": {"notification_ref_id": f"worker_still_running:{artifact_id}"},
+    }
+    if resolved_at is not None:
+        payload["resolved_at"] = resolved_at
+    if prompt_injected_at is not None:
+        payload["prompt_injected_at"] = prompt_injected_at
+    path = directory / f"{artifact_id}.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
 
 
 def _patch_run_dependencies(monkeypatch, tmp_path: Path, agent: _FakeAgent):
@@ -117,3 +150,100 @@ def test_run_clean_exit_when_worker_not_poisoned(tmp_path, monkeypatch):
     assert exits == []
     assert agent.stop_calls == 1
     assert agent._state == AgentState.ASLEEP
+
+
+# ---------------------------------------------------------------------------
+# Refresh boot after WorkerStillRunning poison recovery must NOT self-wake.
+#
+# Production chronology (mimo-2-5-pro, kernel 1d642f5): 300 s timeout + 5 s
+# grace -> poison -> STUCK -> ASLEEP -> forced relaunch. The relaunch exists
+# only to discard the unsafe in-process interface. But `cli.run` treated the
+# relaunch like any user refresh and sent `system.refresh_successful`, so the
+# new process went ASLEEP -> ACTIVE ("woke from asleep: request") and started
+# a fresh LLM call 250 ms after boot with no human/external request at all.
+# Jason: "if llm fail at 300s, it should returned to asleep and wait for next
+# wake up".
+# ---------------------------------------------------------------------------
+
+
+def _refresh_success_text() -> str:
+    from lingtai.kernel.i18n import t
+
+    return t("en", "system.refresh_successful")
+
+
+def test_refresh_boot_with_pending_worker_recovery_stays_asleep_without_kickstart(
+    tmp_path, monkeypatch
+):
+    """`.refresh.taken` + an open, not-yet-prompted worker recovery artifact
+    means this relaunch is poison recovery: no refresh-success kick-start,
+    the agent remains ASLEEP until a genuinely later wake, and the artifact
+    is left untouched for `maybe_prepend_worker_hang_recovery_prompt`."""
+    (tmp_path / ".refresh.taken").write_text("", encoding="utf-8")
+    artifact = _write_worker_hang_artifact(tmp_path)
+    before = artifact.read_text(encoding="utf-8")
+    agent = _FakeAgent(poisoned=False, working_dir=tmp_path)  # fresh process
+    exits = _patch_run_dependencies(monkeypatch, tmp_path, agent)
+
+    cli.run(tmp_path)
+
+    assert agent.started
+    assert agent.send_calls == [], \
+        "poison-recovery relaunch must not synthesize a refresh-success request"
+    assert agent._state == AgentState.ASLEEP
+    assert agent._asleep.is_set()
+    assert exits == []
+    assert not (tmp_path / ".refresh.taken").exists()
+    assert artifact.read_text(encoding="utf-8") == before
+    deferred = [f for evt, f in agent.logs if evt == "refresh_kickstart_deferred"]
+    assert len(deferred) == 1
+    assert deferred[0]["reason"] == "pending_worker_hang_recovery"
+
+
+def test_refresh_boot_without_pending_recovery_still_kickstarts(tmp_path, monkeypatch):
+    """An ordinary user/System refresh (no open worker recovery) must keep the
+    exact pre-existing kick-start: one localized refresh-success request from
+    the system sender."""
+    (tmp_path / ".refresh.taken").write_text("", encoding="utf-8")
+    agent = _FakeAgent(poisoned=False, working_dir=tmp_path)
+    _patch_run_dependencies(monkeypatch, tmp_path, agent)
+
+    cli.run(tmp_path)
+
+    assert agent.send_calls == [(_refresh_success_text(), "system")]
+    assert not any(evt == "refresh_kickstart_deferred" for evt, _ in agent.logs)
+
+
+@pytest.mark.parametrize(
+    "artifact_kwargs",
+    [
+        {"prompt_injected_at": "2026-09-08T09:50:00Z"},
+        {"status": "resolved", "resolved_at": "2026-09-08T09:50:00Z"},
+    ],
+    ids=["already_prompted", "resolved"],
+)
+def test_refresh_boot_gate_applies_only_to_pending_recovery(tmp_path, monkeypatch, artifact_kwargs):
+    """The discriminator is exactly the pending one-shot recovery prompt: an
+    artifact whose notice was already delivered, or one already resolved, is
+    history — a later refresh is an ordinary refresh and kick-starts."""
+    (tmp_path / ".refresh.taken").write_text("", encoding="utf-8")
+    _write_worker_hang_artifact(tmp_path, **artifact_kwargs)
+    agent = _FakeAgent(poisoned=False, working_dir=tmp_path)
+    _patch_run_dependencies(monkeypatch, tmp_path, agent)
+
+    cli.run(tmp_path)
+
+    assert agent.send_calls == [(_refresh_success_text(), "system")]
+
+
+def test_non_refresh_boot_with_pending_recovery_never_sends(tmp_path, monkeypatch):
+    """Without `.refresh.taken` there is no kick-start at all, pending
+    recovery or not (unchanged behavior; pins the gate is refresh-scoped)."""
+    _write_worker_hang_artifact(tmp_path)
+    agent = _FakeAgent(poisoned=False, working_dir=tmp_path)
+    _patch_run_dependencies(monkeypatch, tmp_path, agent)
+
+    cli.run(tmp_path)
+
+    assert agent.send_calls == []
+    assert not any(evt == "refresh_kickstart_deferred" for evt, _ in agent.logs)

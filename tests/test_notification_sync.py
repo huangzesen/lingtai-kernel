@@ -2592,3 +2592,395 @@ def test_sync_notifications_serialized_across_runloop_and_heartbeat(tmp_path: Pa
         agent.inbox.get_nowait()
         wake += 1
     assert wake == 1, "exactly one MSG_TC_WAKE per fingerprint change"
+
+
+# ---------------------------------------------------------------------------
+# WorkerStillRunning poison recovery relaunch: the fresh process must not
+# self-wake off the notification state that was already present at boot.
+#
+# `lifecycle._start` rehydrates the still-open worker-hang artifact into a
+# high-priority system notification. A fresh process starts with an empty
+# `_notification_fp`, so the FIRST heartbeat sync saw that rehydrated event
+# as a change and woke the agent (ASLEEP -> IDLE + MSG_TC_WAKE) with no new
+# external input — the second half of the production self-wake (the CLI
+# refresh-success kick-start being the first; see
+# tests/test_cli_worker_poison_recovery.py). While a pending (open, not yet
+# prompted) recovery exists, `_start` baselines the current coherent
+# notification observation before the heartbeat is allowed to sync. Nothing
+# is dismissed, cleared, or hidden: the next genuine notification change is
+# the wake edge and delivers the full current payload.
+# ---------------------------------------------------------------------------
+
+
+_WORKER_HANG_ARTIFACT_ID = "worker_still_running_20260908T094700Z_abc123"
+
+
+def _write_open_worker_hang_artifact(
+    working_dir: Path,
+    artifact_id: str = _WORKER_HANG_ARTIFACT_ID,
+    *,
+    status: str = "open",
+    resolved_at: str | None = None,
+    prompt_injected_at: str | None = None,
+) -> Path:
+    directory = working_dir / "history" / "unfinished_turns"
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "type": "worker_still_running_recovery",
+        "status": status,
+        "created_at": "2026-09-08T09:47:00Z",
+        "recovery": {"notification_ref_id": f"worker_still_running:{artifact_id}"},
+    }
+    if resolved_at is not None:
+        payload["resolved_at"] = resolved_at
+    if prompt_injected_at is not None:
+        payload["prompt_injected_at"] = prompt_injected_at
+    path = directory / f"{artifact_id}.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _publish_rehydrated_worker_hang_event(working_dir: Path) -> None:
+    """The system payload `rehydrate_worker_hang_recovery` leaves on disk."""
+    publish_test_payload(
+        working_dir,
+        "system",
+        {
+            "header": "1 system notification",
+            "priority": "high",
+            "data": {
+                "events": [
+                    {
+                        "event_id": "evt_wh",
+                        "source": "kernel.llm_worker_hang",
+                        "ref_id": f"worker_still_running:{_WORKER_HANG_ARTIFACT_ID}",
+                        "priority": "high",
+                        "body": "Previous LLM worker exceeded timeout plus grace.",
+                    }
+                ]
+            },
+        },
+    )
+
+
+def _make_asleep_stub_agent(tmp_path: Path, chat, state_history: list):
+    """ASLEEP stub identical in shape to the §13.4 wake tests."""
+    from lingtai.kernel.base_agent import BaseAgent
+    from lingtai.kernel.state import AgentState
+
+    class _Agent(BaseAgent):
+        def __init__(self, workdir):
+            self._working_dir = workdir
+            self._notification_store = notification_store_for(workdir)
+            self._state = AgentState.ASLEEP
+            self._notification_fp = ()
+            self._notification_raw_fp = ()
+            self._notification_block_id = None
+            self._chat_stub = chat
+            self._logs = []
+            self.agent_name = "stub"
+            import queue
+            self.inbox = queue.Queue()
+            self._asleep = threading.Event()
+            self._asleep.set()
+            self._cancel_event = threading.Event()
+
+        @property
+        def _chat(self):
+            return self._chat_stub
+
+        def _save_chat_history(self, *, ledger_source="main"):
+            pass
+
+        def _log(self, evt, **fields):
+            self._logs.append((evt, fields))
+
+        def _wake_nap(self, *_a, **_kw):
+            pass
+
+        def _set_state(self, new_state, reason=""):
+            self._state = new_state
+            state_history.append((new_state, reason))
+
+        def _reset_uptime(self):
+            pass
+
+    return _Agent(tmp_path)
+
+
+def test_start_with_pending_worker_recovery_does_not_self_wake_on_first_sync(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Real `BaseAgent._start` on a relaunch with an open worker recovery:
+    the artifact is rehydrated into a visible system notification, yet the
+    first heartbeat sync must leave the agent ASLEEP with an empty inbox."""
+    from unittest.mock import MagicMock
+    from lingtai.kernel.base_agent import BaseAgent, lifecycle
+    from lingtai.kernel.state import AgentState
+    from lingtai.tools.registry import INTRINSICS
+    from tests._workdir_lease_helpers import make_test_lease
+    from tests._snapshot_helpers import make_test_snapshot_port, make_test_source_revision_port
+    from tests._lifecycle_clock_helpers import make_test_lifecycle_clock
+    from tests._agent_presence_helpers import make_test_presence_store
+
+    wd = tmp_path / "agent"
+    wd.mkdir()
+    artifact = _write_open_worker_hang_artifact(wd)
+    before = artifact.read_text(encoding="utf-8")
+    svc = MagicMock()
+    svc.get_adapter.return_value = MagicMock()
+    svc.provider, svc.model = "p", "m"
+    agent = BaseAgent(
+        intrinsics=INTRINSICS, service=svc, agent_name="alice", working_dir=wd,
+        workdir_lease=make_test_lease(), snapshot_port=make_test_snapshot_port(),
+        agent_presence=make_test_presence_store(), lifecycle_clock=make_test_lifecycle_clock(),
+        source_revision_port=make_test_source_revision_port(),
+        notification_store=notification_store_for(wd),
+    )
+    logs: list[tuple[str, dict]] = []
+    agent._log = lambda evt, **fields: logs.append((evt, fields))
+    # A wake that reaches injection is already the defect; keep the (mock
+    # provider) wire out of it so the assertion is on state, deterministically.
+    agent._inject_notification_pair = lambda notifications: False
+    agent._heal_pending_tool_calls = lambda **kw: False
+    agent._inbox_timeout = 0.05
+    # No heartbeat thread: the test drives the first tick's sync by hand.
+    monkeypatch.setattr(lifecycle, "_start_heartbeat", lambda a: None)
+    # cli.run boots ASLEEP before start().
+    agent._asleep.set()
+    agent._state = AgentState.ASLEEP
+
+    agent.start()
+    try:
+        # Quiesce the run loop so the sync below is the only actor.
+        agent._shutdown.set()
+        agent._thread.join(timeout=5)
+        assert not agent._thread.is_alive()
+
+        assert any(evt == "worker_hang_recovery_rehydrated" for evt, _ in logs)
+        system_payload = json.dumps(snapshot_notifications(wd).get("system"), default=str)
+        assert f"worker_still_running:{_WORKER_HANG_ARTIFACT_ID}" in system_payload, \
+            "the rehydrated notification stays visible on disk"
+
+        agent._sync_notifications()  # first heartbeat tick after runtime-ready
+
+        assert agent._state == AgentState.ASLEEP, \
+            "boot-time notification state must not wake the relaunched agent"
+        assert agent._asleep.is_set()
+        assert agent.inbox.empty()
+        assert agent._notification_fp, "the boot observation was baselined"
+        assert any(evt == "worker_hang_notification_baselined" for evt, _ in logs)
+        assert artifact.read_text(encoding="utf-8") == before
+    finally:
+        agent._shutdown.set()
+
+
+def test_pending_worker_recovery_baseline_defers_boot_state_but_later_change_wakes(
+    tmp_path: Path,
+) -> None:
+    from lingtai.kernel.base_agent.worker_recovery import (
+        baseline_notifications_for_pending_worker_recovery,
+        has_pending_worker_hang_recovery_prompt,
+    )
+    from lingtai.kernel.message import MSG_TC_WAKE
+    from lingtai.kernel.state import AgentState
+
+    artifact = _write_open_worker_hang_artifact(tmp_path)
+    before = artifact.read_text(encoding="utf-8")
+    _publish_rehydrated_worker_hang_event(tmp_path)
+    state_history: list = []
+    agent = _make_asleep_stub_agent(tmp_path, _make_chat_stub(), state_history)
+    delivered: list[dict] = []
+    real_inject = agent._inject_notification_pair
+    agent._inject_notification_pair = lambda n: (delivered.append(n), real_inject(n))[1]
+
+    assert has_pending_worker_hang_recovery_prompt(agent) is True
+    assert baseline_notifications_for_pending_worker_recovery(agent) is True
+    assert agent._notification_fp == fingerprint_notifications(tmp_path)
+    assert agent._notification_raw_fp == fingerprint_notifications(tmp_path)
+    baselined = [f for evt, f in agent._logs if evt == "worker_hang_notification_baselined"]
+    assert len(baselined) == 1
+    assert baselined[0]["channels"] == ["system"]
+
+    agent._sync_notifications()  # first tick: unchanged since the baseline
+
+    assert agent._state == AgentState.ASLEEP
+    assert state_history == []
+    assert agent.inbox.empty()
+    assert delivered == []
+    assert len(agent._chat_stub.interface.entries) == 0
+
+    # Nothing was hidden or dismissed ...
+    assert "system" in snapshot_notifications(tmp_path)
+    assert artifact.read_text(encoding="utf-8") == before
+    assert has_pending_worker_hang_recovery_prompt(agent) is True
+
+    # ... so a genuinely later change is a normal wake edge that delivers the
+    # FULL current payload, worker-hang event included.
+    publish_test_payload(tmp_path, "email", {"data": {"count": 1}})
+    agent._sync_notifications()
+
+    assert agent._state == AgentState.IDLE
+    assert state_history and state_history[0][1] == "notification_arrival"
+    assert agent.inbox.get_nowait().type == MSG_TC_WAKE
+    assert len(agent._chat_stub.interface.entries) == 2
+    assert len(delivered) == 1
+    assert set(delivered[0]) == {"email", "system"}
+    assert artifact.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.parametrize(
+    "artifact_kwargs",
+    [
+        {"prompt_injected_at": "2026-09-08T09:50:00Z"},
+        {"status": "resolved", "resolved_at": "2026-09-08T09:50:00Z"},
+    ],
+    ids=["already_prompted", "resolved"],
+)
+def test_baseline_gate_is_only_pending_recovery(tmp_path: Path, artifact_kwargs) -> None:
+    """Prompted or resolved artifacts are history: no baseline, so a boot-time
+    notification wakes exactly as it always did."""
+    from lingtai.kernel.base_agent.worker_recovery import (
+        baseline_notifications_for_pending_worker_recovery,
+        has_pending_worker_hang_recovery_prompt,
+    )
+    from lingtai.kernel.state import AgentState
+
+    _write_open_worker_hang_artifact(tmp_path, **artifact_kwargs)
+    _publish_rehydrated_worker_hang_event(tmp_path)
+    agent = _make_asleep_stub_agent(tmp_path, _make_chat_stub(), [])
+
+    assert has_pending_worker_hang_recovery_prompt(agent) is False
+    assert baseline_notifications_for_pending_worker_recovery(agent) is False
+    assert agent._notification_fp == ()
+    assert not any(evt == "worker_hang_notification_baselined" for evt, _ in agent._logs)
+
+    agent._sync_notifications()
+
+    assert agent._state == AgentState.IDLE
+
+
+@pytest.mark.parametrize(
+    "foreign",
+    [
+        ("email", {"data": {"count": 1}}),
+        ("mcp.telegram", {"data": {"message_ids": ["42"], "count": 1}}),
+    ],
+    ids=["email", "mcp.telegram"],
+)
+def test_baseline_refuses_when_external_notification_already_pending(
+    tmp_path: Path, foreign
+) -> None:
+    """An external message that arrived while the old process was hung is a
+    real wake, not boot noise. With a pending recovery AND a foreign channel
+    present, the baseline seeds nothing (reason `foreign_notifications_pending`)
+    and the first heartbeat sync wakes normally, delivering every channel."""
+    from lingtai.kernel.base_agent.worker_recovery import (
+        baseline_notifications_for_pending_worker_recovery,
+    )
+    from lingtai.kernel.message import MSG_TC_WAKE
+    from lingtai.kernel.state import AgentState
+
+    channel, payload = foreign
+    artifact = _write_open_worker_hang_artifact(tmp_path)
+    before = artifact.read_text(encoding="utf-8")
+    _publish_rehydrated_worker_hang_event(tmp_path)
+    publish_test_payload(tmp_path, channel, payload)
+    state_history: list = []
+    agent = _make_asleep_stub_agent(tmp_path, _make_chat_stub(), state_history)
+    delivered: list[dict] = []
+    real_inject = agent._inject_notification_pair
+    agent._inject_notification_pair = lambda n: (delivered.append(n), real_inject(n))[1]
+
+    assert baseline_notifications_for_pending_worker_recovery(agent) is False
+    assert agent._notification_fp == ()
+    assert agent._notification_raw_fp == ()
+    skipped = [f for evt, f in agent._logs if evt == "worker_hang_notification_baseline_skipped"]
+    assert [f["reason"] for f in skipped] == ["foreign_notifications_pending"]
+    assert skipped[0]["channels"] == sorted([channel, "system"])
+
+    agent._sync_notifications()  # first heartbeat tick
+
+    assert agent._state == AgentState.IDLE
+    assert [reason for _state, reason in state_history] == ["notification_arrival"]
+    assert agent.inbox.get_nowait().type == MSG_TC_WAKE
+    assert agent.inbox.empty(), "exactly one MSG_TC_WAKE"
+    assert len(agent._chat_stub.interface.entries) == 2
+    assert len(delivered) == 1
+    assert set(delivered[0]) == {channel, "system"}
+    assert artifact.read_text(encoding="utf-8") == before
+
+
+def test_baseline_refuses_when_system_channel_carries_a_non_worker_hang_event(
+    tmp_path: Path,
+) -> None:
+    """Another pending system event (here a daemon terminal notice) beside the
+    rehydrated worker-hang event is likewise foreign: no baseline, first sync
+    wakes."""
+    from lingtai.kernel.base_agent.worker_recovery import (
+        baseline_notifications_for_pending_worker_recovery,
+    )
+    from lingtai.kernel.state import AgentState
+
+    _write_open_worker_hang_artifact(tmp_path)
+    publish_test_payload(
+        tmp_path,
+        "system",
+        {
+            "data": {
+                "events": [
+                    {
+                        "event_id": "evt_wh",
+                        "source": "kernel.llm_worker_hang",
+                        "ref_id": f"worker_still_running:{_WORKER_HANG_ARTIFACT_ID}",
+                    },
+                    {"event_id": "evt_d", "source": "daemon", "ref_id": "daemon:em-1"},
+                ]
+            }
+        },
+    )
+    agent = _make_asleep_stub_agent(tmp_path, _make_chat_stub(), [])
+
+    assert baseline_notifications_for_pending_worker_recovery(agent) is False
+    assert agent._notification_fp == ()
+    skipped = [f for evt, f in agent._logs if evt == "worker_hang_notification_baseline_skipped"]
+    assert [f["reason"] for f in skipped] == ["foreign_notifications_pending"]
+
+    agent._sync_notifications()
+
+    assert agent._state == AgentState.IDLE
+
+
+def test_baseline_fails_toward_waking_on_unstable_or_failed_read(tmp_path: Path, monkeypatch) -> None:
+    """An unstable coherent read (producer still writing) or a Store failure is
+    never treated as a quiet baseline: the fingerprint stays unseeded so the
+    heartbeat's own sync decides, and a bounded diagnostic is logged."""
+    from lingtai.kernel import notifications
+    from lingtai.kernel.base_agent.worker_recovery import (
+        baseline_notifications_for_pending_worker_recovery,
+    )
+
+    _write_open_worker_hang_artifact(tmp_path)
+    _publish_rehydrated_worker_hang_event(tmp_path)
+    agent = _make_asleep_stub_agent(tmp_path, _make_chat_stub(), [])
+
+    monkeypatch.setattr(
+        notifications,
+        "coherent_attention_read",
+        lambda store, allow, workdir: notifications.CoherentAttentionRead((), (), {}, False),
+    )
+    assert baseline_notifications_for_pending_worker_recovery(agent) is False
+    assert agent._notification_fp == ()
+    skipped = [f for evt, f in agent._logs if evt == "worker_hang_notification_baseline_skipped"]
+    assert [f["reason"] for f in skipped] == ["unstable_read"]
+
+    def _boom(store, allow, workdir):
+        raise OSError("simulated store failure")
+
+    monkeypatch.setattr(notifications, "coherent_attention_read", _boom)
+    assert baseline_notifications_for_pending_worker_recovery(agent) is False
+    assert agent._notification_fp == ()
+    skipped = [f for evt, f in agent._logs if evt == "worker_hang_notification_baseline_skipped"]
+    assert [f["reason"] for f in skipped] == ["unstable_read", "read_failed"]
+    assert "simulated store failure" in skipped[1]["error"]
