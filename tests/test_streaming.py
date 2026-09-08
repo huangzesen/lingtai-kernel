@@ -2,8 +2,18 @@
 
 from __future__ import annotations
 
-from lingtai.kernel.llm.streaming import StreamingAccumulator
-from lingtai.kernel.llm.base import ToolCall, UsageMetadata
+from types import SimpleNamespace
+
+import pytest
+
+from lingtai.kernel.llm.streaming import (
+    OutputProgress,
+    StreamingAccumulator,
+    output_length,
+    output_values,
+    response_output_chars,
+)
+from lingtai.kernel.llm.base import LLMResponse, ToolCall, UsageMetadata
 
 
 # -- Text accumulation ------------------------------------------------------
@@ -396,3 +406,69 @@ def test_thoughts_property_includes_unfinished():
     acc.finish_thought()
     acc.add_thought("in progress")
     assert acc.thoughts == ["done", "in progress"]
+
+
+# -- Terminal-args adoption signal ------------------------------------------
+
+def test_set_tool_args_if_empty_reports_whether_the_terminal_value_was_adopted():
+    acc = StreamingAccumulator()
+    acc.start_tool(id="c1", name="echo")
+    assert acc.set_tool_args_if_empty("") is False
+    assert acc.set_tool_args_if_empty('{"v":1}') is True  # sole delivery
+    assert acc.set_tool_args_if_empty('{"v":1}') is False  # echo of the adopted value
+    acc.start_tool(id="c2", name="echo")
+    acc.add_tool_args('{"v":')
+    assert acc.set_tool_args_if_empty('{"v":2}') is False  # deltas already delivered it
+
+
+# -- OutputProgress: the count-only seam ------------------------------------
+#
+# One rule: provider output arrived, add the length of what was delivered.
+
+class _Model:
+    def model_dump(self, exclude_none=True):
+        return {"k": "vv"}
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("héllo 🙂 器灵", 10), (b"\x00\x01\x02", 3), ("", 0), (None, 0), (7, 0), (True, 0),
+     ({"b": 1, "a": "é"}, len('{"a":"é","b":1}')), ({}, 0), ([], 0), (_Model(), len('{"k":"vv"}')),
+     ({1: "x", "a": 2}, 0)],  # unsortable keys: never raises
+)
+def test_output_length_is_the_length_of_the_delivered_representation(value, expected):
+    assert output_length(value) == expected
+
+
+def test_output_progress_publishes_positive_summed_lengths_and_counts_terminal_echoes_once():
+    published: list[int] = []
+    progress = OutputProgress(published.append)
+    assert progress.add("ab", None, {"k": "v"}, b"xyz") == 2 + 9 + 3
+    assert progress.add("", None) == 0  # nothing arrived: nothing published
+    progress.add_stream(("delta", "item_1"), "streamed")
+    assert progress.add_final(("delta", "item_1"), "echo of streamed") == 0
+    assert progress.add_final(("delta", "item_2"), "sole delivery") == 13
+    assert published == [14, 8, 13]
+    assert OutputProgress(None).add("never published") == 0
+    assert output_values(SimpleNamespace(type="x", text="ab", _private="no", n=3)) == ["ab", 3]
+    assert output_values({"type": "t", "signature": "sig"}) == ["sig"] and output_values(None) == []
+    response = LLMResponse(text="hi", tool_calls=[ToolCall(name="x", args={"a": 1}, id="id1")],
+                           usage=UsageMetadata(), thoughts=["think"])
+    assert response_output_chars(response) == 2 + 5 + 1 + 3 + len('{"a":1}')
+
+
+@pytest.mark.parametrize(
+    ("streamed", "finals", "expected"),
+    [(None, ["payload"], [7]),  # None delta, then the terminal payload: counted once
+     ("", ["payload"], [7]),  # empty delta never suppresses the terminal payload
+     (None, ["payload", "payload"], [7]),  # terminal-only payload repeated: once
+     (None, ["", "payload"], [7]),  # empty terminal never poisons the real one
+     ("delta", ["payload"], [5])],  # a real delta suppresses the terminal echo
+)
+def test_terminal_dedupe_remembers_a_key_only_after_a_positive_count(streamed, finals, expected):
+    published: list[int] = []
+    progress = OutputProgress(published.append)
+    progress.add_stream("k", streamed)
+    for final in finals:
+        progress.add_final("k", final)
+    assert published == expected

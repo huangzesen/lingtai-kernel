@@ -6,6 +6,7 @@ not a kernel protocol type.
 
 from __future__ import annotations
 
+import inspect
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any
@@ -75,9 +76,21 @@ class _GatedSession:
     def send(self, message):
         return self._gate.submit(lambda: self._inner.send(message))
 
-    def send_stream(self, message, on_chunk=None):
+    def send_stream(self, message, on_chunk=None, on_output_chars=None):
+        kwargs = {"on_chunk": on_chunk}
+        if on_output_chars is not None:
+            try:
+                params = inspect.signature(self._inner.send_stream).parameters.values()
+            except (TypeError, ValueError):
+                params = ()
+            if any(
+                param.name == "on_output_chars"
+                or param.kind is inspect.Parameter.VAR_KEYWORD
+                for param in params
+            ):
+                kwargs["on_output_chars"] = on_output_chars
         return self._gate.submit(
-            lambda: self._inner.send_stream(message, on_chunk=on_chunk)
+            lambda: self._inner.send_stream(message, **kwargs)
         )
 
     def adapter_comment(self):

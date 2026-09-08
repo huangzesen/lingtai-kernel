@@ -42,6 +42,7 @@ related_files:
   - docs/references/codex-http-anatomy-investigation.md
   - docs/references/licc-notification-wake-runbook.md
   - docs/references/lifecycle-clock.md
+  - docs/references/stream-progress.md
   - docs/references/runtime-vs-agent-session-objects.md
   - docs/references/windows-support.md
   - migration/migration.md

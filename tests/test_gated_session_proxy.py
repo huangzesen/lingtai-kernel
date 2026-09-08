@@ -91,6 +91,30 @@ def test_pre_request_hook_fires_inside_gated_send() -> None:
         gate.shutdown()
 
 
+def test_gated_stream_omits_progress_for_legacy_inner() -> None:
+    """A gate must not make the optional progress callback break legacy sessions."""
+
+    class _LegacyStreamSession(_FakeSession):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[tuple[object, object]] = []
+
+        def send_stream(self, message, on_chunk=None):
+            self.calls.append((message, on_chunk))
+            return LLMResponse(text="ok")
+
+    inner = _LegacyStreamSession()
+    gate = APICallGate(60)
+    proxy = _GatedSession(inner, gate)
+    try:
+        counts: list[int] = []
+        assert proxy.send_stream("hi", on_output_chars=counts.append).text == "ok"
+        assert inner.calls == [("hi", None)]
+        assert counts == []
+    finally:
+        gate.shutdown()
+
+
 def test_get_state_reflects_service_assigned_identity() -> None:
     inner, proxy, gate = _wrapped()
     try:

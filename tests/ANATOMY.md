@@ -342,6 +342,7 @@ related_files:
   - tests/test_soul_settings.py
   - tests/test_source_drift.py
   - tests/test_status_snapshot.py
+  - tests/test_stream_progress.py
   - tests/test_streaming.py
   - tests/test_sync_gitee_mirror.py
   - tests/test_system.py

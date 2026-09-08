@@ -43,7 +43,6 @@ def _write_init(tmp_path: Path, overrides: dict | None = None) -> Path:
             "molt_prompt": "",
             "max_turns": 10,
             "admin": {"karma": True},
-            "streaming": False,
         },
         "principle": "",
         "covenant": "Be helpful.",
@@ -133,6 +132,9 @@ def test_build_agent_constructs_correctly(mock_mail, mock_agent, mock_llm, tmp_p
     assert call_kwargs.kwargs["agent_name"] == "test-agent"
     assert call_kwargs.kwargs["admin"] == {"karma": True}
     assert call_kwargs.kwargs["working_dir"] == tmp_path
+    # Streaming is System-owned (valid env > valid v2 system.json > fixed false);
+    # with neither present the composition root passes the fixed default, never a
+    # manifest value.
     assert call_kwargs.kwargs["streaming"] is False
     assert call_kwargs.kwargs["_from_init_boot"] is True
     # covenant, memory, capabilities, addons no longer passed to constructor —

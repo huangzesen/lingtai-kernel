@@ -18,6 +18,7 @@ related_files:
   - src/lingtai/adapters/process_scan.py
   - src/lingtai/adapters/lifecycle_clock.py
   - src/lingtai/adapters/project_workspace.py
+  - src/lingtai/adapters/stream_progress.py
   - src/lingtai/adapters/browser_transport.py
   - src/lingtai/adapters/avatar_launcher.py
   - src/lingtai/adapters/workdir_lease.py

@@ -5,6 +5,7 @@ All functions are stateless (operate on passed-in state dicts).
 """
 
 import contextvars
+import inspect
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 
@@ -169,29 +170,30 @@ class _SubmitFn:
     to, not mid-HTTP-request.
     """
 
-    __slots__ = ("chat", "message", "_pool", "_method", "_extra_args", "_retry_timeout")
+    __slots__ = ("chat", "message", "_pool", "_method", "_extra_args", "_extra_kwargs",
+                 "_retry_timeout")
 
     def __init__(self, pool, chat, message, method: str, extra_args: tuple = (),
-                 retry_timeout: float | None = None):
+                 retry_timeout: float | None = None, extra_kwargs: dict | None = None):
         self._pool = pool
         self.chat = chat
         self.message = message
         self._method = method
         self._extra_args = extra_args
+        self._extra_kwargs = dict(extra_kwargs or {})
         self._retry_timeout = retry_timeout
 
     def __call__(self) -> Future:
         fn = getattr(self.chat, self._method)
         if self._retry_timeout is not None and hasattr(self.chat, "_request_timeout"):
             self.chat._request_timeout = self._retry_timeout
-        # ``ContextVar`` state is thread-local.  Provider admission is bound by
+        # ``ContextVar`` state is thread-local. Provider admission is bound by
         # the Agent turn on its run-loop thread, while the concrete send runs
         # in this timeout worker; copy at submission so a valid root admission
-        # reaches the actual provider-I/O boundary rather than failing closed
-        # as if the turn were untrusted.
+        # reaches the actual provider-I/O boundary rather than failing closed.
         context = contextvars.copy_context()
         return self._pool.submit(
-            context.run, fn, self.message, *self._extra_args
+            context.run, fn, self.message, *self._extra_args, **self._extra_kwargs
         )
 
 
@@ -209,6 +211,24 @@ def send_with_timeout(
     return _send(submit_fn, timeout_pool, retry_timeout, agent_name)
 
 
+def _accepts_keyword(fn, name: str) -> bool:
+    """True when ``fn`` takes keyword ``name`` (named or via ``**kwargs``).
+
+    ``False`` when ``fn`` is missing or its signature cannot be inspected, so
+    an optional keyword is simply omitted rather than risked.
+    """
+    if fn is None:
+        return False
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    param = params.get(name)
+    if param is not None and param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY):
+        return True
+    return any(p.kind is p.VAR_KEYWORD for p in params.values())
+
+
 def send_with_timeout_stream(
     chat,
     message,
@@ -217,14 +237,30 @@ def send_with_timeout_stream(
     agent_name: str,
     logger,
     on_chunk=None,
+    on_output_chars=None,
 ) -> LLMResponse:
     """Like ``send_with_timeout`` but uses ``chat.send_stream()`` for incremental text.
 
-    ``on_chunk`` is called from the thread-pool thread as text deltas arrive.
+    ``on_chunk`` is called from the thread-pool thread as visible text deltas
+    arrive.  ``on_output_chars`` is the count-only output-progress callback
+    (``ChatSession.send_stream``): it receives the length of every provider
+    output fragment, never content.  A callback that is ``None`` is not
+    passed at all, so with neither callback the ``send_stream(message)``
+    call shape is byte-for-byte the pre-existing one.  ``on_output_chars`` is
+    also omitted — fail-open, no progress, never a ``TypeError`` — when the
+    session's ``send_stream`` does not accept that keyword (a legacy override
+    without it) or its signature cannot be inspected; it is never retried.
     """
     extra_args = (on_chunk,) if on_chunk is not None else ()
+    extra_kwargs = None
+    if on_output_chars is not None:
+        if _accepts_keyword(getattr(chat, "send_stream", None), "on_output_chars"):
+            extra_kwargs = {"on_output_chars": on_output_chars}
+        else:
+            _logger.debug("[%s] send_stream does not accept on_output_chars; "
+                          "streaming without output progress", agent_name)
     submit_fn = _SubmitFn(timeout_pool, chat, message, "send_stream", extra_args,
-                          retry_timeout=retry_timeout)
+                          retry_timeout=retry_timeout, extra_kwargs=extra_kwargs)
     return _send(submit_fn, timeout_pool, retry_timeout, agent_name)
 
 

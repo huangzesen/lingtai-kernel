@@ -55,7 +55,7 @@ from lingtai.llm.base import LLMAdapter
 from .codex_effort import CodexEffortDescriptor, resolve_codex_effort_descriptor
 from lingtai.kernel.llm.interface import ChatInterface, TextBlock, ThinkingBlock, ToolCallBlock
 from ..interface_converters import to_openai, to_responses_input
-from lingtai.kernel.llm.streaming import StreamingAccumulator
+from lingtai.kernel.llm.streaming import OutputProgress, StreamingAccumulator
 from lingtai.llm.identity_headers import lingtai_user_agent, merge_lingtai_identity_headers
 from lingtai.kernel.token_counter import count_tokens
 
@@ -1469,32 +1469,68 @@ def _add_responses_reasoning_done_text(
     reasoning_item_id: str | None,
     seen_reasoning_summary_items: set[str],
     text: str | None,
-) -> None:
+) -> bool:
     """Add final reasoning-summary text only when no delta was seen.
 
     Responses ``*.done`` events carry the complete text.  When the stream
     already accepted summary text for the same reasoning item from deltas or a
     done fallback, adding ``done.text`` would duplicate the thought.  If a
     provider emits only the done event, use it as a lossless fallback.
+    Returns ``True`` when ``text`` was adopted (its sole delivery).
     """
-    if text and (not reasoning_item_id or reasoning_item_id not in seen_reasoning_summary_items):
+    adopted = bool(
+        text and (not reasoning_item_id or reasoning_item_id not in seen_reasoning_summary_items)
+    )
+    if adopted:
         acc.add_thought(text)
         if reasoning_item_id:
             seen_reasoning_summary_items.add(reasoning_item_id)
     acc.finish_thought()
+    return adopted
+
+
+_NULL_PROGRESS = OutputProgress()
+_RESPONSES_ITEM_IDENTITY = ("id", "call_id", "name")
+
+
+def _count_responses_output(event: Any, progress: OutputProgress) -> None:
+    """Output progress for one Responses event: whatever arrived, add its length.
+
+    Every ``*.delta`` counts (text, arguments, reasoning, refusal, any later
+    form), keyed so a terminal echo adds nothing; a new item counts its
+    identity once.  Terminal payloads that may be a sole delivery are counted
+    where they are adopted.  Lifecycle/usage/``completed`` echoes add nothing.
+    """
+    event_type = getattr(event, "type", None) or ""
+    if event_type == "response.output_item.added":
+        item = getattr(event, "item", None)
+        progress.add(*(getattr(item, field, None) for field in _RESPONSES_ITEM_IDENTITY))
+    elif event_type.endswith(".delta"):
+        progress.add_stream(
+            (event_type, getattr(event, "item_id", None)), getattr(event, "delta", None)
+        )
+
+
+def _adopt_terminal_args(acc: StreamingAccumulator, progress: OutputProgress, arguments: Any) -> None:
+    """Terminal complete-arguments payload: adopt and count only as a sole delivery."""
+    if acc.set_tool_args_if_empty(arguments):
+        progress.add(arguments)
 
 
 def _handle_responses_reasoning_event(
     event: Any,
     acc: StreamingAccumulator,
     seen_reasoning_summary_items: set[str],
+    progress: OutputProgress | None = None,
 ) -> bool:
     """Feed safe Responses reasoning-summary events into ``acc``.
 
     We persist summary text, not raw ``response.reasoning_text.*`` events, so
     stateless Codex replay can include documented ``summary_text`` reasoning
-    items without storing hidden chain-of-thought.
+    items without storing hidden chain-of-thought.  ``progress`` counts the
+    terminal reasoning payloads delivered only here.
     """
+    progress = progress or _NULL_PROGRESS
     event_type = getattr(event, "type", None)
     if event_type == "response.reasoning_summary_text.delta":
         delta = getattr(event, "delta", None)
@@ -1505,27 +1541,39 @@ def _handle_responses_reasoning_event(
                 seen_reasoning_summary_items.add(item_id)
         return True
     if event_type == "response.reasoning_summary_text.done":
-        _add_responses_reasoning_done_text(
-            acc,
-            getattr(event, "item_id", None),
-            seen_reasoning_summary_items,
-            getattr(event, "text", None),
-        )
+        text = getattr(event, "text", None)
+        if _add_responses_reasoning_done_text(
+            acc, getattr(event, "item_id", None), seen_reasoning_summary_items, text
+        ):
+            progress.add(text)
         return True
     if event_type == "response.output_item.done" and getattr(event.item, "type", None) == "reasoning":
         summaries = getattr(event.item, "summary", None) or []
+        item_id = getattr(event.item, "id", None)
         added_fallback = False
         for summary in summaries:
             if getattr(summary, "type", None) == "summary_text":
-                item_id = getattr(event.item, "id", None)
                 text = getattr(summary, "text", None)
                 if text and (not item_id or item_id not in seen_reasoning_summary_items):
                     acc.add_thought(text)
+                    progress.add(text)
                     if item_id:
                         seen_reasoning_summary_items.add(item_id)
                     added_fallback = True
         if added_fallback or acc.thoughts:
             acc.finish_thought()
+        # Opaque reasoning is output too; repeated terminal items count once.
+        progress.add_final(
+            ("response.reasoning.encrypted_content", item_id),
+            getattr(event.item, "encrypted_content", None),
+        )
+        progress.add_final(
+            ("response.reasoning_text.delta", item_id),
+            *(
+                c.get("text") if isinstance(c, dict) else getattr(c, "text", None)
+                for c in getattr(event.item, "content", None) or []
+            ),
+        )
         return True
     return False
 
@@ -1651,9 +1699,15 @@ def _decode_responses_sse_text(raw: str) -> list[Any]:
 def _consume_responses_stream(
     stream: Any,
     on_chunk: Callable[[str], None] | None = None,
+    on_output_chars: Callable[[int], None] | None = None,
 ) -> tuple[LLMResponse, str | None]:
-    """Consume typed SDK events or locally decoded Responses SSE events."""
+    """Consume typed SDK events or locally decoded Responses SSE events.
+
+    ``on_chunk`` receives visible ``output_text`` deltas only (legacy);
+    ``on_output_chars`` receives the length of every output fragment.
+    """
     acc = StreamingAccumulator()
+    progress = OutputProgress(on_output_chars)
     response_id = None
     usage = UsageMetadata()
     seen_reasoning_summary_items: set[str] = set()
@@ -1667,7 +1721,8 @@ def _consume_responses_stream(
         latched_id = getattr(getattr(event, "response", None), "id", None)
         if latched_id:
             response_id = latched_id
-        if _handle_responses_reasoning_event(event, acc, seen_reasoning_summary_items):
+        _count_responses_output(event, progress)
+        if _handle_responses_reasoning_event(event, acc, seen_reasoning_summary_items, progress):
             continue
         if event.type == "response.output_text.delta":
             acc.add_text(event.delta)
@@ -1677,14 +1732,14 @@ def _consume_responses_stream(
             acc.add_tool_args(event.delta)
         elif event.type == "response.function_call_arguments.done":
             # Spark may emit complete args without any deltas.
-            acc.set_tool_args_if_empty(getattr(event, "arguments", None))
+            _adopt_terminal_args(acc, progress, getattr(event, "arguments", None))
         elif event.type == "response.output_item.added":
             if getattr(event.item, "type", None) == "function_call":
                 acc.start_tool(id=event.item.call_id, name=event.item.name)
         elif event.type == "response.output_item.done":
             if getattr(event.item, "type", None) == "function_call":
                 # Use the final item as a second complete-args fallback.
-                acc.set_tool_args_if_empty(getattr(event.item, "arguments", None))
+                _adopt_terminal_args(acc, progress, getattr(event.item, "arguments", None))
                 acc.finish_tool()
         elif event.type == "response.completed":
             # Locally decoded gateway SSE is raw JSON, not an SDK model: every
@@ -2208,12 +2263,15 @@ class OpenAIChatSession(ChatSession):
             result["content"] = ""
         return result
 
-    def send_stream(self, message, on_chunk=None) -> LLMResponse:
+    def send_stream(self, message, on_chunk=None, on_output_chars=None) -> LLMResponse:
         """Send a streaming request.  Same shape as :meth:`send` —
         ``str`` / ``list`` / ``None`` (continue from wire).
 
         Records user input into the interface BEFORE the API call, then
         reverts on error. On success, records the assistant response.
+        ``on_chunk`` receives visible content deltas only (legacy);
+        ``on_output_chars`` receives the length of every output field a delta
+        carries.
         """
         # 1. Record user input into interface
         if message is None:
@@ -2257,6 +2315,7 @@ class OpenAIChatSession(ChatSession):
             return kw
 
         acc = StreamingAccumulator()
+        progress = OutputProgress(on_output_chars)
         usage = UsageMetadata()
 
         # Streaming overflow-recovery: most providers raise the 400 either
@@ -2310,6 +2369,7 @@ class OpenAIChatSession(ChatSession):
                 delta = chunk.choices[0].delta
                 if delta is None:
                     continue
+                progress.add(delta.content, getattr(delta, "refusal", None))
                 if delta.content:
                     acc.add_text(delta.content)
                     if on_chunk:
@@ -2321,15 +2381,18 @@ class OpenAIChatSession(ChatSession):
                     getattr(delta, "reasoning", None)
                     or getattr(delta, "reasoning_content", None)
                 )
+                progress.add(reasoning_delta)
                 if reasoning_delta:
                     acc.add_thought(reasoning_delta)
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
+                        fn = tc.function
+                        progress.add(tc.id, fn.name if fn else None, fn.arguments if fn else None)
                         acc.add_tool_delta(
                             tc.index,
                             id=tc.id,
-                            name=(tc.function.name if tc.function else None),
-                            args_delta=(tc.function.arguments if tc.function else None),
+                            name=(fn.name if fn else None),
+                            args_delta=(fn.arguments if fn else None),
                         )
         except Exception as exc:
             if message is not None:
@@ -2639,8 +2702,8 @@ class OpenAIResponsesSession(ChatSession):
                 self._rollback_staged(rollback_snapshot)
             raise
 
-    def send_stream(self, message, on_chunk=None) -> LLMResponse:
-        """Send a streaming request."""
+    def send_stream(self, message, on_chunk=None, on_output_chars=None) -> LLMResponse:
+        """Send a streaming request (``on_output_chars``: count-only progress)."""
         rollback_snapshot: list[dict] | None = None
         try:
             if self._stateless_replay:
@@ -2676,7 +2739,9 @@ class OpenAIResponsesSession(ChatSession):
                 kwargs["prompt_cache_key"] = self._prompt_cache_key
 
             stream = self._client.responses.create(**kwargs)
-            response, response_id = _consume_responses_stream(stream, on_chunk)
+            response, response_id = _consume_responses_stream(
+                stream, on_chunk, on_output_chars
+            )
             if self._stateless_replay:
                 self._record_assistant_response(response)
             else:
@@ -5468,7 +5533,12 @@ class CodexResponsesSession(_StandaloneCompactionMixin, OpenAIResponsesSession):
 
         return _events()
 
-    def send_stream(self, message, on_chunk=None) -> LLMResponse:
+    def send_stream(self, message, on_chunk=None, on_output_chars=None) -> LLMResponse:
+        # ``on_chunk`` receives visible ``output_text`` deltas only (legacy);
+        # the count-only ``on_output_chars`` receives the length of every
+        # output fragment this loop sees — a tool-call-only generation still
+        # reports progress.
+        #
         # Maintain the canonical interface for local recovery and full-replay
         # fallback, but capture the entries added by this turn so subsequent
         # stored-response requests can send only the incremental delta.
@@ -5660,6 +5730,7 @@ class CodexResponsesSession(_StandaloneCompactionMixin, OpenAIResponsesSession):
                 extra_body["client_metadata"] = {**existing_client_metadata, **client_metadata}
                 kwargs["extra_body"] = extra_body
             acc = StreamingAccumulator()
+            progress = OutputProgress(on_output_chars)
             response_id = None
             usage = UsageMetadata()
             seen_reasoning_summary_items: set[str] = set()
@@ -5859,12 +5930,14 @@ class CodexResponsesSession(_StandaloneCompactionMixin, OpenAIResponsesSession):
                             fallback_kwargs
                         )
             for event in stream:
+                _count_responses_output(event, progress)
                 thoughts_before = acc.thoughts
                 pending_thought_chars_before = len("".join(acc._thought_parts))
                 accepted_reasoning = _handle_responses_reasoning_event(
                     event,
                     acc,
                     seen_reasoning_summary_items,
+                    progress,
                 )
                 _codex_responses_trace_record(
                     event=event,
@@ -5924,7 +5997,7 @@ class CodexResponsesSession(_StandaloneCompactionMixin, OpenAIResponsesSession):
                 elif event.type == "response.function_call_arguments.done":
                     self._codex_partial_output = True
                     # Spark may emit complete args without any deltas.
-                    acc.set_tool_args_if_empty(getattr(event, "arguments", None))
+                    _adopt_terminal_args(acc, progress, getattr(event, "arguments", None))
                 elif event.type == "response.output_item.added":
                     if getattr(event.item, "type", None) == "function_call":
                         self._codex_partial_output = True
@@ -5933,8 +6006,8 @@ class CodexResponsesSession(_StandaloneCompactionMixin, OpenAIResponsesSession):
                     if getattr(event.item, "type", None) == "function_call":
                         self._codex_partial_output = True
                         # Use the final item as a second complete-args fallback.
-                        acc.set_tool_args_if_empty(
-                            getattr(event.item, "arguments", None)
+                        _adopt_terminal_args(
+                            acc, progress, getattr(event.item, "arguments", None)
                         )
                         acc.finish_tool()
                 elif event.type == "response.completed":

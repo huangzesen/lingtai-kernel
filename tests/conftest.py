@@ -55,6 +55,19 @@ def _isolate_cache_miss_budget_env(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_streaming_env(monkeypatch):
+    """Keep the suite hermetic w.r.t. the live streaming env switch.
+
+    ``LINGTAI_STREAMING`` is read by the System v2 runtime-policy resolver the
+    production CLI composes with, so an ambient value would otherwise leak into
+    CLI wiring assertions. Tests that exercise the switch opt back in with
+    ``monkeypatch.setenv``.
+    """
+
+    monkeypatch.delenv("LINGTAI_STREAMING", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_notification_dismiss_guards():
     """Keep generic notification-dismiss guard registration test-local."""
 

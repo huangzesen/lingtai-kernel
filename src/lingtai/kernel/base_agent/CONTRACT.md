@@ -46,6 +46,7 @@ related_files:
   - src/lingtai/kernel/agent_presence/CONTRACT.md
   - src/lingtai/kernel/refresh_watcher/CONTRACT.md
   - src/lingtai/kernel/lifecycle_clock/CONTRACT.md
+  - src/lingtai/kernel/stream_progress/CONTRACT.md
   - src/lingtai/kernel/notification_store/CONTRACT.md
   - src/lingtai/kernel/event_journal/CONTRACT.md
   - src/lingtai/kernel/session_stats/CONTRACT.md
@@ -165,6 +166,13 @@ This contract owns one new Core Port and composes the linked ones:
   `send_stream`, or direct `generate`. A missing parent, malformed decision, or
   denial fails before provider I/O. Correlation is audit-only, never authority;
   transport/authentication remains adapter-owned.
+- `StreamProgressPort` (`src/lingtai/kernel/stream_progress/CONTRACT.md`) —
+  optional, technology-neutral RAM-only progress publisher composed through the
+  defaulted-`None` `stream_progress_factory` kwarg. `BaseAgent` calls it once
+  with its stable `agent_id` only when construction receives `streaming=True`,
+  then hands the Port to `SessionManager`; an explicit false never creates a
+  publisher or endpoint. The outer composition root supplies the effective
+  streaming policy.
 
 ## Adapters
 

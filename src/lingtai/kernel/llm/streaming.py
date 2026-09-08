@@ -3,12 +3,16 @@
 Collects text, tool-call, and thought fragments during streaming and
 finalizes them into an LLMResponse.  Provider-agnostic — each adapter
 feeds deltas through the accumulator's methods, then calls finalize().
+
+``OutputProgress`` (bottom) is the separate count-only output-progress seam:
+adapters hand it every output fragment they receive; it publishes lengths only.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from .base import LLMResponse, ToolCall, UsageMetadata
@@ -80,18 +84,21 @@ class StreamingAccumulator:
         if self._pending_tool is not None:
             self._pending_tool["args_json"] += delta
 
-    def set_tool_args_if_empty(self, full: str | None) -> None:
+    def set_tool_args_if_empty(self, full: str | None) -> bool:
         """Set complete terminal args only when no fragment was accumulated.
 
         Responses providers can emit a tool call's complete JSON only on a
         terminal ``*.done`` event.  A non-empty delta buffer remains
         authoritative so terminal values are never appended twice or clobber
-        an already assembled call.
+        an already assembled call.  Returns ``True`` only when ``full`` was
+        adopted (i.e. it is the sole delivery of those arguments).
         """
         if not full:
-            return
+            return False
         if self._pending_tool is not None and not self._pending_tool["args_json"]:
             self._pending_tool["args_json"] = full
+            return True
+        return False
 
     def finish_tool(self) -> None:
         """Finalize the current pending tool call."""
@@ -212,3 +219,89 @@ def _finalize_tool(pending: dict[str, str]) -> ToolCall:
         )
         args = {}
     return ToolCall(name=pending["name"], args=args, id=pending["id"] or None)
+
+
+# -- Output progress: the count-only seam -------------------------------------
+#
+# One rule: provider output arrived, so add its length.  No taxonomy of output
+# kinds lives here; only lengths leave this seam and content is never kept.
+
+
+def output_length(value: Any) -> int:
+    """Length of one output fragment as delivered; never raises.
+
+    ``str``/``bytes`` count their own length; a structured fragment (mapping,
+    sequence, SDK model) counts its canonical JSON text; ``None``, numbers,
+    booleans, and empty containers are not output and count 0.
+    """
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        return len(value)
+    if hasattr(value, "model_dump"):
+        try:
+            value = value.model_dump(exclude_none=True)
+        except Exception:
+            return 0
+    if isinstance(value, (dict, list, tuple)) and value:
+        try:
+            return len(json.dumps(
+                value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
+            ))
+        except Exception:
+            return 0
+    return 0
+
+
+def output_values(obj: Any, exclude: tuple[str, ...] = ("type",)) -> list[Any]:
+    """Public field values of an event/block (object or mapping), minus the
+    protocol labels in ``exclude`` — count a fragment shape whole."""
+    items = obj.items() if isinstance(obj, dict) else vars(obj).items() if hasattr(obj, "__dict__") else ()
+    return [v for k, v in items if not k.startswith("_") and k not in exclude]
+
+
+def response_output_chars(response: LLMResponse) -> int:
+    """Length of a whole normalized ``LLMResponse`` — the non-streaming fallback's one count."""
+    fragments: list[Any] = [response.text, *(response.thoughts or [])]
+    for tool_call in response.tool_calls or []:
+        fragments += [tool_call.name, tool_call.id, tool_call.args]
+    return sum(output_length(f) for f in fragments)
+
+
+class OutputProgress:
+    """Count-only output-progress seam shared by every streaming adapter.
+
+    ``add(*fragments)`` publishes their summed length as one positive ``int``
+    to ``on_output_chars`` (nothing for 0) and never the fragments.
+    ``add_stream(key, fragment)`` also remembers ``key`` once something was
+    actually published for it; ``add_final(key, *fragments)`` counts only if
+    ``key`` is not yet remembered and then remembers it, so a terminal event
+    cannot re-count output delivered as deltas or by an earlier terminal
+    event, while an empty delta or empty terminal payload never suppresses a
+    later real payload.  No callback: no-op.
+    """
+
+    __slots__ = ("_on_output_chars", "_streamed")
+
+    def __init__(self, on_output_chars: Callable[[int], None] | None = None) -> None:
+        self._on_output_chars = on_output_chars
+        self._streamed: set[Any] = set()
+
+    def add(self, *fragments: Any) -> int:
+        if self._on_output_chars is None:
+            return 0
+        count = sum(output_length(f) for f in fragments)
+        if count > 0:
+            self._on_output_chars(count)
+        return count
+
+    def add_stream(self, key: Any, fragment: Any) -> int:
+        return self._remember(key, self.add(fragment))
+
+    def add_final(self, key: Any, *fragments: Any) -> int:
+        if key is not None and key in self._streamed:
+            return 0
+        return self._remember(key, self.add(*fragments))
+
+    def _remember(self, key: Any, count: int) -> int:
+        if count > 0 and key is not None:
+            self._streamed.add(key)
+        return count

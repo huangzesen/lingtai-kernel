@@ -35,6 +35,7 @@ from ..agent_presence import AgentPresenceStorePort
 from ..lifecycle_clock import LifecycleClockPort
 from ..refresh_watcher import RefreshWatcherPort
 from ..snapshot import SnapshotPort, SourceRevisionPort
+from ..stream_progress import StreamProgressPort
 from ..message import Message
 from ..prompt import SystemPromptManager
 from ..llm import (
@@ -494,6 +495,7 @@ class BaseAgent:
         context: Any = None,
         admin: dict | None = None,
         streaming: bool = False,
+        stream_progress_factory: Callable[[str], StreamProgressPort | None] | None = None,
         covenant: str = "",
         principle: str = "",
         substrate: str = "",
@@ -692,6 +694,21 @@ class BaseAgent:
                 self._agent_id = now.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(2)
             if not self._created_at:
                 self._created_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Stream-progress Port (kernel/stream_progress/). Core never constructs
+        # the concrete loopback publisher: a composition root injects a factory
+        # that receives the stable ``agent_id`` resolved just above and returns
+        # the Port handed to ``SessionManager``. Bare/unit agents omit it and
+        # a raising factory is fail-open — the agent boots without a badge.
+        # An explicit ``streaming=False`` opt-out never calls the factory: a
+        # non-streaming session has no deltas to publish, so composing a
+        # publisher (and binding a loopback endpoint) for it would be waste.
+        self._stream_progress: StreamProgressPort | None = None
+        if stream_progress_factory is not None and streaming:
+            try:
+                self._stream_progress = stream_progress_factory(self._agent_id)
+            except Exception:
+                logger.warning("stream_progress_factory_failed", exc_info=True)
 
         # Write manifest — identity + construction recipe (no runtime state)
         self._started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1009,6 +1026,7 @@ class BaseAgent:
             logger_fn=self._log,
             build_system_batches_fn=self._build_system_prompt_batches,
             tool_result_recovery_lookup_fn=self._recover_pending_tool_result,
+            stream_progress=self._stream_progress,
         )
 
         # Boot ordinary intrinsics first. Official-intrinsic shims retain the

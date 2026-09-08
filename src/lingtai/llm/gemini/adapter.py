@@ -26,7 +26,7 @@ from lingtai.kernel.llm.base import (
 from lingtai.kernel.llm.interface import ToolResultBlock
 from lingtai.llm.base import LLMAdapter
 from lingtai.kernel.llm.interface import ChatInterface
-from lingtai.kernel.llm.streaming import StreamingAccumulator
+from lingtai.kernel.llm.streaming import OutputProgress, StreamingAccumulator, output_values
 from lingtai.llm.identity_headers import merge_lingtai_identity_headers
 
 logger = get_logger()
@@ -446,11 +446,12 @@ class InteractionsChatSession(ChatSession):
 
         return response
 
-    def send_stream(self, message, on_chunk=None) -> LLMResponse:
+    def send_stream(self, message, on_chunk=None, on_output_chars=None) -> LLMResponse:
         """Send with streaming — calls on_chunk(text_delta) as text arrives.
 
         Function call deltas arrive atomically (full args in one event),
-        so no incremental merging is needed.
+        so no incremental merging is needed.  ``on_output_chars`` receives
+        the length of every output payload an event carries (counts only).
         """
         # Record tool results in canonical interface (matches Anthropic/OpenAI)
         if isinstance(message, list) and message and isinstance(message[0], ToolResultBlock):
@@ -481,6 +482,7 @@ class InteractionsChatSession(ChatSession):
             kwargs["previous_interaction_id"] = self._interaction_id
 
         acc = StreamingAccumulator()
+        progress = OutputProgress(on_output_chars)
         usage = UsageMetadata()
         interaction_id: str | None = None
 
@@ -497,15 +499,18 @@ class InteractionsChatSession(ChatSession):
                 step = getattr(event, "step", event)
                 stype = getattr(step, "type", None)
                 if stype == "function_call":
+                    args = dict(step.arguments) if step.arguments else {}
+                    progress.add(getattr(step, "id", None), step.name, args)
                     acc.add_tool(ToolCall(
                         name=step.name.removeprefix("default_api:"),
-                        args=dict(step.arguments) if step.arguments else {},
+                        args=args,
                         id=getattr(step, "id", None),
                     ))
                 elif stype == "thought":
                     for summary_item in getattr(step, "summary", None) or []:
                         if getattr(summary_item, "type", None) == "text":
                             t = getattr(summary_item, "text", None)
+                            progress.add(t)
                             if t:
                                 acc.add_thought(t)
                 elif stype == "model_output":
@@ -513,6 +518,7 @@ class InteractionsChatSession(ChatSession):
                     for content_item in getattr(step, "content", None) or []:
                         if getattr(content_item, "type", None) == "text":
                             t = getattr(content_item, "text", None)
+                            progress.add(t)
                             if t:
                                 acc.add_text(t)
                                 if on_chunk:
@@ -525,10 +531,13 @@ class InteractionsChatSession(ChatSession):
                 dtype = getattr(delta, "type", None)
                 if dtype == "text":
                     t = getattr(delta, "text", None)
+                    progress.add(t)
                     if t:
                         acc.add_text(t)
                         if on_chunk:
                             on_chunk(t)
+                else:
+                    progress.add(*output_values(delta))
 
             elif etype == "interaction.completed":
                 interaction_obj = getattr(event, "interaction", event)

@@ -203,8 +203,10 @@ class MimoResponsesSession(_StandaloneCompactionMixin, OpenAIResponsesSession):
         self._record_calibration_sample(response)
         return response
 
-    def send_stream(self, message, on_chunk=None) -> LLMResponse:
-        response = super().send_stream(message, on_chunk=on_chunk)
+    def send_stream(self, message, on_chunk=None, on_output_chars=None) -> LLMResponse:
+        response = super().send_stream(
+            message, on_chunk=on_chunk, on_output_chars=on_output_chars
+        )
         self._record_calibration_sample(response)
         return response
 

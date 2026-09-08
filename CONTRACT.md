@@ -13,6 +13,7 @@ related_files:
   - src/lingtai/kernel/agent_presence/CONTRACT.md
   - src/lingtai/kernel/lifecycle_clock/CONTRACT.md
   - src/lingtai/kernel/project/CONTRACT.md
+  - src/lingtai/kernel/stream_progress/CONTRACT.md
   - src/lingtai/kernel/refresh_watcher/CONTRACT.md
   - src/lingtai/tools/bash/CONTRACT.md
   - src/lingtai/tools/notification/CONTRACT.md

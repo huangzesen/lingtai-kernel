@@ -38,6 +38,7 @@ from .llm.reasoning_effort import ReasoningEffortController, ReasoningEffortResu
 from .agent_session import AgentSession, RuntimeSession, new_runtime_session
 from .logging import get_logger
 from .reminders.context_pressure import ContextPressureReminder
+from .stream_progress import StreamProgressPort
 from .token_counter import count_tokens, count_tool_tokens
 
 __all__ = [
@@ -199,12 +200,20 @@ class SessionManager:
         logger_fn: Callable[..., None] | None,
         build_system_batches_fn: Callable[[], list[str]] | None = None,
         tool_result_recovery_lookup_fn: Callable[[Any], Any] | None = None,
+        stream_progress: StreamProgressPort | None = None,
     ):
         self._llm_service = llm_service
         self._config = config
         self._agent_name = agent_name
         self._display_name = agent_name or "agent"
         self._streaming = streaming
+        # Injected RAM-resident stream-progress Port (kernel/stream_progress/).
+        # ``None`` (bare/unit agents) keeps the exact pre-existing streaming
+        # call shape; a Port is bracketed around every streaming provider
+        # call and every failure it raises is swallowed — publication can
+        # never fail the LLM call.
+        self._stream_progress = stream_progress
+        self._stream_progress_warned = False
         self._build_system_prompt_fn = build_system_prompt_fn
         self._build_tool_schemas_fn = build_tool_schemas_fn
         self._logger_fn = logger_fn
@@ -327,6 +336,11 @@ class SessionManager:
         if type(value) is not bool:
             raise TypeError("streaming must be a bool")
         self._streaming = value
+
+    @property
+    def stream_progress(self) -> StreamProgressPort | None:
+        """The injected stream-progress Port, or ``None`` when not composed."""
+        return self._stream_progress
 
     @property
     def interaction_id(self) -> str | None:
@@ -558,17 +572,44 @@ class SessionManager:
     def _send_streaming(
         self, message: Any, retry_timeout: float
     ) -> LLMResponse:
-        """Streaming LLM send via send_stream."""
+        """Streaming LLM send via send_stream.
+
+        When a stream-progress Port is injected, the provider call is
+        bracketed: ``begin()`` runs before the wait starts and returns the
+        generation token; the count-only ``on_output_chars`` closure built
+        for *this* call adds the length of every provider output fragment
+        (counts only, never content) to that same generation from the worker
+        thread; and ``end(generation)`` runs in a ``finally`` so success and
+        failure both clear the snapshot. Because the closure and the ``end``
+        are bound to one generation, a timed-out worker that keeps emitting
+        after a later ``_send_streaming`` has begun cannot touch the newer
+        snapshot. The visible-text ``on_chunk`` callback is never used for
+        progress. Without a Port the call shape is byte-for-byte the
+        pre-existing one.
+        """
         self._message_seq += 1
 
-        response = send_with_timeout_stream(
-            chat=self._chat,
-            message=message,
-            timeout_pool=self._timeout_pool,
-            retry_timeout=retry_timeout,
-            agent_name=self._display_name,
-            logger=logger,
-        )
+        progress = self._stream_progress
+        on_output_chars = None
+        generation: int | None = None
+        if progress is not None:
+            generation = self._progress_begin(progress)
+            if generation is not None:
+                on_output_chars = self._make_output_chars_callback(progress, generation)
+
+        try:
+            response = send_with_timeout_stream(
+                chat=self._chat,
+                message=message,
+                timeout_pool=self._timeout_pool,
+                retry_timeout=retry_timeout,
+                agent_name=self._display_name,
+                logger=logger,
+                on_output_chars=on_output_chars,
+            )
+        finally:
+            if progress is not None and generation is not None:
+                self._progress_call(progress.end, generation)
 
         if response.text:
             if response.tool_calls:
@@ -577,6 +618,49 @@ class SessionManager:
                 self._text_already_streamed = True
 
         return response
+
+    def _progress_begin(self, progress: StreamProgressPort) -> int | None:
+        """``begin()`` fail-open; ``None`` means no generation was issued, so
+        this call publishes nothing further (no delta callback, no ``end``)."""
+        try:
+            generation = progress.begin()
+            if isinstance(generation, bool) or not isinstance(generation, int):
+                raise TypeError(
+                    "StreamProgressPort.begin() must return an int generation, "
+                    f"got {type(generation).__name__}"
+                )
+            return generation
+        except Exception:
+            self._warn_progress_failure()
+            return None
+
+    def _make_output_chars_callback(
+        self, progress: StreamProgressPort, generation: int
+    ) -> Callable[[Any], None]:
+        """Build the worker-thread count-only callback bound to one generation.
+
+        Receives output lengths from the provider adapter's ``OutputProgress``
+        seam; anything that is not a positive ``int`` publishes nothing.
+        """
+
+        def on_output_chars(count: Any) -> None:
+            if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+                return
+            self._progress_call(progress.add_chars, generation, count)
+
+        return on_output_chars
+
+    def _progress_call(self, fn: Callable[..., None], *args: Any) -> None:
+        """Invoke one Port operation fail-open; warn once per session."""
+        try:
+            fn(*args)
+        except Exception:
+            self._warn_progress_failure()
+
+    def _warn_progress_failure(self) -> None:
+        if not self._stream_progress_warned:
+            self._stream_progress_warned = True
+            logger.warning("stream_progress_publish_failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # Compaction

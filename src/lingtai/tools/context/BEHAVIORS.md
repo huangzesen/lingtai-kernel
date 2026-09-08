@@ -75,7 +75,7 @@ self-contained and executable verbatim by an agent with the tools listed in its
        "llm": {"provider": "gemini", "model": "test-model", "api_key": "fake-key", "base_url": null},
        "capabilities": {}, "soul": {"delay": 5}, "stamina": 10,
        "context_limit": null, "molt_pressure": 0.8, "molt_prompt": "", "max_turns": 5,
-       "admin": {}, "streaming": false
+       "admin": {}
      },
      "principle": "", "covenant": "You are a test agent.", "pad": "", "lingtai": ""
    }
@@ -366,7 +366,7 @@ still fail with the not-found/unauthorized error (the guard must not mask it).
        "llm": {"provider": "gemini", "model": "test", "api_key": "fake", "base_url": null},
        "capabilities": {}, "soul": {"delay": 60}, "stamina": 10,
        "context_limit": null, "molt_pressure": 0.8, "molt_prompt": "", "max_turns": 5,
-       "admin": {}, "streaming": false
+       "admin": {}
      },
      "principle": "", "covenant": "No network.", "pad": "", "lingtai": "",
      "venv_path": "<ROOT>/old/runtime/venv"

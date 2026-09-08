@@ -80,7 +80,7 @@ from lingtai.kernel.llm.interface import ToolResultBlock
 from lingtai.llm.base import LLMAdapter
 from lingtai.kernel.llm.interface import ChatInterface
 from ..interface_converters import to_anthropic
-from lingtai.kernel.llm.streaming import StreamingAccumulator
+from lingtai.kernel.llm.streaming import OutputProgress, StreamingAccumulator, output_values
 from lingtai.llm.identity_headers import merge_lingtai_identity_headers
 
 
@@ -485,8 +485,14 @@ class AnthropicChatSession(ChatSession):
         self,
         message,
         on_chunk: Callable[[str], None] | None = None,
+        on_output_chars: Callable[[int], None] | None = None,
     ) -> LLMResponse:
-        """Streaming send. User message committed to history only after success."""
+        """Streaming send. User message committed to history only after success.
+
+        ``on_chunk`` receives visible ``text_delta`` fragments only;
+        ``on_output_chars`` receives the length of every content block and
+        delta the stream delivers (counts only, never content).
+        """
         from lingtai.kernel.llm.interface import TextBlock, ThinkingBlock, ToolCallBlock
 
         # Record user input into interface first.  ``None`` means the
@@ -508,6 +514,7 @@ class AnthropicChatSession(ChatSession):
         # Build ephemeral Anthropic messages from interface — re-runs inside
         # the overflow-recovery loop so each retry sees the post-trim interface.
         acc = StreamingAccumulator()
+        progress = OutputProgress(on_output_chars)
         final_message = None
 
         def _do_stream():
@@ -523,12 +530,14 @@ class AnthropicChatSession(ChatSession):
                     etype = getattr(event, "type", None)
                     if etype == "content_block_start":
                         block = getattr(event, "content_block", None)
+                        progress.add(*output_values(block))
                         if block and getattr(block, "type", None) == "tool_use":
                             acc.start_tool(id=block.id, name=block.name)
                     elif etype == "content_block_delta":
                         delta = getattr(event, "delta", None)
                         if delta is None:
                             continue
+                        progress.add(*output_values(delta))
                         dtype = getattr(delta, "type", None)
                         if dtype == "text_delta":
                             t = getattr(delta, "text", "")

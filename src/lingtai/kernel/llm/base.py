@@ -458,18 +458,34 @@ class ChatSession(ABC):
         self,
         message,
         on_chunk: Callable[[str], None] | None = None,
+        on_output_chars: Callable[[int], None] | None = None,
     ) -> LLMResponse:
-        """Send a message with optional streaming callback for text chunks.
+        """Send a message with optional streaming callbacks.
 
         If the session supports streaming, calls ``on_chunk(text_delta)``
-        as text tokens arrive.  Always returns the complete ``LLMResponse``
-        at the end.
+        as **visible text** tokens arrive — never tool-argument JSON or
+        reasoning — and always returns the complete ``LLMResponse`` at the
+        end.
 
-        Default implementation falls back to non-streaming ``send()``.
+        ``on_output_chars(count)`` is the count-only output-progress
+        callback: whatever the provider outputs, its length is added — it
+        receives positive ``int`` counts and never any content.  Streaming
+        sessions feed it through ``OutputProgress``; both callbacks are
+        optional and independent.
+
+        Default implementation falls back to non-streaming ``send()`` and,
+        when asked, reports the whole response's length once after the call
+        returns — it never claims temporal streaming.
         """
         response = self.send(message)
         if on_chunk and response.text:
             on_chunk(response.text)
+        if on_output_chars is not None:
+            from .streaming import response_output_chars
+
+            count = response_output_chars(response)
+            if count > 0:
+                on_output_chars(count)
         return response
 
     def commit_tool_results(self, tool_results: list) -> None:

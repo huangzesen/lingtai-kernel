@@ -16,6 +16,7 @@ from lingtai.adapters.posix.mail import PosixFilesystemMailAdapter
 from lingtai.adapters.posix.agent_presence import PosixAgentPresenceStoreAdapter
 from lingtai.adapters.posix.notification_store import PosixNotificationStoreAdapter
 from lingtai.adapters.lifecycle_clock import SystemLifecycleClockAdapter
+from lingtai.adapters.stream_progress import loopback_stream_progress_factory
 from lingtai.adapters.refresh_watcher import select_refresh_watcher
 from lingtai.adapters.workdir_lease import select_workdir_lease
 from lingtai.kernel.config_resolve import (
@@ -197,6 +198,10 @@ def build_agent(
             ensure_ascii=False,
         ),
         streaming=runtime_policy.streaming,
+        # Stream-progress is a composition-only loopback publisher. The effective
+        # System runtime policy above controls streaming; BaseAgent does not invoke
+        # this factory when that policy is false.
+        stream_progress_factory=loopback_stream_progress_factory,
         _forced_disable=_forced_disable,
         _turn_origin_policy=_turn_origin_policy,
         _requires_turn_origin_policy=_requires_turn_origin_policy,
