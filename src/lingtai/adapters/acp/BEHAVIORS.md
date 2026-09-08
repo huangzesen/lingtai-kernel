@@ -104,10 +104,63 @@ the evidence trail in the task report.
 ### Steps
 
 1. Run `python -m pytest -q -x tests/test_puffo_v0_profile.py`.
-2. Inspect the registry cases: only an active, entry-digest-valid opaque id
+2. Inspect the registry and discovery cases: only an active, entry-digest-valid opaque id
   with its original directory identity resolves; tampered, retargeted, or
   revoked entries, including a missing required revocation log, fail before
-  composition. An active identity and workspace cannot be bound twice.
+  composition, each with a distinct message keyed to the caller's recovery, and
+  integrity is decided before policy version so a tampered entry is never read as
+  a benign drift. An active identity and workspace cannot be bound twice; a
+  policy-drifted occupant still blocks provisioning but names its own id and the
+  revoke recovery. The one-to-one binding guard compares the stored device/inode
+  identity, not the path string, so a directory renamed away and reached through
+  a symlink at its old path cannot be bound twice; it reads each entry through the
+  classifier (a corrupted status cannot hide an occupant) and fails closed on an
+  unreadable binding rather than skipping it. A discovery query stays below its
+  explicit root, skips symlink
+  escapes and unreadable descendants, classifies each directory by caller action
+  (`available`/`bound`/`revoked`/`policy_version_mismatch`/`stale_binding`/
+  `integrity_failed`/`shape_mismatch`) with no two distinct-action states sharing
+  a `(status, runtime_id, workspace)` representation, surfaces the `runtime_id` of
+  a revoked, drifted, or stale binding so it can be revoked, reports no fabricated
+  workspace for an unbound directory, and leaves registry bytes and modes
+  unchanged. Discovery attributes each entry to a walked directory by its
+  provisioned device/inode identity, not the stored path, so `bound` is a live
+  promise verified against that identity — the same check resolve enforces; an
+  entry whose runtime-id syntax is invalid (rejected by resolve, unreachable by
+  revoke) classifies `shape_mismatch`, never `bound`. A
+  same-path replacement therefore reports the recreated directory `available` (a
+  new, unbound identity that really provisions) and the moved original
+  `stale_binding`; that recreated `available` directory additionally carries an
+  advisory `formerly_bound_runtime_id` naming the entry that recorded the path but
+  no longer holds it (sourced from any non-revoked entry's stored path, so a
+  policy-drifted or shape-mismatched replacement is flagged too), which changes no
+  `status` and is not part of the distinctness invariant. Discovery reads the same
+  two binding fields the guard does (`agent_dir` and `workspace`): a revocation log
+  present without its registry, or any non-revoked entry whose stored `agent_dir`
+  or `workspace` binding cannot be read, makes discovery fail closed for the whole
+  listing rather than report any directory `available` — the guard parses both
+  bindings before any comparison and refuses every provision while such an entry
+  stands, so discovery must match. Confirm the classifier ordering: digest PRESENCE
+  is integrity (a missing/non-str `entry_digest` is `integrity_failed`, not shape),
+  and value-shape — profile fields, runtime-id syntax, a `status` that is exactly
+  `active`/`revoked`, and well-formed binding payloads — is decided BEFORE the
+  revoked gate, so an unknown signed `status` (e.g. `disabled`) is blocking, never
+  released, and no value defect is laundered into `revoked` by editing `status`.
+  Confirm `revoke_runtime` admits only a `bound`/policy-drift/stale entry and
+  refuses tampered, malformed, unknown-status, or already-revoked ones BEFORE any
+  write — critically before the tombstone append, since a tombstone alone releases
+  the directory and the log is append-only — so a refused revoke leaves registry
+  bytes and the tombstone's bytes/line-count unchanged and the entry still blocking;
+  `integrity_failed`/`shape_mismatch` thus have no self-service clear as behavior,
+  not wording. Confirm the guard aggregates conflicts and selects by the discover
+  precedence, so its named occupant and recovery are independent of registry
+  insertion order. Confirm a policy-drifted entry reports a workspace only when that
+  workspace's binding is still live (a deleted or same-path-replaced workspace
+  reports `null`). Confirm the mechanized invariants over the damaged-entry roster:
+  every discover `bound` output resolves and every `available` output provisions
+  (with a healthy control exercising both branches), and every blocking subtype
+  stays blocked and byte-unchanged across `revoke` — swept per subtype, not by a
+  single sample, and across registry insertion orders.
 3. Inspect the profile session and turn-origin cases: `puffo-v0` rejects every
    non-empty `mcpServers` input. `puffo-v1` accepts exactly one `puffo` service
    with `-m puffo_agent.mcp.puffo_core_server`, a deployment-local absolute

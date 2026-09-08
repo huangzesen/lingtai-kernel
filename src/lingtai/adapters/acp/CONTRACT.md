@@ -1,6 +1,6 @@
 ---
 name: acp-local-stdio
-contract_version: 3
+contract_version: 4
 root_contract: CONTRACT.md
 related_files:
   - src/lingtai/adapters/acp/ANATOMY.md
@@ -332,8 +332,116 @@ argv, environment, or MCP command from the remote caller.
     no background descendants, or network containment. “Authenticated Adapter”
     is a typed handoff from the Puffo driver that owns the local ACP process;
     LingTai's stdio server does not independently authenticate a remote Puffo
-    user. Registry provision/revoke
-    mutations are process-serialized; revocation additionally writes an
+    user. Registry provision/revoke mutations are process-serialized.
+    `lingtai-agent puffo-v0 discover --root <directory> --json` is a separate
+    read-only control-plane query: it lists only initialized directories below
+    the caller-selected canonical root, never follows directory symlinks, skips
+    unreadable descendants, and creates or rewrites no registry, lock, or
+    tombstone artifact. Each item returns canonical `agent_dir`, a directory-name
+    display label, a `runtime_id` when the directory is attributed to a registry
+    entry, a `workspace` only when a live binding exists (`null` otherwise, never
+    a fabricated path), a `status` classifying the directory by the action it
+    demands of the caller, and an advisory `formerly_bound_runtime_id` (`null`
+    except on an `available` directory whose path a prior entry recorded — see
+    below). `status` is emitted directly from that classification,
+    never re-derived from whether a `runtime_id` is present, so the states below
+    are distinguishable: `available` (no entry — may provision), `bound` (usable
+    now — resolvable), `revoked` (re-provision under a new id),
+    `policy_version_mismatch` (authentic but provisioned under an older policy
+    version — revoke and re-provision the same directory), `stale_binding`
+    (authentic and active, but the on-disk directory it names no longer presents
+    the provisioned device/inode/owner/group identity — revoke and re-provision
+    after verifying the directory), `integrity_failed` (digest
+    missing or mismatched — stop and escalate; never auto-revoked), and
+    `shape_mismatch` (authentic but not this profile — escalate). Discovery
+    attributes each entry to a walked directory by that provisioned device/inode
+    identity, never by the stored path string, so an entry whose recorded path has
+    since become non-canonical (a parent turned into a symlink, or the directory
+    was renamed with a symlink left at the old path) is still attributed to the
+    physical directory it actually holds. `bound` is a
+    live promise, not a registry-content claim: discovery verifies the recorded
+    agent_dir and workspace still resolve to their provisioned identity — the
+    exact check `resolve_runtime` enforces — before reporting
+    `bound`, and reports `stale_binding` (with the `runtime_id` and no workspace)
+    otherwise, so `bound = usable now` cannot be a lie a subsequent resolve
+    exposes. The classifier also validates runtime-id syntax: an entry whose id is
+    syntactically invalid — which `resolve_runtime` rejects outright and `revoke`
+    cannot reach — classifies as `shape_mismatch`, never `bound`, closing the gap
+    where a valid digest over an illegal id was reported `bound` yet not resolvable. Because attribution is by identity, a same-path replacement — the
+    recorded directory renamed away and a fresh directory recreated at the same
+    path — reports the fresh directory `available` (its identity is genuinely
+    unbound and provisioning it succeeds), while the moved original, if still
+    under the root, reports `stale_binding` under the runtime_id that owns that
+    identity. So the caller is not left to mistake a reused path for a never-bound
+    one, that `available` directory also carries `formerly_bound_runtime_id`: the
+    id of the entry that recorded this exact path but whose identity is no longer
+    here. It is sourced from the stored path of any non-revoked entry (a revoked
+    entry released its path on purpose), so a policy-drifted or shape-mismatched
+    entry whose directory was replaced is flagged too, not only the active-then-
+    moved case; when several entries name one path the most-constraining supplies
+    the id. It is advisory: it never changes `status` (the directory stays
+    provisionable) and is deliberately NOT part of the distinctness invariant —
+    two `available` directories, one signed and one not, demand the same action.
+    The governing invariant: two states that require a different caller
+    response never share a `(status, runtime_id, workspace)` representation.
+    Classifier ordering is load-bearing. Integrity is decided before policy version
+    and independently, so a tampered entry is never read as a benign version drift
+    and auto-revoked; digest PRESENCE is part of integrity, so a missing or
+    non-string `entry_digest` is `integrity_failed`, not `shape_mismatch`. Every
+    value-shape check — the profile fields, a syntactically valid runtime id, a
+    `status` that is exactly `active` or `revoked`, and well-formed binding payloads
+    — is decided BEFORE the revoked gate, and only an explicit revocation (`status ==
+    "revoked"` or a revocation-log tombstone) releases a directory. An unknown but
+    validly signed `status` is therefore blocking (`shape_mismatch`), never silently
+    released, and no value defect can be laundered into a released state by editing
+    `status`. When one directory is named by several entries, discovery reports the
+    most constraining state (`integrity_failed` > `shape_mismatch` >
+    `policy_version_mismatch` > `stale_binding` > `bound` > `revoked`); the provision
+    guard selects among conflicting entries by this SAME precedence, so which
+    occupant it names is independent of registry insertion order and never
+    contradicts what discovery reports for that directory. Two active entries on one
+    directory remain hard corruption. The same classification
+    governs `resolve_runtime`, which rejects every non-active state with a
+    distinct message, and `provision_runtime`, whose one-to-one binding guard
+    compares that same provisioned device/inode identity — never the path string,
+    so a renamed directory reached through a symlink cannot be bound twice — and
+    reads each entry's status through the classifier, so a corrupted status field
+    cannot make an occupant vanish from the guard. The guard fails closed on an
+    entry whose binding it cannot read rather than skipping it (a skip is the
+    allow direction). Every rejection it raises names the runtime_id that holds the
+    directory, the path that entry recorded, and the operation that actually clears
+    it — never a generic "another active runtime" the caller cannot act on, and
+    never an operation that does not work. For an active or policy-drifted occupant
+    that is revoke. For a tampered (`integrity_failed`) or malformed
+    (`shape_mismatch`) entry there is no safe self-service clear, and that is a
+    BEHAVIOR, not merely a message: `revoke_runtime` admits only an entry the
+    classifier rules ACTIVE or `policy_version_mismatch` (a stale binding is included
+    — the classifier rules it ACTIVE and discovery downgrades it only for display)
+    and refuses every other entry — tampered, malformed, unknown-status, or already
+    revoked — before it writes anything. The admission check runs BEFORE the first
+    persistence deliberately: revocation appends a tombstone before it touches the
+    entry, and a tombstone alone releases the directory (the classifier honours the
+    revocation log), so a check placed after the append would release identity even
+    on a refused call — irreversibly, because the log is append-only. Refusing up
+    front also means revoke never re-signs a tampered entry (which would erase the
+    integrity signal) and never re-adds a dropped `entry_digest`/`status` to launder
+    a broken entry into a released state. Each rejection message names this admission
+    rule rather than a per-subtype capability claim (so no message can be falsified
+    by a shape subtype it did not enumerate), and `resolve_runtime` reports the same
+    escalation for the same states. The guard parses both stored bindings —
+    `agent_dir` and `workspace` — before any identity comparison, so an entry with
+    either binding unreadable makes the guard refuse every provision; discovery reads
+    the same two fields and fails closed for the whole listing to match. A revocation
+    log present without its registry, and any non-revoked entry whose stored
+    `agent_dir` or `workspace` binding cannot be read, are broken control-plane states
+    — provisioning refuses to re-initialize over an orphaned log and cannot rule out a
+    conflict on a binding it cannot read — so discovery fails closed rather than
+    reporting any directory `available`. A legitimately revoked entry, by contrast,
+    has released its directory, which is reported `available` — matching provision,
+    which lets a new-id binding through; such an entry always has well-formed
+    bindings, because a malformed binding payload classifies `shape_mismatch` ahead of
+    the revoked gate, so a "revoked entry with an unreadable binding" cannot arise. Revocation
+    additionally writes an
     append-only tombstone before the mutable registry, so a stale full-registry
     snapshot cannot reactivate an id. The versioned registry declares this log
     mandatory: a missing, unreadable, malformed, or mismatched log rejects

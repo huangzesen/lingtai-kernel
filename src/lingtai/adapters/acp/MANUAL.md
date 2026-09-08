@@ -107,13 +107,145 @@ Revocation does not terminate an already-running ACP host or invalidate its
 in-progress turn; stop that host separately when incident response must stop
 existing work.
 
+To show importable identities, scan only a directory explicitly selected by the
+operator:
+
+```bash
+lingtai-agent puffo-v0 discover --root /operator/selected/root --json
+```
+
+The command is read-only: it lists only descendant directories containing
+`init.json`, skips unreadable descendants and directory symlinks, and never
+creates or rewrites the registry, lock, or tombstone log. Each result includes
+canonical `agent_dir`, a directory-name `display_name`, a `runtime_id` when the
+directory is attributed to an entry, a `workspace` only when a live binding
+exists (`null` otherwise), a `status` classifying the directory by the
+caller's next action, and an advisory `formerly_bound_runtime_id` (`null` unless
+this is an `available` path a prior entry recorded): `available` (may provision), `bound` (usable now —
+resolvable), `revoked` (re-provision under a new id), `policy_version_mismatch`
+(revoke and re-provision the same directory), `stale_binding` (the recorded
+directory no longer presents the provisioned device/inode/owner/group identity —
+revoke and re-provision after verifying the directory), `integrity_failed` (stop
+and escalate), or `shape_mismatch` (escalate). The `status` is emitted from the
+classification, not inferred from the presence of a `runtime_id`, so a drifted or
+tampered directory is never reported as simply `available` or `bound`. Discovery
+attributes each entry to a walked directory by its provisioned device/inode
+identity, not by the stored path string, so an entry whose recorded path has
+since become non-canonical (a parent symlink, or a rename with a symlink left
+behind) is still attributed to the physical directory it holds. `bound`
+verifies the recorded agent_dir and workspace still resolve to their provisioned
+identity — the same check `resolve` enforces — so it is never reported for a
+directory `resolve` would reject. The classifier also validates the entry's
+runtime-id syntax: a syntactically invalid id (which `resolve` rejects outright,
+and which `revoke` cannot even reach) classifies as `shape_mismatch`, never
+`bound`, so `bound` continues to imply "`resolve` succeeds here". One consequence of identity attribution: a
+same-path replacement (rename the recorded directory away, recreate a fresh one
+at the same path) reports the fresh directory `available` — its identity is
+genuinely unbound and provisioning it succeeds — while the moved original, if
+still under the root, reports `stale_binding`. So a reused path is not mistaken
+for a never-bound one, that `available` directory also carries an advisory
+`formerly_bound_runtime_id` naming the entry that recorded this path but no longer
+holds it. It is sourced from the stored path of any non-revoked entry (so a
+policy-drifted or shape-mismatched entry whose directory was replaced is flagged
+too), and is advisory only: `status` stays `available` and the field is not part
+of the distinctness invariant. The hint is matched by comparing the entry's stored
+canonical path against the walked directory's resolved path as strings; if those
+canonical forms ever diverge the sign is silently omitted (the door still opens,
+just without the sign), so treat its presence as best-effort, not a guarantee.
+A revocation log present without
+its registry, or a non-revoked entry whose stored `agent_dir` **or** `workspace`
+binding cannot be read, makes discovery fail closed rather than report any
+directory `available`, because provision refuses to re-initialize over an
+orphaned log and cannot rule out a conflict it cannot read. Discovery checks the
+same two binding fields the provision guard does: the guard parses both stored
+bindings before any identity comparison and rejects on either, so a single
+unreadable binding makes the guard refuse *every* provision — the whole registry
+is unprovisionable until that entry is repaired. Discovery therefore fails closed
+for the whole listing, not just for the one directory that entry names; reporting
+any other directory `available` while that entry stands would promise a provision
+that cannot succeed. A legitimately revoked entry has released its directory, so
+its directory reads `available`, matching provision's new-id allowance; such an
+entry always has well-formed bindings, because a malformed binding payload
+classifies `shape_mismatch` ahead of the revoked gate — a "revoked entry with an
+unreadable binding" cannot arise.
+
 Provision stores each directory's canonical path and POSIX device/inode/owner/
 group identity. An active agent directory or workspace may be bound to only one
-runtime. At launch the profile rejects symlink retargeting, a changed canonical
-path, or a replacement directory at the same path, then rechecks the binding
-immediately before Agent construction. This detects normal configuration drift;
-it is not host isolation against a same-OS principal that changes the filesystem
-after that final check.
+runtime: the guard compares that stored device/inode identity, never the path
+string, so a directory renamed away and reached through a symlink at its old
+path cannot be bound a second time. The guard reads each entry through the
+classifier rather than its raw `status`, so a corrupted status field cannot hide
+an occupant, and it fails closed on an entry whose binding it cannot read instead
+of skipping it. When several entries conflict on one target directory the guard
+aggregates them and reports the most-constraining by the SAME precedence discovery
+uses (an unreadable binding outranks every readable occupant), so which occupant it
+names — and thus which recovery it prescribes — is independent of registry
+insertion order and never contradicts discovery for that directory. At launch the
+profile rejects symlink retargeting, a changed canonical path, or a replacement
+directory at the same path, then rechecks the binding immediately before Agent
+construction. This detects normal configuration drift; it is not host isolation
+against a same-OS principal that changes the filesystem after that final check.
+
+`revoke_runtime` is a state change, not a repair. It admits only an entry the
+classifier rules `bound` or `policy_version_mismatch` (a stale binding is admitted
+too — the classifier rules it `bound`, discovery downgrades it only for display) and
+refuses every other entry — tampered, malformed, unknown-status, or already revoked.
+The admission check runs BEFORE the first write: revocation appends its tombstone
+before it touches the entry, and a tombstone alone releases the directory, so a
+check placed after the append would release identity even on a refused call, and the
+append-only log makes that release irreversible. Refusing up front is also what
+keeps the integrity signal intact (revoke never re-signs a tampered entry) and stops
+a dropped `entry_digest`/`status` from being re-added to launder a broken entry into
+a released state. So `integrity_failed` and `shape_mismatch` have no self-service
+clear as a matter of behavior, not just wording; every rejection names that
+admission rule rather than a per-subtype "cannot" claim.
+
+The four operations that read an entry — `discover`, the provision guard,
+`resolve`, and `revoke` — must agree on every input that decides an entry's
+usability, or one promises an outcome another rejects. Each such input must be read
+on all four sides (or, where a side legitimately does not act on it, deliberately
+not). "classifier" means the input is consumed through `_classify_registry_entry`,
+the single source of truth all four route through:
+
+| Entry input | discover | provision guard | resolve | revoke |
+| --- | --- | --- | --- | --- |
+| structural shape (key set) | classifier | classifier | classifier | classifier (admission) |
+| `entry_digest` present + matches | classifier | classifier | classifier | classifier (admission) |
+| revocation-log presence/validity | fail-closed read | fail-closed read | fail-closed read | fail-closed read |
+| raw `status` value (incl. unknown) | classifier | classifier | classifier | classifier (admission) |
+| profile fields | classifier | classifier | classifier | classifier (admission) |
+| `runtime_policy_version` | classifier | classifier | classifier | classifier (admitted) |
+| key ↔ `entry.runtime_id` | classifier | classifier | classifier | classifier (admission) |
+| runtime-id syntax | classifier | classifier | `_valid_runtime_id` | `_valid_runtime_id` + classifier |
+| `agent_dir_binding` well-formed | classifier + fail-closed | classifier + fail-closed | classifier + `_bound_directory` | classifier (admission) |
+| `workspace_binding` well-formed | classifier + fail-closed | classifier + fail-closed | classifier + `_bound_directory` | classifier (admission) |
+| live on-disk identity | `bound`→`stale_binding`; workspace liveness on drift | n/a (compares target) | `_bound_directory` | n/a |
+| `init.json` present | lister only | n/a | n/a | n/a |
+
+An empty cell is a candidate defect of the "one side promises, another does not
+deliver" kind — every gap found so far was one. The table alone is not enough;
+three axes cut across it and must be swept explicitly, because a per-state row can
+hide a defect that lives inside a state or across entries:
+
+- **Raw `status` value → state, including unknown values.** Only an explicit
+  `revoked` (or a revocation-log tombstone) releases a directory; any other signed
+  `status` (e.g. `disabled`) is blocking (`shape_mismatch`), never silently released.
+- **Subtypes within one state.** `shape_mismatch` and `integrity_failed` each have
+  many subtypes (a foreign profile, a dropped key, an invalid binding payload, a
+  missing vs. mismatched digest, …). A message or test that asserts a universal about
+  a state ("revoke cannot clear it") must range over its subtypes, not one sample —
+  the single-sample confirmation of a universal is what let an earlier review pass a
+  false claim. Recovery must be uniform across a state's subtypes.
+- **Registry iteration order.** When several entries conflict on one directory, the
+  chosen conflict and its prescribed recovery must not depend on insertion order; the
+  guard selects by the discover precedence.
+
+`test_discover_promises_hold_across_a_damaged_entry_matrix` and the parametrized
+`test_damaged_entry_never_breaks_a_discover_promise` / `test_revoke_refuses_and_preserves_a_blocking_entry`
+sweep a damaged-entry roster and pin the end-to-end invariants this table protects —
+every `bound` output resolves, every `available` output provisions, and a blocking
+entry stays blocked (and unchanged) across `revoke` — so a newly emptied cell
+reddens without relying on the table being kept in sync by hand.
 
 `entry_digest` protects the exact registry record, not the complete effective
 launch/security configuration. In particular, it does not freeze or hash

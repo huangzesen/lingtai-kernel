@@ -78,6 +78,8 @@ co-located [`CONTRACT.md`](CONTRACT.md), and its operator/developer procedure is
   and workspace, verifies an entry digest plus provision-time filesystem
   identity, serializes provision/revoke read-modify-write operations with a
   POSIX lock, records terminal revocations in an append-only tombstone log, and
+  performs read-only discovery of initialized identities below one caller-selected
+  root without following directory symlinks or creating registry artifacts. It
   refuses missing, malformed, tampered, retargeted, or revoked entries before
   Agent construction. Its `entry_digest` authenticates registry data rather
   than claiming to authenticate the effective manifest, tool/action, or full
@@ -100,9 +102,9 @@ co-located [`CONTRACT.md`](CONTRACT.md), and its operator/developer procedure is
   Shared poisoned-worker exit logging is lease-aware: retained ownership may log,
   while a successful `STOPPED` release skips every later workdir append and still
   reaches the unconditional process exit.
-- `../../cli_puffo_v0.py` — local-only control plane that provisions an existing
-  persistent identity or revokes it for future `puffo-v0` launches; it is not an
-  ACP data-plane surface.
+- `../../cli_puffo_v0.py` — local-only control plane that discovers initialized
+  identities below an explicit root, provisions an existing persistent identity,
+  or revokes it for future `puffo-v0` launches; it is not an ACP data-plane surface.
 - `../../kernel/process_match.py` — exact duplicate-host grammar for module,
   console, legacy, and quoted Windows `.exe` ACP launch forms.
 - `../../kernel/turns.py`, `../../kernel/execution_workspace.py`, `../../kernel/turn_events.py`, `../../kernel/turn_permissions.py`, `../../kernel/provider_admission.py`, and `../../kernel/tool_executor.py` — inward Core boundary consumed by the Adapter:
