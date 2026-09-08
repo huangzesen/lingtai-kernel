@@ -378,6 +378,20 @@ def _start(agent) -> None:
             agent._log("worker_hang_recovery_rehydrate_failed", error=str(e)[:300])
         except Exception:
             pass
+    # A poison-recovery relaunch must stay ASLEEP until a genuinely later
+    # wake: baseline the notification state already present at boot (the
+    # rehydrated event above included) before `_heartbeat_runtime_ready`
+    # lets the heartbeat sync, so the first tick is not a self-wake. The
+    # helper is a no-op without a pending recovery and fails toward waking.
+    try:
+        from .worker_recovery import baseline_notifications_for_pending_worker_recovery
+
+        baseline_notifications_for_pending_worker_recovery(agent)
+    except Exception as e:
+        try:
+            agent._log("worker_hang_notification_baseline_failed", error=str(e)[:300])
+        except Exception:
+            pass
     # Rebuild the AGENT-SESSION (since-current-molt) from the durable trajectory
     # and seed the token counters from it, so a refresh/restart preserves the
     # since-molt ``token_usage.session`` totals instead of restoring LIFETIME

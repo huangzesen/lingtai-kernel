@@ -440,6 +440,142 @@ def rehydrate_worker_hang_recovery(agent) -> int:
     return 1 if event_id else 0
 
 
+def _pending_recovery_prompt_artifacts(agent) -> list[tuple[str, Path, dict]]:
+    """Open artifacts whose one-shot recovery notice has not been delivered."""
+    return [
+        item for item in _open_artifacts(agent)
+        if not item[2].get("prompt_injected_at")
+    ]
+
+
+def has_pending_worker_hang_recovery_prompt(agent) -> bool:
+    """Return True iff a poison recovery is still pending its one-shot notice.
+
+    Read-only; exactly the predicate ``maybe_prepend_worker_hang_recovery_prompt``
+    fires on. This is the durable discriminator between a relaunch that exists
+    only to discard a poisoned in-process interface and an ordinary user/System
+    refresh: the artifact is written before the forced refresh and is marked
+    ``prompt_injected_at`` only by the next safe text request in the fresh
+    process. Any read failure answers ``False`` (treat as ordinary), so callers
+    fail toward the normal wake path, never toward silence.
+    """
+    try:
+        return bool(_pending_recovery_prompt_artifacts(agent))
+    except Exception:
+        return False
+
+
+def baseline_notifications_for_pending_worker_recovery(agent) -> bool:
+    """Keep a poison-recovery relaunch ASLEEP through its first notification sync.
+
+    Called by ``lifecycle._start`` after ``rehydrate_worker_hang_recovery`` and
+    before the heartbeat is allowed to sync. A fresh process starts with an
+    empty ``_notification_fp``, so the very first sync would read every
+    already-present channel — including the rehydrated ``kernel.llm_worker_hang``
+    event — as a change and wake the agent (ASLEEP → IDLE + ``MSG_TC_WAKE``)
+    with no new external input. The relaunch exists only to discard the unsafe
+    interface; the new logical agent must wait for a genuinely later wake.
+
+    While a pending recovery exists, take one coherent observation the same
+    way ``_sync_notifications`` does and, only when that observation is
+    *solely* the worker-hang recovery event, seed both the masked
+    (wake-deciding) and raw fingerprints to it. Nothing is dismissed, cleared,
+    hidden, or delivered: the next real notification change differs from this
+    baseline and wakes with the full current payload, worker-hang event
+    included.
+
+    Anything else already pending at boot is a real wake that must be
+    delivered on the first tick, not deferred: an external channel (mail,
+    Telegram, ...) that arrived during the old process's hang, a system event
+    that is not a WorkerStillRunning reference, or any masked entry beyond the
+    virtual quiet baseline. In that case, as for an unstable read or a Store
+    failure, nothing is seeded (the heartbeat's own sync then decides, i.e.
+    fails toward waking) and the reason is logged.
+
+    Returns True iff the baseline was seeded.
+    """
+    if not has_pending_worker_hang_recovery_prompt(agent):
+        return False
+    try:
+        from ..notifications import (
+            _system_events,
+            _workdir_key,
+            coherent_attention_read,
+            is_channel_allowed,
+            masked_empty_attention_fp,
+            sync_hook_registry,
+        )
+
+        workdir = _workdir_key(agent)
+        # Same channel view as `_sync_notifications`: registered hook channels
+        # must be part of the observation, or the first tick would see a
+        # different fingerprint and wake anyway. The consumer-delay timer is
+        # deliberately NOT armed here — the run loop does not exist yet and
+        # `coherent_attention_read` already reconciles an elapsed persisted
+        # delay; the ordinary first heartbeat arms the timer.
+        sync_hook_registry(agent)
+        observed = coherent_attention_read(
+            agent._notification_store,
+            lambda channel: is_channel_allowed(channel, workdir=workdir),
+            workdir,
+        )
+        quiet_baseline = masked_empty_attention_fp(workdir)
+    except Exception as read_err:
+        try:
+            agent._log(
+                "worker_hang_notification_baseline_skipped",
+                reason="read_failed",
+                error=(str(read_err) or repr(read_err))[:300],
+            )
+        except Exception:
+            pass
+        return False
+    if not observed.stable:
+        try:
+            agent._log(
+                "worker_hang_notification_baseline_skipped",
+                reason="unstable_read",
+            )
+        except Exception:
+            pass
+        return False
+    system_payload = observed.payloads.get("system")
+    system_events = _system_events(system_payload)
+    only_worker_hang = (
+        set(observed.payloads.keys()) == {"system"}
+        and isinstance(system_payload, dict)
+        and bool(system_events)
+        and all(
+            isinstance(event, dict) and is_worker_hang_ref(event.get("ref_id"))
+            for event in system_events
+        )
+        and tuple(
+            entry for entry in observed.masked_fp
+            if not (entry and entry[0] == "system.json")
+        ) == tuple(quiet_baseline)
+    )
+    if not only_worker_hang:
+        try:
+            agent._log(
+                "worker_hang_notification_baseline_skipped",
+                reason="foreign_notifications_pending",
+                channels=sorted(str(k) for k in observed.payloads.keys())[:20],
+            )
+        except Exception:
+            pass
+        return False
+    agent._notification_fp = observed.masked_fp
+    agent._notification_raw_fp = observed.raw_fp
+    try:
+        agent._log(
+            "worker_hang_notification_baselined",
+            channels=sorted(str(k) for k in observed.payloads.keys())[:20],
+        )
+    except Exception:
+        pass
+    return True
+
+
 def maybe_prepend_worker_hang_recovery_prompt(agent, content: str) -> str:
     """Prepend one concise recovery notice to the next safe text request.
 
@@ -448,10 +584,7 @@ def maybe_prepend_worker_hang_recovery_prompt(agent, content: str) -> str:
     """
     if not isinstance(content, str):
         return content
-    artifacts = [
-        item for item in _open_artifacts(agent)
-        if not item[2].get("prompt_injected_at")
-    ]
+    artifacts = _pending_recovery_prompt_artifacts(agent)
     if not artifacts:
         return content
     _created_at, path, payload = artifacts[0]

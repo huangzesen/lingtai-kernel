@@ -25,6 +25,7 @@ related_files:
   - src/lingtai/tools/system/karma.py
   - tests/test_aed_recovery.py
   - tests/test_notification_sync.py
+  - tests/test_cli_worker_poison_recovery.py
   - tests/test_silence_kill.py
   - tests/test_system.py
   - tests/test_system_declared_plugin.py
@@ -246,6 +247,29 @@ Clause IDs are stable; each rule composes the linked normative source.
    (the Port's normal return) keeps the claim for the rest of the process
    lifetime even if logging or shutdown signaling after it fails.
    Guarded by: [BA002](BEHAVIORS.md#behavior-ba002)
+   A forced refresh after `WorkerStillRunningError` (provider timeout plus
+   grace with the worker thread still alive) physically relaunches only to
+   discard the unsafe in-process interface; it is not a request for work.
+   While the bounded recovery artifact under `history/unfinished_turns/` is
+   still open and has not delivered its one-shot notice
+   (`prompt_injected_at` unset), the relaunched process MUST NOT synthesize
+   an inference round: the CLI host skips the `system.refresh_successful`
+   kick-start, and `_start` baselines the coherent notification observation
+   already present at boot before the heartbeat may sync — but only when
+   that observation is solely the rehydrated `kernel.llm_worker_hang`
+   recovery event (every `system` event a WorkerStillRunning reference, no
+   other channel, nothing beyond the virtual quiet daemon baseline). It
+   dismisses, clears, and hides nothing. Any external notification already
+   pending at boot (mail, Telegram, another system event) is a real wake:
+   no baseline is seeded and the first heartbeat tick wakes normally and
+   delivers every channel. Otherwise the agent remains ASLEEP until a
+   genuinely later request or notification change, which wakes normally
+   with the full current payload; the next safe text request then carries
+   the one-shot recovery notice. An unstable or failed baseline read seeds
+   nothing and fails toward waking. Ordinary user/System refreshes,
+   already-prompted artifacts, and resolved artifacts keep the pre-existing
+   kick-start.
+   Guarded by: [BA006](BEHAVIORS.md#behavior-ba006)
 6. `agent-runtime.process-identity.v1` — An agent-run process is identified
    by its command line through the canonical matcher; runtime relaunches
    (watcher, CPR, avatar) always use the module form
@@ -525,8 +549,11 @@ graph survives missing POSIX mechanisms — the construction-gate proof), and
 terminal guards plus fresh-dequeue latch reset and merge-race survival),
 `tests/test_tool_result_restore_after_continuation_failure.py` (preset-latch
 non-dispatch/no-continuation with latch retention),
-`tests/test_notification_sync.py` (ASLEEP notification wake retention),
-`tests/test_silence_kill.py` (idempotent private producer),
+`tests/test_notification_sync.py` (ASLEEP notification wake retention, and
+the poison-recovery boot baseline that keeps a relaunch ASLEEP until a
+genuinely later notification change), `tests/test_cli_worker_poison_recovery.py`
+(hard exit after poison, and no refresh-success kick-start while a worker
+recovery is pending), `tests/test_silence_kill.py` (idempotent private producer),
 `tests/test_system.py` + `tests/test_system_declared_plugin.py` (direct and
 official self-sleep ordering), and `tests/test_karma.py` +
 `tests/test_perform_refresh_handshake.py` (signal-file and watcher-spawn

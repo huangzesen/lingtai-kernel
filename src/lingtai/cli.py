@@ -402,11 +402,27 @@ def run(working_dir: Path) -> None:
     try:
         agent.start()
 
-        # Kick-start after refresh — wake agent with a system message
+        # Kick-start after refresh — wake agent with a system message.
+        # Not after a WorkerStillRunning poison recovery: that relaunch only
+        # discards the unsafe in-process interface, and the still-pending
+        # recovery artifact is the durable proof. The new logical agent stays
+        # ASLEEP until a genuinely later request/notification, whose first safe
+        # text request then carries the one-shot recovery notice
+        # (`maybe_prepend_worker_hang_recovery_prompt`).
         if is_refresh:
-            from lingtai.kernel.i18n import t
-            lang = agent._config.language
-            agent.send(t(lang, "system.refresh_successful"), sender="system")
+            from lingtai.kernel.base_agent.worker_recovery import (
+                has_pending_worker_hang_recovery_prompt,
+            )
+
+            if has_pending_worker_hang_recovery_prompt(agent):
+                agent._log(
+                    "refresh_kickstart_deferred",
+                    reason="pending_worker_hang_recovery",
+                )
+            else:
+                from lingtai.kernel.i18n import t
+                lang = agent._config.language
+                agent.send(t(lang, "system.refresh_successful"), sender="system")
 
         agent._shutdown.wait()
     finally:
