@@ -5,13 +5,25 @@ thread is still running after timeout + grace, the live ChatInterface is
 poisoned for this process and recovery must happen from durable on-disk state
 after refresh/relaunch.
 
+The artifact also carries a compact ``redo`` block so the relaunched process
+can redo the interrupted turn (never the poisoned in-process interface):
+``pending -> provider_started -> completed | abandoned``, or born
+``unavailable``. A pending redo is enqueued once per boot; ``provider_started``
+is persisted immediately before the fresh process's provider call, after which
+a later boot fails closed. At-most-once per recorded provider start, not
+exactly-once end to end. Incident: Runyuan 2026-09-08 (300 s timeout ->
+poison -> relaunch that never redid the call).
+
 Design reference: Lingtai-AI/lingtai-kernel#298 (rebuilt for current main).
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import secrets
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -28,6 +40,13 @@ from ..trace_redaction import redact_text
 
 MAX_PREVIEW_CHARS = 500
 _ARTIFACT_GLOB = "worker_still_running_*.json"
+# Artifact filenames are derived only from this id shape (fixed containment).
+_ARTIFACT_ID_RE = re.compile(r"^worker_still_running_\d{8}T\d{6}Z_[A-Za-z0-9-]{1,32}$")
+# A `request` redo carries the exact original text; bound both characters and
+# UTF-8 bytes, and report anything larger as unavailable rather than truncate.
+MAX_REDO_CONTENT_CHARS = 200_000
+MAX_REDO_CONTENT_BYTES = 1_000_000
+_REDO_TERMINAL = frozenset({"completed", "abandoned", "unavailable"})
 _ISSUE_REFS = ["Lingtai-AI/lingtai-kernel#195", "Lingtai-AI/lingtai-kernel#238"]
 _SAFETY_INVARIANT = (
     "Worker future still alive after timeout + grace; poisoned ChatInterface "
@@ -52,14 +71,69 @@ def _safe_text(value: Any) -> str:
         return repr(value)
 
 
+def _fsync_directory(directory: Path, *, os_name: str | None = None) -> None:
+    """Durability barrier for a directory-entry replacement.
+
+    POSIX directory descriptors carry the barrier: open read-only, fsync,
+    close (same pattern as ``tools/bash/_async_supervisor._write_state_atomic``).
+    Windows cannot ``os.open`` a directory; the file fsync plus atomic
+    replace is the portable boundary there. Errors propagate.
+    """
+    if (os_name or os.name) != "posix":
+        return
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def _write_json_atomic(path: Path, payload: dict) -> None:
+    """Restrictive, durable artifact write (the artifact may carry replay text).
+
+    ``0700`` directory, exclusive random ``0600`` temp file, fsync, atomic
+    replace, then the parent-directory barrier (``_fsync_directory``) so a
+    transition such as ``provider_started`` is durable before the caller acts
+    on it. Raises on failure; callers decide how to report it.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.tmp")
-    tmp.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    tmp.replace(path)
+    try:
+        os.chmod(path.parent, 0o700)
+    except OSError:
+        pass
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    _fsync_directory(path.parent)
+
+
+_LOCK_CREATE = threading.Lock()
+
+
+def _lock(agent) -> threading.RLock:
+    """Serialize artifact transitions across this process's threads (boot,
+    notification dismissal, run loop); the workdir lease excludes processes."""
+    lock = getattr(agent, "_worker_hang_recovery_lock", None)
+    if lock is None:
+        with _LOCK_CREATE:
+            lock = getattr(agent, "_worker_hang_recovery_lock", None) or threading.RLock()
+            agent._worker_hang_recovery_lock = lock
+    return lock
+
+
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _artifact_id_from_relpath(artifact_relpath: str | None) -> str:
@@ -120,7 +194,61 @@ def _collect_notification_metadata(agent) -> dict:
     }
 
 
-def build_worker_hang_context(agent, msg: Message, exc: BaseException) -> dict:
+def _plan_redo(agent, msg: Message, *, prior_attempt: int, request_persisted: bool) -> dict:
+    """The compact ``redo`` block: how the fresh process may redo this turn.
+
+    ``request`` — the first round-trip never reached durable history, so the
+    exact bounded text is the only faithful redo; ``continuation`` — the
+    round-trip was saved, so the redo is the localized ``system.stuck_revive``
+    AED request (no request copy); ``tc_wake`` — the notification pair was
+    saved before ``MSG_TC_WAKE``, so an explicit ``MSG_TC_WAKE`` with the
+    original id redrives the ready wire; ``unavailable`` — correlated turn
+    (its caller already received terminal settlement), budget, size, type.
+    """
+    try:
+        max_attempts = max(int(getattr(agent._config, "max_aed_attempts", 3) or 3), 1)
+    except Exception:
+        max_attempts = 3
+    attempt = int(prior_attempt or 0) + 1
+    kind = getattr(msg, "type", "unknown")
+    redo: dict[str, Any] = {
+        "status": "unavailable", "mode": "unavailable", "reason": None,
+        "attempt": attempt, "max_attempts": max_attempts,
+    }
+    message = {
+        "type": kind,
+        "sender": str(getattr(msg, "sender", ""))[:200],
+        "id": str(getattr(msg, "id", "") or "")[:64],
+    }
+    content = getattr(msg, "content", None)
+    if attempt > max_attempts:
+        redo["reason"] = "aed_redo_budget_exhausted"
+    elif kind == MSG_CORRELATED_TURN:
+        redo["reason"] = "correlated_turn_settled"
+    elif kind in (MSG_REQUEST, MSG_USER_INPUT, MSG_TC_WAKE) and request_persisted:
+        redo.update(status="pending", mode="continuation", message=message)
+    elif kind == MSG_TC_WAKE:
+        redo.update(status="pending", mode="tc_wake", message=message)
+    elif kind not in (MSG_REQUEST, MSG_USER_INPUT):
+        redo["reason"] = "unknown_entry"
+    elif not isinstance(content, str):
+        redo["reason"] = "non_text_request"
+    elif len(content) > MAX_REDO_CONTENT_CHARS or len(content.encode("utf-8")) > MAX_REDO_CONTENT_BYTES:
+        redo["reason"] = "request_too_large"
+    else:
+        message.update(content=content, content_chars=len(content), content_sha256=_sha256(content))
+        redo.update(status="pending", mode="request", message=message)
+    return redo
+
+
+def build_worker_hang_context(
+    agent,
+    msg: Message,
+    exc: BaseException,
+    *,
+    prior_attempt: int = 0,
+    request_persisted: bool = False,
+) -> dict:
     """Collect only safe, bounded turn/error metadata for the artifact.
 
     Reads from the message and exception locals — never from the poisoned
@@ -155,6 +283,9 @@ def build_worker_hang_context(agent, msg: Message, exc: BaseException) -> dict:
             "mode": "wire_drive",
             **_collect_notification_metadata(agent),
         }
+    context["redo"] = _plan_redo(
+        agent, msg, prior_attempt=prior_attempt, request_persisted=request_persisted
+    )
     return context
 
 
@@ -163,12 +294,18 @@ def write_worker_hang_artifact(agent, exc: BaseException, context: dict) -> str 
 
     Returns the working-dir-relative path, or None on write failure.  The
     artifact intentionally contains NO raw chat history, tool args, or tool
-    results — only the bounded/redacted previews built in ``context``.
+    results — only the bounded/redacted previews built in ``context`` plus,
+    for a ``request`` redo, the exact bounded request text under ``redo``
+    (declared by ``privacy.redo_request_text_included``; stripped to
+    length/hash on every terminal redo status).
     """
     created_at = _now_iso()
     artifact_id = f"worker_still_running_{_now_stamp()}_{secrets.token_hex(3)}"
     relpath = f"history/unfinished_turns/{artifact_id}.json"
     path = agent._working_dir / relpath
+    redo = context.get("redo") or {
+        "status": "unavailable", "mode": "unavailable", "reason": "message_unavailable",
+    }
     payload = {
         "schema_version": 1,
         "type": "worker_still_running_recovery",
@@ -184,12 +321,14 @@ def write_worker_hang_artifact(agent, exc: BaseException, context: dict) -> str 
             "chat_history_saved_after_error": False,
             "notification_ref_id": f"worker_still_running:{artifact_id}",
         },
+        "redo": redo,
         "privacy": {
             "raw_chat_history_included": False,
             "raw_tool_args_included": False,
             "raw_tool_results_included": False,
             "previews_redacted": True,
             "max_preview_chars": MAX_PREVIEW_CHARS,
+            "redo_request_text_included": "content" in (redo.get("message") or {}),
         },
     }
     for key in ("request", "tc_wake", "predecessor_tools"):
@@ -350,9 +489,13 @@ def _open_artifacts(agent) -> list[tuple[str, Path, dict]]:
         return []
     out: list[tuple[str, Path, dict]] = []
     for path in directory.glob(_ARTIFACT_GLOB):
+        if not _ARTIFACT_ID_RE.match(path.stem):
+            continue
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
+            continue
+        if not isinstance(payload, dict):
             continue
         if payload.get("status") != "open" or payload.get("resolved_at"):
             continue
@@ -378,6 +521,11 @@ def resolve_worker_hang_artifact(agent, ref_id: str, *, reason: str = "") -> boo
     directory = agent._working_dir / "history" / "unfinished_turns"
     if not directory.is_dir():
         return False
+    with _lock(agent):
+        return _resolve_locked(agent, directory, ref_id, reason)
+
+
+def _resolve_locked(agent, directory: Path, ref_id: str, reason: str) -> bool:
     for path in sorted(directory.glob(_ARTIFACT_GLOB)):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -396,6 +544,11 @@ def resolve_worker_hang_artifact(agent, ref_id: str, *, reason: str = "") -> boo
         payload["status"] = "resolved"
         payload["resolved_at"] = _now_iso()
         payload["resolved_reason"] = (str(reason) or "dismissed")[:500]
+        # A dismissed recovery must never replay later: a still-pending redo
+        # is abandoned in the same write. An in-flight one (provider_started)
+        # is left for the run loop to settle.
+        if (payload.get("redo") or {}).get("status") == "pending":
+            _finish_redo(payload, "abandoned", reason="artifact_resolved")
         try:
             _write_json_atomic(path, payload)
         except Exception as write_err:
@@ -576,42 +729,271 @@ def baseline_notifications_for_pending_worker_recovery(agent) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# Fresh-process AED redo: boot claim/enqueue, provider-start mark, settlement
+# ---------------------------------------------------------------------------
+
+
+def _finish_redo(payload: dict, status: str, **fields) -> None:
+    """Move the redo to ``status``; a terminal status strips the replay text."""
+    redo = payload.setdefault("redo", {})
+    redo["status"] = status
+    redo.update(fields)
+    if status in _REDO_TERMINAL:
+        message = redo.get("message")
+        if isinstance(message, dict) and "content" in message:
+            del message["content"]
+            message["content_stripped_at"] = _now_iso()
+        payload.setdefault("privacy", {})["redo_request_text_included"] = False
+
+
+def _invalid_redo(redo: dict) -> str | None:
+    """Return a defect reason, or None when the pending redo may be replayed."""
+    mode, message = redo.get("mode"), redo.get("message")
+    if mode not in ("request", "continuation", "tc_wake") or not isinstance(message, dict):
+        return "shape"
+    mid = message.get("id")
+    if not (isinstance(mid, str) and 0 < len(mid) <= 64 and mid.isprintable()):
+        return "message_id"
+    attempt, max_attempts = redo.get("attempt"), redo.get("max_attempts")
+    if not (isinstance(attempt, int) and isinstance(max_attempts, int) and 1 <= attempt <= max_attempts):
+        return "attempt"
+    if mode == "request":
+        content = message.get("content")
+        if message.get("type") not in (MSG_REQUEST, MSG_USER_INPUT) or not isinstance(content, str):
+            return "content_type"
+        if len(content) > MAX_REDO_CONTENT_CHARS or len(content.encode("utf-8")) > MAX_REDO_CONTENT_BYTES:
+            return "content_bounds"
+        if message.get("content_chars") != len(content) or message.get("content_sha256") != _sha256(content):
+            return "content_hash"
+    return None
+
+
+def _redo_message(agent, redo: dict) -> Message:
+    message = redo["message"]
+    mode = redo["mode"]
+    if mode == "request":
+        return Message(type=message["type"], sender=str(message.get("sender") or "user"),
+                       content=message["content"], id=message["id"])
+    if mode == "tc_wake":
+        return Message(type=MSG_TC_WAKE, sender="system", content="", id=message["id"])
+    from ..i18n import t as _t
+    from ..time_veil import now_iso
+
+    try:
+        ts = now_iso(agent)
+    except Exception:
+        ts = _now_iso()
+    language = getattr(getattr(agent, "_config", None), "language", "en") or "en"
+    text = _t(language, "system.stuck_revive", ts=ts,
+              err_desc="LLM worker still running after timeout plus grace")
+    return Message(type=MSG_REQUEST, sender="system", content=text, id=message["id"])
+
+
+def _artifact_by_id(agent, artifact_id: str) -> tuple[Path, dict] | None:
+    if not isinstance(artifact_id, str) or not _ARTIFACT_ID_RE.match(artifact_id):
+        return None
+    path = agent._working_dir / "history" / "unfinished_turns" / f"{artifact_id}.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return (path, payload) if isinstance(payload, dict) else None
+
+
+def redrive_worker_hang_redo(agent) -> str:
+    """Enqueue the newest open artifact's pending redo once for this boot.
+
+    Returns ``"enqueued"``, ``"none"``, or ``"error"`` (discovery failed; the
+    host must not treat that as an ordinary refresh). A ``provider_started``
+    redo found at boot means the previous process died after provider work
+    may have begun: it is abandoned, never replayed, and stays visible through
+    the open artifact and its notification. A defective block is abandoned as
+    ``invalid:<reason>``. Nothing durable marks "enqueued": if this process
+    dies before ``provider_started`` is persisted, the next boot enqueues again
+    because no provider side effect began.
+    """
+    with _lock(agent):
+        try:
+            artifacts = _open_artifacts(agent)
+        except Exception as err:
+            _log(agent, "worker_hang_redo_discovery_failed", error=(str(err) or repr(err))[:300])
+            return "error"
+        if not artifacts:
+            return "none"
+        _created_at, path, payload = artifacts[0]
+        redo = payload.get("redo")
+        if not isinstance(redo, dict) or redo.get("status") in _REDO_TERMINAL:
+            return "none"
+        if redo.get("status") == "provider_started":
+            reason = "provider_started_before_crash"
+        elif redo.get("status") != "pending":
+            reason = "invalid:status"
+        else:
+            defect = _invalid_redo(redo)
+            reason = f"invalid:{defect}" if defect else None
+        if reason:
+            _finish_redo(payload, "abandoned", reason=reason)
+            try:
+                _write_json_atomic(path, payload)
+            except Exception as err:
+                _log(agent, "worker_hang_redo_mark_failed", artifact=path.name,
+                     error=(str(err) or repr(err))[:300])
+            _log(agent, "worker_hang_redo_skipped", reason=reason, artifact=path.name)
+            return "none"
+        message = _redo_message(agent, redo)
+        agent._llm_worker_redo_in_flight = {
+            "artifact_id": path.stem, "mode": redo["mode"], "attempt": redo["attempt"],
+            "max_attempts": redo["max_attempts"], "message_id": message.id,
+        }
+        agent.inbox.put(message)
+    wake = getattr(agent, "_wake_nap", None)
+    if callable(wake):
+        wake("worker_hang_redo")
+    _log(agent, "worker_hang_redo_enqueued", mode=redo["mode"], attempt=redo["attempt"],
+         max_attempts=redo["max_attempts"], message_type=message.type,
+         message_id=message.id, artifact=path.name)
+    return "enqueued"
+
+
+def match_in_flight_worker_hang_redo(agent, msg: Message) -> dict | None:
+    """Bind the in-flight redo to a dequeued turn by its stable message id."""
+    in_flight = getattr(agent, "_llm_worker_redo_in_flight", None)
+    bound = None
+    if isinstance(in_flight, dict) and getattr(msg, "id", None) == in_flight.get("message_id"):
+        bound = in_flight
+    agent._llm_worker_redo_turn = bound
+    return bound
+
+
+def mark_worker_hang_redo_provider_started(agent) -> bool:
+    """Persist ``provider_started`` for the bound redo immediately before the
+    provider call. False means the record could not be written: the caller
+    must fail closed and skip the provider call."""
+    bound = getattr(agent, "_llm_worker_redo_turn", None)
+    if not isinstance(bound, dict):
+        return True
+    with _lock(agent):
+        loaded = _artifact_by_id(agent, bound.get("artifact_id"))
+        status = (loaded[1].get("redo") or {}).get("status") if loaded else None
+        if status == "provider_started":
+            return True
+        if status != "pending":
+            _log(agent, "worker_hang_redo_mark_failed", artifact=bound.get("artifact_id"),
+                 error=f"unexpected_status:{status}")
+            bound["provider_start_failed"] = True
+            return False
+        path, payload = loaded
+        _finish_redo(payload, "provider_started", provider_started_at=_now_iso())
+        try:
+            _write_json_atomic(path, payload)
+        except Exception as err:
+            # The replace may already have exposed `provider_started` on disk
+            # (e.g. the directory barrier failed afterwards); the caller skips
+            # the provider call, and settlement reports that truthfully from
+            # this process-local flag rather than from the directory entry.
+            _log(agent, "worker_hang_redo_mark_failed", artifact=path.name,
+                 error=(str(err) or repr(err))[:300])
+            bound["provider_start_failed"] = True
+            return False
+    _log(agent, "worker_hang_redo_provider_started", artifact=path.name, attempt=bound.get("attempt"))
+    return True
+
+
+def settle_worker_hang_redo(agent, redo_ref: dict | None, *, outcome: str) -> bool:
+    """Terminally settle the bound redo once its turn has ended (strips text).
+    A redo that never reached ``provider_started`` settles ``no_provider_call``.
+    An already-terminal redo (e.g. ``abandoned`` by a dismissal that won the
+    race) is authoritative and is never rewritten."""
+    if not isinstance(redo_ref, dict):
+        return False
+    with _lock(agent):
+        if getattr(agent, "_llm_worker_redo_in_flight", None) is redo_ref:
+            agent._llm_worker_redo_in_flight = None
+        agent._llm_worker_redo_turn = None
+        loaded = _artifact_by_id(agent, redo_ref.get("artifact_id"))
+        ok = False
+        if loaded:
+            path, payload = loaded
+            status = (payload.get("redo") or {}).get("status")
+            if status in _REDO_TERMINAL:
+                _log(agent, "worker_hang_redo_settled", outcome=f"already_{status}",
+                     artifact=redo_ref.get("artifact_id"), attempt=redo_ref.get("attempt"),
+                     persisted=False)
+                return False
+            # In-memory truth wins over what the directory entry happens to
+            # show: a failed mark (unexpected status, write, or barrier
+            # failure after the replace) means no provider call happened,
+            # even if `provider_started` became visible on disk.
+            if status == "pending" or redo_ref.get("provider_start_failed"):
+                outcome = "no_provider_call"
+            _finish_redo(payload, "completed", outcome=str(outcome)[:200], completed_at=_now_iso())
+            try:
+                _write_json_atomic(path, payload)
+                ok = True
+            except Exception as err:
+                _log(agent, "worker_hang_redo_mark_failed", artifact=path.name,
+                     error=(str(err) or repr(err))[:300])
+    _log(agent, "worker_hang_redo_settled", outcome=outcome, artifact=redo_ref.get("artifact_id"),
+         attempt=redo_ref.get("attempt"), persisted=ok)
+    return ok
+
+
+def _log(agent, event: str, **fields) -> None:
+    try:
+        agent._log(event, **fields)
+    except Exception:
+        pass
+
+
 def maybe_prepend_worker_hang_recovery_prompt(agent, content: str) -> str:
     """Prepend one concise recovery notice to the next safe text request.
 
     Only fires once per artifact (marked via ``prompt_injected_at``).  Returns
-    ``content`` unchanged when there is nothing open to recover.
+    ``content`` unchanged when there is nothing open to recover. When the
+    request is the kernel's own AED redo, the notice says so.
     """
     if not isinstance(content, str):
         return content
-    artifacts = _pending_recovery_prompt_artifacts(agent)
-    if not artifacts:
-        return content
-    _created_at, path, payload = artifacts[0]
-    try:
-        artifact_relpath = path.relative_to(agent._working_dir).as_posix()
-    except ValueError:
-        artifact_relpath = str(path)
-    injected_at = _now_iso()
-    payload["prompt_injected_at"] = injected_at
-    payload["prompt_injected_on"] = "next_safe_text_request"
-    try:
-        _write_json_atomic(path, payload)
-    except Exception as mark_err:
+    # Select, mutate, and write under the recovery lock: a concurrent
+    # dismissal (resolve_worker_hang_artifact) must never be overwritten by a
+    # stale open/pending payload carrying only the notice mark.
+    with _lock(agent):
+        artifacts = _pending_recovery_prompt_artifacts(agent)
+        if not artifacts:
+            return content
+        _created_at, path, payload = artifacts[0]
         try:
-            agent._log(
-                "worker_hang_prompt_mark_failed",
-                artifact=artifact_relpath,
-                error=(str(mark_err) or repr(mark_err))[:300],
-            )
-        except Exception:
-            pass
+            artifact_relpath = path.relative_to(agent._working_dir).as_posix()
+        except ValueError:
+            artifact_relpath = str(path)
+        injected_at = _now_iso()
+        payload["prompt_injected_at"] = injected_at
+        payload["prompt_injected_on"] = "next_safe_text_request"
+        try:
+            _write_json_atomic(path, payload)
+        except Exception as mark_err:
+            try:
+                agent._log(
+                    "worker_hang_prompt_mark_failed",
+                    artifact=artifact_relpath,
+                    error=(str(mark_err) or repr(mark_err))[:300],
+                )
+            except Exception:
+                pass
+    bound = getattr(agent, "_llm_worker_redo_turn", None)
+    redo_line = (
+        f"The kernel is now automatically redoing that interrupted call (AED redo "
+        f"attempt {bound.get('attempt')} of {bound.get('max_attempts')}); the request "
+        "below is that redo, not a new instruction. "
+        if isinstance(bound, dict) and bound.get("artifact_id") == path.stem else ""
+    )
     notice = (
         "[Kernel recovery notice]\n"
         "A previous LLM call was abandoned because its worker was still running "
         "after timeout plus grace. The kernel skipped saving the unsafe chat "
         "interface and refreshed/rebuilt from the last safe on-disk history. "
-        "Do not assume the abandoned LLM response exists. If task context is "
+        f"Do not assume the abandoned LLM response exists. {redo_line}If task context is "
         f"missing, inspect {artifact_relpath}, current notifications, mail, "
         "and pad, then continue or ask for direction.\n"
         "[/Kernel recovery notice]"

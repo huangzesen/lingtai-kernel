@@ -167,14 +167,17 @@ def test_worker_hang_request_artifact_is_bounded_and_redacted(tmp_path):
     assert request["content_chars"] == len(content)
     assert len(request["content_preview_redacted"]) <= 500
     assert secret not in request["content_preview_redacted"]
-    assert secret not in json.dumps(artifact, ensure_ascii=False)
     assert request["content_sha256"]
+    # The exact text is carried only in the declared `redo` block (the fresh
+    # process's AED redo of this never-saved request), never in the preview.
+    assert artifact["redo"]["message"]["content"] == content
     assert artifact["privacy"] == {
         "raw_chat_history_included": False,
         "raw_tool_args_included": False,
         "raw_tool_results_included": False,
         "previews_redacted": True,
         "max_preview_chars": 500,
+        "redo_request_text_included": True,
     }
 
 

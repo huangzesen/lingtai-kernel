@@ -5,6 +5,7 @@ root_contract: CONTRACT.md
 related_files:
   - src/lingtai/kernel/workdir_lease/ANATOMY.md
   - src/lingtai/kernel/base_agent/CONTRACT.md
+  - src/lingtai/kernel/refresh_watcher/CONTRACT.md
   - src/lingtai/kernel/workdir_lease/__init__.py
   - src/lingtai/adapters/posix/workdir_lease.py
   - src/lingtai/adapters/windows/workdir_lease.py
@@ -157,7 +158,10 @@ substitutability.
 7. Lock-file existence is not authority; holding the OS-level exclusive lock is.
    Read-only lock *observers* (maintenance retention, doctor diagnostics) inspect
    lock state without acquiring a production lease and are not authority-bearing
-   consumers of this Port.
+   consumers of this Port. The refresh watcher's lock phase
+   ([`refresh_watcher/CONTRACT.md`](../refresh_watcher/CONTRACT.md)) probes
+   `acquire(0)`/`release` while a lock pathname lingers, so a holder that died
+   before `release()` does not strand the relaunch.
 8. Core imports, receives, invokes, and releases only the Port. Concrete POSIX
    construction and platform selection belong to outer composition roots; Core
    never names the adapter or the selector.

@@ -10,6 +10,10 @@ related_files:
   - src/lingtai/kernel/notification_store/_mutation_lock.py
   - src/lingtai/adapters/notification_store_lock.py
   - src/lingtai/kernel/ANATOMY.md
+  - src/lingtai/kernel/workdir_lease/CONTRACT.md
+  - src/lingtai/adapters/posix/workdir_lease.py
+  - src/lingtai/adapters/windows/workdir_lease.py
+  - tests/test_refresh_watcher_lease_probe.py
   - src/lingtai/adapters/refresh_watcher.py
   - src/lingtai/adapters/posix/ANATOMY.md
   - src/lingtai/adapters/posix/refresh_watcher.py
@@ -56,8 +60,15 @@ walkthrough.
   stop/force-stop boundary (`src/lingtai/kernel/refresh_watcher/__init__.py:79-145`).
 - `render_watcher_script(request)` renders the ACK/lock, heartbeat, retry,
   matcher, redaction, and alert policy and calls only an injected
-  `PROCESS_MECHANISM` global for process operations
-  (`src/lingtai/kernel/refresh_watcher/watcher_program.py`). Its terminal
+  `PROCESS_MECHANISM` global for process operations and an injected
+  `WORKDIR_LEASE` global (the Core `WorkdirLeasePort`) for the lock-phase
+  probe; `hb_baseline`/`advanced_heartbeat_age` make only a post-baseline
+  heartbeat count, `_settle_taken` clears `.refresh.taken` at every terminal
+  outcome, `_exit` is the only `sys.exit`, and `_render_body` wraps the
+  handshake/relaunch in one `try` that tags handled failures with
+  `WATCHER_HANDLED_ATTR`; `watcher_failure_to_raise` is the entrypoint
+  fail-safe (`src/lingtai/kernel/refresh_watcher/watcher_program.py`; LABT
+  RW003). Its terminal
   system publisher independently derives the Store's canonical
   `channel:system` scoped-lock filename, takes the POSIX shared legacy bridge
   plus exclusive scoped lock, and never removes lock files. Its wall-clock
@@ -78,8 +89,10 @@ walkthrough.
 - `PosixRefreshWatcherAdapter` owns the initial encoded-request detached
   handoff (`src/lingtai/adapters/posix/refresh_watcher.py:67-90`). Its entrypoint
   decodes/renders the policy and injects
-  `PosixRefreshWatcherProcessAdapter` as `PROCESS_MECHANISM`
-  (`src/lingtai/adapters/posix/refresh_watcher_entrypoint.py:30-64`).
+  `PosixRefreshWatcherProcessAdapter` as `PROCESS_MECHANISM` and
+  `PosixWorkdirLeaseAdapter(request.working_dir)` as `WORKDIR_LEASE`
+  (`src/lingtai/adapters/posix/refresh_watcher_entrypoint.py`); the Windows
+  entrypoint injects `WindowsWorkdirLeaseAdapter` the same way.
 - `PosixRefreshWatcherProcessAdapter` owns process-table observation, liveness,
   replacement launch, graceful termination, and forced termination
   (`src/lingtai/adapters/posix/refresh_watcher_process.py:26-87`).

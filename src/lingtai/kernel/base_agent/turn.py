@@ -1326,6 +1326,16 @@ def _run_loop_body(agent) -> None:
             # consumes this captured route, never a live re-read, so a later
             # chat or a dismissed notification cannot lose/misroute it.
             turn_origin = _aed_origin_route(agent)
+            # Bind the relaunch's AED redo (if this is it) by message id; a
+            # repeat hang counts it as the prior attempt and the post-turn
+            # settlement below marks it terminal.
+            from .worker_recovery import match_in_flight_worker_hang_redo
+
+            worker_hang_redo_ref = match_in_flight_worker_hang_redo(agent, msg)
+            # Set once the turn's first provider round-trip is durably saved:
+            # a hang before it must replay the request, after it only the
+            # continuation.
+            agent._llm_worker_turn_request_persisted = False
             while True:
                 try:
                     # A cancellation requested while this envelope was pending
@@ -1450,7 +1460,15 @@ def _run_loop_body(agent) -> None:
                             write_worker_hang_artifact,
                         )
 
-                        context = build_worker_hang_context(agent, msg, e)
+                        # The redo itself happens in the relaunched process
+                        # (worker_recovery.redrive_worker_hang_redo), never here.
+                        context = build_worker_hang_context(
+                            agent, msg, e,
+                            prior_attempt=(worker_hang_redo_ref or {}).get("attempt", 0),
+                            request_persisted=bool(
+                                getattr(agent, "_llm_worker_turn_request_persisted", False)
+                            ),
+                        )
                         artifact_relpath = write_worker_hang_artifact(agent, e, context)
                         mark_worker_interface_poisoned(
                             agent,
@@ -1464,6 +1482,8 @@ def _run_loop_body(agent) -> None:
                             error=err_desc[:300],
                             artifact=artifact_relpath,
                             turn_entry=(context.get("turn") or {}).get("entry"),
+                            redo_mode=(context.get("redo") or {}).get("mode"),
+                            redo_attempt=(context.get("redo") or {}).get("attempt"),
                         )
                         agent._set_state(AgentState.STUCK, reason=err_desc)
                         request_worker_hang_refresh(
@@ -1805,6 +1825,20 @@ def _run_loop_body(agent) -> None:
                     msg = _prepare_aed_retry_message(agent, err_desc)
                     agent._set_state(AgentState.ACTIVE, reason=f"AED recovery attempt {aed_attempts}")
 
+            if worker_hang_redo_ref is not None:
+                from ..llm_utils import WorkerStillRunningError as _WorkerStillRunning
+                from .worker_recovery import settle_worker_hang_redo
+
+                settle_worker_hang_redo(
+                    agent,
+                    worker_hang_redo_ref,
+                    outcome=(
+                        "worker_still_running_again"
+                        if isinstance(terminal_error, _WorkerStillRunning)
+                        else terminal_failure or ("failed" if terminal_error else "completed")
+                    ),
+                )
+
             if not agent._asleep.is_set():
                 agent._set_state(sleep_state)
 
@@ -1962,6 +1996,12 @@ def _concat_queued_messages(agent, msg: Message) -> Message:
              for m in all_msgs]
     merged_content = "\n\n".join(parts)
     merged = _make_message(MSG_REQUEST, msg.sender, merged_content)
+    # A merge that absorbs the relaunch's AED redo keeps that message's id so
+    # the redo stays bound by id alone (message text is never inspected).
+    in_flight = getattr(agent, "_llm_worker_redo_in_flight", None)
+    redo_id = in_flight.get("message_id") if isinstance(in_flight, dict) else None
+    if redo_id and any(m.id == redo_id for m in all_msgs):
+        merged.id = redo_id
     agent._log("messages_concatenated", count=len(all_msgs))
     return merged
 
@@ -2126,6 +2166,13 @@ def _handle_request(agent, msg: Message) -> dict:
     if prefix:
         content = f"{prefix}\n\n{content}"
     agent._log("text_input", text=content)
+    # A bound AED redo records `provider_started` durably before any provider
+    # work; if that cannot be written, fail closed rather than risk a later
+    # boot replaying a turn whose side effects may already have happened.
+    from .worker_recovery import mark_worker_hang_redo_provider_started
+
+    if not mark_worker_hang_redo_provider_started(agent):
+        return {"text": "", "failed": True, "errors": ["worker hang redo state could not be recorded"]}
     response = agent._session.send(content)
     # Settle point: the initial send returned; any receipt-bearing result
     # spliced onto the wire during it (e.g. a request-start inbox drain) is now
@@ -2133,6 +2180,7 @@ def _handle_request(agent, msg: Message) -> dict:
     scan_and_emit_committed_facts(agent)
     agent._last_usage = response.usage
     agent._save_chat_history()
+    agent._llm_worker_turn_request_persisted = True
     try:
         result = _process_response(agent, response)
         agent._post_request(msg, result)
@@ -2209,6 +2257,17 @@ def _handle_tc_wake(agent, msg: Message) -> None:
                 dup_hard_block=8,
             ),
         )
+
+        # A bound AED redo must record `provider_started` durably before ANY
+        # provider send on this wire — the legacy items below send too. Fail
+        # closed: re-enqueue every drained item in order, touch nothing.
+        from .worker_recovery import mark_worker_hang_redo_provider_started
+
+        if items and not mark_worker_hang_redo_provider_started(agent):
+            for item in items:
+                agent._tc_inbox.enqueue(item)
+            agent._log("tc_wake_noop", reason="worker_hang_redo_mark_failed")
+            return
 
         # Legacy tc_inbox path — drained items get spliced and driven the
         # old way (call appended here, result passed through send).  Empty
@@ -2315,6 +2374,14 @@ def _handle_tc_wake(agent, msg: Message) -> None:
             agent._log("tc_wake_noop", reason="wire_not_ready")
             return
 
+        # A bound AED redo records `provider_started` durably first (fail
+        # closed if it cannot be written).
+        from .worker_recovery import mark_worker_hang_redo_provider_started
+
+        if not mark_worker_hang_redo_provider_started(agent):
+            agent._log("tc_wake_noop", reason="worker_hang_redo_mark_failed")
+            return
+
         try:
             agent._log("tc_wake_continue")
             response = agent._session.send(None)
@@ -2322,6 +2389,7 @@ def _handle_tc_wake(agent, msg: Message) -> None:
             scan_and_emit_committed_facts(agent)
             agent._last_usage = response.usage
             agent._save_chat_history(ledger_source="tc_wake")
+            agent._llm_worker_turn_request_persisted = True
             _process_response(agent, response, ledger_source="tc_wake")
             # Notification-driven turns also run turn-boundary housekeeping so molt
             # pressure / notification sync / large-result rescan fire even when the

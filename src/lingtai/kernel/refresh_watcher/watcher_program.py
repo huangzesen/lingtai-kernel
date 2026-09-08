@@ -18,6 +18,9 @@ policy.
 from __future__ import annotations
 
 import json
+import os
+import textwrap
+import time
 from pathlib import Path
 
 from lingtai.kernel.notification_store._mutation_lock import (
@@ -42,7 +45,16 @@ WATCHER_POLL_INTERVAL = 0.5
 # 'another lingtai agent is already running' again because the duplicate had not
 # left the process table yet. Bound how long the watcher waits for that exit.
 DUPLICATE_EXIT_WAIT = 15
+# Once the workdir lease is proved free, a heartbeat left by the dead owner
+# proves nothing (incident 2026-09-08: the poisoned `os._exit` followed the
+# last tick by seconds). Only a heartbeat that advances past the baseline
+# captured at lock release counts; a live owner gets this long to advance it.
+ALREADY_ALIVE_OBSERVE = 3.0
 STDERR_TAIL_CHARS = 1200
+# Set on every exception the generated policy has already recorded and
+# settled (including its deliberate exits), so the entrypoint fail-safe does
+# not report or settle a second time.
+WATCHER_HANDLED_ATTR = "_lingtai_watcher_handled"
 DUPLICATE_GUARD_MESSAGE = "another lingtai agent is already running"
 
 
@@ -113,6 +125,30 @@ def render_watcher_script(request: RefreshWatcherRequest) -> str:
         "        return PROCESS_MECHANISM\n"
         "    except NameError as exc:\n"
         "        raise RuntimeError('refresh watcher process mechanism was not injected') from exc\n"
+        # The Core workdir lease Port (platform adapter injected by the
+        # entrypoint): lock-file existence is not authority, the OS lease is.
+        "def _workdir_lease():\n"
+        "    try:\n"
+        "        return WORKDIR_LEASE\n"
+        "    except NameError as exc:\n"
+        "        raise RuntimeError('refresh watcher workdir lease was not injected') from exc\n"
+        f"HANDLED = {WATCHER_HANDLED_ATTR!r}\n"
+        "_deliberate = False\n"
+        "def _exit(code):\n"
+        "    global _deliberate\n"
+        "    _deliberate = True\n"
+        "    sys.exit(code)\n"
+        # `.refresh.taken` is what observers read as 'Refreshing'; every
+        # terminal watcher outcome settles it (the CLI child consumes it
+        # before its first heartbeat, so success can never race that).
+        "def _settle_taken(reason):\n"
+        "    if not os.path.exists(taken):\n"
+        "        return\n"
+        "    try:\n"
+        "        os.unlink(taken)\n"
+        "        log('refresh_taken_marker_cleared', reason=reason)\n"
+        "    except OSError as e:\n"
+        "        log('refresh_taken_marker_clear_failed', reason=reason, error=_bounded(str(e), 200))\n"
         "from datetime import datetime, timezone\n"
         f"taken = {taken_path!r}\n"
         f"lock = {lock_path!r}\n"
@@ -128,6 +164,7 @@ def render_watcher_script(request: RefreshWatcherRequest) -> str:
         f"HEALTH_CHECK_BUDGET = {HEALTH_CHECK_BUDGET}\n"
         f"WATCHER_POLL_INTERVAL = {WATCHER_POLL_INTERVAL}\n"
         f"DUPLICATE_EXIT_WAIT = {DUPLICATE_EXIT_WAIT}\n"
+        f"ALREADY_ALIVE_OBSERVE = {ALREADY_ALIVE_OBSERVE}\n"
         f"DUPLICATE_GUARD_MESSAGE = {DUPLICATE_GUARD_MESSAGE!r}\n"
         # The watcher writes events.jsonl through its own log() below, bypassing
         # the in-process CompositeLoggingService.redact_for_trajectory. Secret-
@@ -367,31 +404,24 @@ def render_watcher_script(request: RefreshWatcherRequest) -> str:
         "        log('refresh_failed_permanent_alert_published', alert_id=alert_id,\n"
         "            artifact_path=failure_artifact)\n"
         "    return alert_id, meta\n"
-        "deadline = time.time() + 60\n"
-        "log('refresh_watcher_start')\n"
-        "# Phase 1: wait for .refresh.taken\n"
-        "while not os.path.exists(taken) and time.time() < deadline:\n"
-        "    time.sleep(0.5)\n"
-        "if not os.path.exists(taken):\n"
-        "    log('refresh_watcher_timeout', phase='ack')\n"
-        "    sys.exit(1)\n"
-        "log('refresh_watcher_ack')\n"
-        "# Phase 2: wait for .agent.lock to clear\n"
-        "while os.path.exists(lock) and time.time() < deadline:\n"
-        "    time.sleep(0.5)\n"
-        "if os.path.exists(lock):\n"
-        "    log('refresh_watcher_timeout', phase='lock')\n"
-        "    sys.exit(1)\n"
-        "# Phase 3: relaunch with health check and retry\n"
-        "def heartbeat_age():\n"
-        "    hb = os.path.join(wd, '.agent.heartbeat')\n"
+        "def heartbeat_ts():\n"
         "    try:\n"
-        "        hb_ts = float(open(hb).read().strip())\n"
-        "        return time.time() - hb_ts\n"
+        "        return float(open(os.path.join(wd, '.agent.heartbeat')).read().strip())\n"
         "    except (ValueError, OSError):\n"
         "        return None\n"
+        "def heartbeat_age():\n"
+        "    ts = heartbeat_ts()\n"
+        "    return None if ts is None else time.time() - ts\n"
+        # Baseline = the heartbeat present when the lease was proved free;
+        # only a heartbeat newer than it can prove a live owner or child.
+        "hb_baseline = None\n"
+        "def advanced_heartbeat_age():\n"
+        "    ts = heartbeat_ts()\n"
+        "    if ts is None or (hb_baseline is not None and ts <= hb_baseline):\n"
+        "        return None\n"
+        "    return time.time() - ts\n"
         "def is_alive():\n"
-        "    age = heartbeat_age()\n"
+        "    age = advanced_heartbeat_age()\n"
         "    return age is not None and age < 30\n"
         # The attempt marker written before every start_agent lets the health
         # check attribute a duplicate-guard line to *this* attempt. Read only the
@@ -431,7 +461,7 @@ def render_watcher_script(request: RefreshWatcherRequest) -> str:
         "    deadline = started + HEALTH_CHECK_BUDGET\n"
         "    guard_seen = False\n"
         "    while True:\n"
-        "        age = heartbeat_age()\n"
+        "        age = advanced_heartbeat_age()\n"
         "        if age is not None and age < HEALTH_CHECK_WAIT + 10:\n"
         "            return round(time.time() - started, 3)\n"
         "        if guard_seen:\n"
@@ -480,7 +510,7 @@ def render_watcher_script(request: RefreshWatcherRequest) -> str:
         "    age = heartbeat_age()\n"
         "    failure_state['last_heartbeat_age'] = age\n"
         "    failure_state['last_heartbeat_status'] = 'fresh' if age is not None and age < 30 else ('stale' if age is not None else 'missing')\n"
-        "    if age is not None and age < 60:\n"
+        "    if advanced_heartbeat_age() is not None and age < 60:\n"
         "        log('refresh_watcher_duplicate_alive', attempt=attempt, pid=pid, heartbeat_age=age)\n"
         "        failure_state['last_cleanup_result'] = 'skipped_fresh_heartbeat'\n"
         "        return False\n"
@@ -543,11 +573,62 @@ def render_watcher_script(request: RefreshWatcherRequest) -> str:
         "            failure_state['last_cleanup_result'] = 'still_alive'\n"
         "            return False\n"
         "        time.sleep(min(WATCHER_POLL_INTERVAL, remaining))\n"
+    ) + _render_body()
+
+
+def _render_body() -> str:
+    """Handshake, relaunch loop, and terminal publication, in one ``try``.
+
+    Deliberate exits go through ``_exit``; anything else that escapes —
+    including an unexpected ``SystemExit`` from an injected mechanism — is
+    recorded once, settles ``.refresh.taken``, is tagged for the entrypoint,
+    and keeps a nonzero status (zero/None would be a false success).
+    """
+    body = (
+        "log('refresh_watcher_start')\n"
+        "# Phase 1: wait for .refresh.taken\n"
+        "while not os.path.exists(taken) and time.time() < deadline:\n"
+        "    time.sleep(0.5)\n"
+        "if not os.path.exists(taken):\n"
+        "    log('refresh_watcher_timeout', phase='ack')\n"
+        "    _settle_taken('ack_timeout')\n"
+        "    _exit(1)\n"
+        "log('refresh_watcher_ack')\n"
+        "# Phase 2: wait for the workdir lease to be free. A lingering lock\n"
+        "# pathname is not proof it is held (a poisoned hard exit dies before\n"
+        "# release), so probe the lease Port while the path remains.\n"
+        "released = None\n"
+        "while time.time() < deadline and released is None:\n"
+        "    if not os.path.exists(lock):\n"
+        "        released = 'path_cleared'\n"
+        "    else:\n"
+        "        lease = _workdir_lease()\n"
+        "        try:\n"
+        "            lease.acquire(0)\n"
+        "        except RuntimeError:\n"
+        "            time.sleep(0.5)\n"
+        "        else:\n"
+        "            lease.release()\n"
+        "            released = 'lease_probe'\n"
+        "if released is None:\n"
+        "    log('refresh_watcher_timeout', phase='lock')\n"
+        "    _settle_taken('lock_timeout')\n"
+        "    _exit(1)\n"
+        "log('refresh_watcher_lock_released', via=released)\n"
+        "hb_baseline = heartbeat_ts()\n"
+        "# Phase 3: relaunch with health check and retry\n"
         "for attempt in range(1, MAX_ATTEMPTS + 1):\n"
         "    # Check if already alive before relaunching\n"
+        # A young baseline may be a live owner this watcher did not launch:
+        # give it one window to advance before treating it as dead.
+        "    if attempt == 1 and hb_baseline is not None and time.time() - hb_baseline < 30:\n"
+        "        until = time.time() + ALREADY_ALIVE_OBSERVE\n"
+        "        while not is_alive() and time.time() < until:\n"
+        "            time.sleep(WATCHER_POLL_INTERVAL)\n"
         "    if is_alive():\n"
         "        log('refresh_watcher_already_alive', attempt=attempt)\n"
-        "        sys.exit(0)\n"
+        "        _settle_taken('already_alive')\n"
+        "        _exit(0)\n"
         "    # Clean signal files so the new process boots cleanly (like CPR)\n"
         "    for sig in ('.suspend', '.sleep', '.interrupt'):\n"
         "        try:\n"
@@ -581,7 +662,8 @@ def render_watcher_script(request: RefreshWatcherRequest) -> str:
         "    if heartbeat_wait is not None:\n"
         "        log('refresh_watcher_success', attempt=attempt, pid=proc.pid,\n"
         "            heartbeat_wait=heartbeat_wait)\n"
-        "        sys.exit(0)\n"
+        "        _settle_taken('relaunch_success')\n"
+        "        _exit(0)\n"
         "    # Process not alive — log failure and retry\n"
         "    stderr_tail = ''\n"
         "    try:\n"
@@ -603,12 +685,85 @@ def render_watcher_script(request: RefreshWatcherRequest) -> str:
         "        if _cleanup_stale_duplicate(stderr_tail, attempt):\n"
         "            _await_duplicate_exit(attempt, failure_state['last_duplicate_pid'])\n"
         "alert_id, meta = _publish_refresh_failed_permanent()\n"
+        "_settle_taken('refresh_failed_permanent')\n"
         "log('refresh_failed_permanent', alert_id=alert_id, **meta)\n"
+        "_exit(1)\n"
     )
+    return (
+        "deadline = time.time() + 60\n"
+        "try:\n"
+        + textwrap.indent(body, "    ")
+        + "except SystemExit as _e:\n"
+        "    setattr(_e, HANDLED, True)\n"
+        "    if _deliberate:\n"
+        "        raise\n"
+        "    log('refresh_watcher_exception', phase='policy', exception='SystemExit',\n"
+        "        exit_code=_redact_bounded(repr(_e.code)))\n"
+        "    _settle_taken('watcher_exception')\n"
+        "    if not _e.code:\n"
+        "        _failed = SystemExit(1)\n"
+        "        setattr(_failed, HANDLED, True)\n"
+        "        raise _failed from _e\n"
+        "    raise\n"
+        "except BaseException as _e:\n"
+        "    setattr(_e, HANDLED, True)\n"
+        "    log('refresh_watcher_exception', phase='policy', exception=type(_e).__name__,\n"
+        "        error=_redact_bounded(repr(_e)))\n"
+        "    _settle_taken('watcher_exception')\n"
+        "    raise\n"
+    )
+
+
+def watcher_failure_to_raise(request: RefreshWatcherRequest, exc: BaseException) -> BaseException:
+    """Entrypoint fail-safe for a failure the policy did not handle itself.
+
+    Only reached with a decoded request (before ``decode_request`` succeeds
+    there is no trusted ``taken_path`` and nothing is cleaned). A failure the
+    policy already recorded/settled (tagged ``WATCHER_HANDLED_ATTR``) is
+    returned untouched. Otherwise the marker is settled, one redacted
+    ``refresh_watcher_exception`` event is appended, and the exception to
+    raise is returned — a zero/None ``SystemExit`` becomes ``SystemExit(1)``
+    so an unexpected terminal failure never reports success. Never raises.
+    """
+    if getattr(exc, WATCHER_HANDLED_ATTR, False):
+        return exc
+    try:
+        from lingtai.kernel.trace_redaction import redact_for_trajectory
+
+        entry = {
+            "type": "refresh_watcher_exception", "phase": "entrypoint",
+            "address": request.address, "agent_name": request.agent_name,
+            "ts": time.time(), "exception": type(exc).__name__,
+            "error": repr(exc)[-STDERR_TAIL_CHARS:],
+        }
+        try:
+            entry = redact_for_trajectory(entry)
+        except Exception:
+            entry = {k: v for k, v in entry.items() if k != "error"} | {"redaction_unavailable": True}
+        events = [entry]
+        try:
+            os.unlink(request.taken_path)
+            events.append({"type": "refresh_taken_marker_cleared", "reason": "watcher_exception",
+                           "address": request.address, "agent_name": request.agent_name,
+                           "ts": time.time()})
+        except OSError:
+            pass
+        os.makedirs(os.path.dirname(request.events_path), exist_ok=True)
+        with open(request.events_path, "a", encoding="utf-8") as handle:
+            for event in events:
+                handle.write(json.dumps(event) + "\n")
+    except Exception:
+        pass
+    if isinstance(exc, SystemExit) and not exc.code:
+        return SystemExit(1)
+    return exc
 
 
 __all__ = [
     "render_watcher_script",
+    "watcher_failure_to_raise",
+    "WATCHER_HANDLED_ATTR",
+    "ALREADY_ALIVE_OBSERVE",
     "MAX_ATTEMPTS",
     "HEALTH_CHECK_WAIT",
     "HEALTH_CHECK_BUDGET",

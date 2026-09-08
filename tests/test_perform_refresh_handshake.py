@@ -84,10 +84,15 @@ def _fast_watcher_script(script: str) -> str:
     # Direct policy execution in these focused tests composes the same POSIX
     # process mechanism that the real -m entrypoint injects. The renderer
     # intentionally has no concrete process fallback.
+    import re
+
+    wd_literal = re.search(r"^wd = (.+)$", script, re.MULTILINE).group(1)
     bootstrap = (
         "from lingtai.adapters.posix.refresh_watcher_process import "
         "PosixRefreshWatcherProcessAdapter\n"
+        "from lingtai.adapters.posix.workdir_lease import PosixWorkdirLeaseAdapter\n"
         "PROCESS_MECHANISM = PosixRefreshWatcherProcessAdapter()\n"
+        f"WORKDIR_LEASE = PosixWorkdirLeaseAdapter({wd_literal})\n"
     )
     return bootstrap + (
         script
@@ -303,7 +308,19 @@ def test_refresh_watcher_entrypoint_invoked_via_dash_m_runs_watcher_program(tmp_
 
     wd = tmp_path / "wd"
     (wd / "logs").mkdir(parents=True)
-    (wd / ".agent.heartbeat").write_text(str(__import__("time").time()), encoding="utf-8")
+    # A live owner ADVANCES its heartbeat; a static young timestamp is what a
+    # dead poisoned owner leaves behind and no longer counts as alive.
+    import threading
+    import time as _time
+
+    heartbeat_stop = threading.Event()
+
+    def _tick():
+        while not heartbeat_stop.is_set():
+            (wd / ".agent.heartbeat").write_text(str(_time.time()), encoding="utf-8")
+            _time.sleep(0.2)
+
+    threading.Thread(target=_tick, daemon=True).start()
     request = _sample_request(
         taken_path=str(wd / ".refresh.taken"),
         lock_path=str(wd / ".agent.lock"),
@@ -322,13 +339,16 @@ def test_refresh_watcher_entrypoint_invoked_via_dash_m_runs_watcher_program(tmp_
     # LingTai version (or failing because no distribution is installed).
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
 
-    result = subprocess.run(
-        [sys.executable, "-m", ENTRYPOINT_MODULE, payload],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        env=env,
-    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", ENTRYPOINT_MODULE, payload],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env=env,
+        )
+    finally:
+        heartbeat_stop.set()
 
     assert result.returncode == 0, result.stderr
     events = (wd / "logs" / "events.jsonl").read_text(encoding="utf-8")
@@ -1109,7 +1129,8 @@ def test_refresh_watcher_permanent_failure_writes_operator_alert(tmp_path):
         },
     )
 
-    assert result.returncode == 0, result.stderr
+    # Permanent failure is a failure: nonzero after alert/artifact/marker settlement.
+    assert result.returncode == 1, result.stderr
     notification = _read_json(wd / ".notification" / "system.json")
     event = notification["data"]["events"][-1]
     metadata = event["metadata"]

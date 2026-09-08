@@ -22,10 +22,14 @@ from __future__ import annotations
 import sys
 
 from lingtai.kernel.refresh_watcher import decode_request
-from lingtai.kernel.refresh_watcher.watcher_program import render_watcher_script
+from lingtai.kernel.refresh_watcher.watcher_program import (
+    render_watcher_script,
+    watcher_failure_to_raise,
+)
 from lingtai.adapters.windows.refresh_watcher_process import (
     WindowsRefreshWatcherProcessAdapter,
 )
+from lingtai.adapters.windows.workdir_lease import WindowsWorkdirLeaseAdapter
 
 
 def main(argv: list[str]) -> int:
@@ -43,16 +47,28 @@ def main(argv: list[str]) -> int:
             "<encoded-request>"
         )
     request = decode_request(argv[0])
-    script = render_watcher_script(request)
-    exec(
-        compile(script, "<refresh_watcher>", "exec"),
-        {
-            "__name__": "__main__",
-            "PROCESS_MECHANISM": WindowsRefreshWatcherProcessAdapter(
-                request.working_dir
-            ),
-        },
-    )
+    try:
+        script = render_watcher_script(request)
+        exec(
+            compile(script, "<refresh_watcher>", "exec"),
+            {
+                "__name__": "__main__",
+                "PROCESS_MECHANISM": WindowsRefreshWatcherProcessAdapter(
+                    request.working_dir
+                ),
+                # The policy's lock phase probes the platform lease; a
+                # lingering `.agent.lock` pathname is not a held lease.
+                "WORKDIR_LEASE": WindowsWorkdirLeaseAdapter(request.working_dir),
+            },
+        )
+    except BaseException as exc:
+        # Only failures the policy did not already record/settle are handled
+        # here (render/compile/exec setup); decode failures raise above with
+        # no trusted taken_path, so nothing is cleaned for them.
+        failure = watcher_failure_to_raise(request, exc)
+        if failure is exc:
+            raise
+        raise failure from exc
     return 0
 
 

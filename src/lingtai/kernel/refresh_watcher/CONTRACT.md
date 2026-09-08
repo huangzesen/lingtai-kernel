@@ -1,11 +1,15 @@
 ---
 name: refresh-watcher
-contract_version: 4
+contract_version: 5
 root_contract: CONTRACT.md
 related_files:
   - src/lingtai/kernel/refresh_watcher/ANATOMY.md
   - src/lingtai/kernel/refresh_watcher/BEHAVIORS.md
   - src/lingtai/kernel/base_agent/CONTRACT.md
+  - src/lingtai/kernel/workdir_lease/CONTRACT.md
+  - src/lingtai/adapters/posix/workdir_lease.py
+  - src/lingtai/adapters/windows/workdir_lease.py
+  - tests/test_refresh_watcher_lease_probe.py
   - src/lingtai/kernel/refresh_watcher/__init__.py
   - src/lingtai/kernel/refresh_watcher/watcher_program.py
   - src/lingtai/kernel/refresh_watcher/MANUAL.md
@@ -74,6 +78,18 @@ That narrow Port performs no policy: it supplies only observation, process
 liveness, replacement launch, graceful stop, and forced stop. Core decides when
 to call each operation; the concrete POSIX adapter owns all process-table,
 signal, and detached-launch mechanics.
+
+The lock phase also receives the Core [`WorkdirLeasePort`](../workdir_lease/CONTRACT.md)
+bound to the working directory (`WORKDIR_LEASE`, the platform adapter injected
+by the entrypoint). Lock-file existence is not authority: a poisoned hard exit
+dies before `release()`, so the OS lease is gone while the `.agent.lock`
+pathname remains. The phase ends when the pathname is gone or an
+`acquire(0)`/`release` probe succeeds; a genuinely held lease is honored until
+the deadline. The heartbeat present when the lease is proved free is a
+baseline the dead owner left: only a heartbeat that advances past it counts
+as an already-alive owner (given `ALREADY_ALIVE_OBSERVE` to advance), as the
+child's success, or as duplicate-cleanup protection.
+Guarded by: [RW003](BEHAVIORS.md#behavior-rw003)
 
 See [`MANUAL.md`](MANUAL.md) for the existing capability walkthrough. The
 manual's process-mechanism references should be kept aligned with this contract
@@ -177,8 +193,14 @@ stop); forced stop via `TerminateProcess` on the exact PID, never a tree kill.
 Each platform's `refresh_watcher_entrypoint.main` decodes the request, renders
 the Core policy, and executes it with `PROCESS_MECHANISM` set to a newly
 composed platform process adapter (the Windows entrypoint binds it to
-`request.working_dir`). The entrypoints are the only composition sites for the
-generated policy's process mechanism; Core never imports the adapters.
+`request.working_dir`) and `WORKDIR_LEASE` set to that platform's production
+workdir-lease adapter bound to `request.working_dir`. The entrypoints are the
+only composition sites for the generated policy's mechanisms; Core never
+imports the adapters. If rendering or executing the policy raises anything
+(including `SystemExit`) that the policy did not already handle, the
+entrypoint passes it through the Core-owned `watcher_failure_to_raise`
+(rule 12); a decode failure raises before any request exists and is not
+cleaned up, because no trusted `taken_path` exists yet.
 
 `select_refresh_watcher` (`src/lingtai/adapters/refresh_watcher.py`) is the outer
 platform selector. It returns the POSIX outer adapter on POSIX and the Windows
@@ -259,6 +281,23 @@ same matcher import and not embed a second matcher implementation.
     bounded fail-open timeout so permanent-refresh visibility is not silently
     lost to a wedged holder. This is canonical behavior sharing, not a second
     Store implementation; it must stay byte-compatible with the Store mapping.
+12. `.refresh.taken` is settled at every terminal outcome and exit status is
+    truthful: already-alive and success exit 0 (the CLI child consumed the
+    marker before its first heartbeat, so a marker still present after the
+    verified advance belongs to no one and is cleared); ACK timeout, lock
+    timeout, and permanent failure (after the artifact/alert are published)
+    clear it and exit 1. Every deliberate exit goes through the policy's
+    `_exit`. Anything else escaping the policy — an ordinary exception or an
+    unexpected `SystemExit` from an injected mechanism — is recorded once
+    (`refresh_watcher_exception`, `phase=policy`, redacted, bounded), settles
+    the marker, is tagged `WATCHER_HANDLED_ATTR`, and propagates with a
+    nonzero status (a zero/None `SystemExit` becomes 1). The entrypoint
+    fail-safe `watcher_failure_to_raise` applies the same rules only to an
+    untagged failure (render/compile/exec setup, or an exit before the
+    policy's handler), so nothing is reported or settled twice, and it never
+    masks the original exception. The watcher still never deletes
+    `.agent.lock` by path.
+    Guarded by: [RW003](BEHAVIORS.md#behavior-rw003)
 
 ## Contract tests
 
@@ -278,6 +317,11 @@ both directions), entrypoint composition of the workdir-bound Windows process
 mechanism, the `.suspend` graceful-stop channel, CIM observation shapes with
 failure-to-`None` mapping, and — on native Windows — real detached launch,
 liveness, forced-stop, and self-observation mechanism truth.
+`tests/test_refresh_watcher_lease_probe.py` pins the lease probe (fake and
+real POSIX adapter; native Windows mechanism skipped off-Windows), heartbeat
+baseline/advancement, marker settlement and exit status at every terminal
+outcome, once-only failure reporting across policy and entrypoints (including
+`SystemExit(17|0|None)`), the decode boundary, and platform lease composition.
 
 ## Maintenance
 

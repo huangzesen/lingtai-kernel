@@ -11,6 +11,7 @@ related_files:
   - src/lingtai/kernel/refresh_watcher/watcher_program.py
   - tests/test_perform_refresh_handshake.py
   - tests/test_refresh_watcher_process.py
+  - tests/test_refresh_watcher_lease_probe.py
 maintenance: |
   Created during the every-contract-needs-behaviors sweep. Keep this file
   reciprocal with CONTRACT.md and ANATOMY.md (tridirectional loop): when a
@@ -73,3 +74,25 @@ Pass when the suites pass and the one-spawn/zero-spawn observations hold. Fail o
 
 ### Pass / Fail
 Pass when a heartbeat that arrives after `HEALTH_CHECK_WAIT` but inside `HEALTH_CHECK_BUDGET` is accepted on the first attempt, the retry waits for a terminated duplicate, and an undying duplicate is reported honestly instead of hanging. Fail on a slow boot costing a second attempt, on a retry that starts while the duplicate still matches the same-agent guard, on an unbounded wait, or on a terminal artifact that hides the `still_alive` outcome; record the evidence trail in the task report.
+
+## Behavior RW003 — a dead owner's lock pathname or young heartbeat never strands the relaunch, and `.refresh.taken` is settled with a truthful exit at every terminal outcome
+
+- **id**: RW003
+- **title**: a dead owner's lock pathname or young heartbeat never strands the relaunch, and `.refresh.taken` is settled with a truthful exit at every terminal outcome
+- **guards**: `refresh-watcher` § Purpose (lease/heartbeat paragraph), § Adapters and composition (entrypoint fail-safe), § Contract rules, rule 12
+- **pinned by**: `tests/test_refresh_watcher_lease_probe.py` (all tests); `tests/test_perform_refresh_handshake.py::test_refresh_watcher_entrypoint_invoked_via_dash_m_runs_watcher_program` (already-alive requires an advancing heartbeat) and `::test_refresh_watcher_permanent_failure_writes_operator_alert` (exit 1)
+- **runner**: any LingTai coding agent with `shell` and `file` access to this repository
+- **prerequisites**: a clean checkout of `<repo>` and the project Python with pytest
+- **estimate**: ≈ 10 minutes
+- **motivation**: production incident 2026-09-08 (Runyuan). A `WorkerStillRunningError` poisoned the interface, the CLI hard-exited via `os._exit` seconds after its last heartbeat and before `WorkdirLeasePort.release()`; the OS lease was gone but the `.agent.lock` pathname and a young heartbeat remained. The watcher trusted the pathname, logged `refresh_watcher_timeout phase=lock`, and left `.refresh.taken`, so the TUI showed `Refreshing` for hours; trusting the young heartbeat instead would have exited "already alive" without launching a child.
+
+### Steps
+1. From `<repo>`, run `python -m pytest tests/test_refresh_watcher_lease_probe.py tests/test_refresh_watcher_process.py tests/test_perform_refresh_handshake.py -q`.
+2. Read `render_watcher_script` and confirm: the lock phase ends on a cleared pathname or a successful `WORKDIR_LEASE.acquire(0)`/`release` probe; `hb_baseline` is captured at lock release and `advanced_heartbeat_age` gates already-alive, success, and duplicate protection; `_settle_taken` runs on ACK/lock timeout, already-alive, success, permanent failure, and in the `try` handlers; `sys.exit` appears only inside `_exit`.
+
+### Expected evidence
+- [ ] Step 1: all three suites pass; the suite shows: stale pathname + free lease relaunches (fake and real POSIX adapter); a 5 s-old dead heartbeat does not suppress the relaunch and is never accepted as the child's success; an advancing heartbeat is already-alive; a young dead heartbeat does not starve duplicate cleanup; lock/ack timeouts and permanent failure exit 1 with the marker cleared (permanent: alert → marker → terminal event order); an unexpected exception or `SystemExit(17|0|None)` from a mechanism yields one `refresh_watcher_exception`, a cleared marker, and exit 17/1/1; both entrypoints settle only untagged failures once, preserve 17 and turn 0/None into 1; a decode failure touches nothing.
+- [ ] Step 2: the named helpers exist and the policy names no adapter or platform lock vocabulary.
+
+### Pass / Fail
+Pass when the suite is green and the inspection holds. Fail on a `phase=lock` timeout caused solely by a pathname, on already-alive without an observed advance, on any terminal outcome that leaves the marker, on a zero exit for a failure, or on a failure reported twice; record the evidence trail in the task report.
