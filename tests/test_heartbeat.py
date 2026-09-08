@@ -351,6 +351,96 @@ class TestHeartbeatNeverBlocksOnNetwork:
         assert not stale, f"heartbeat went stale during the slow fetch (#730): {stale[:3]}"
 
 
+def test_shutdown_gate_consumes_pending_suspend_and_persists_once(tmp_path, monkeypatch):
+    """A signal may set shutdown before the heartbeat sees `.suspend`."""
+    import threading
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from lingtai.kernel import AgentState
+    from lingtai.kernel.base_agent import lifecycle
+
+    class _Stop:
+        def wait(self, _timeout):
+            fake._heartbeat_thread = None
+
+    fake = SimpleNamespace(
+        _heartbeat_thread=object(),
+        _heartbeat_runtime_ready=True,
+        _shutdown=threading.Event(),
+        _heartbeat_stop=_Stop(),
+        _working_dir=tmp_path,
+        _request_turn_cancel=Mock(),
+        _set_state=Mock(),
+        _log=Mock(),
+    )
+    fake._shutdown.set()  # exact signal-handler ordering
+    marker = tmp_path / ".suspend"
+    marker.write_text("")
+    monkeypatch.setattr(lifecycle, "_write_heartbeat_tick", lambda _agent: None)
+
+    lifecycle._heartbeat_loop(fake)
+
+    assert not marker.exists()
+    fake._set_state.assert_called_once_with(AgentState.SUSPENDED, reason="suspend signal")
+    fake._request_turn_cancel.assert_called_once_with()
+    fake._log.assert_any_call("suspend_received", source="signal_file")
+
+
+def test_suspend_consumption_is_one_shot_even_if_marker_reappears(tmp_path):
+    import threading
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from lingtai.kernel import AgentState
+    from lingtai.kernel.base_agent import lifecycle
+
+    agent = SimpleNamespace(
+        _working_dir=tmp_path,
+        _request_turn_cancel=Mock(),
+        _set_state=Mock(),
+        _log=Mock(),
+        _shutdown=threading.Event(),
+    )
+    marker = tmp_path / ".suspend"
+    marker.write_text("")
+
+    assert lifecycle._consume_suspend_signal(agent) is True
+    marker.write_text("")
+    assert lifecycle._consume_suspend_signal(agent) is False
+    agent._set_state.assert_called_once_with(AgentState.SUSPENDED, reason="suspend signal")
+    agent._request_turn_cancel.assert_called_once_with()
+    agent._log.assert_called_once_with("suspend_received", source="signal_file")
+
+
+def test_internal_shutdown_without_suspend_does_not_publish_suspended(tmp_path, monkeypatch):
+    import threading
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from lingtai.kernel.base_agent import lifecycle
+
+    class _Stop:
+        def wait(self, _timeout):
+            agent._heartbeat_thread = None
+
+    agent = SimpleNamespace(
+        _heartbeat_thread=object(),
+        _heartbeat_runtime_ready=True,
+        _shutdown=threading.Event(),
+        _heartbeat_stop=_Stop(),
+        _working_dir=tmp_path,
+        _set_state=Mock(),
+        _request_turn_cancel=Mock(),
+        _log=Mock(),
+    )
+    agent._shutdown.set()  # internal teardown with no signal marker
+    monkeypatch.setattr(lifecycle, "_write_heartbeat_tick", lambda _agent: None)
+
+    lifecycle._heartbeat_loop(agent)
+
+    agent._set_state.assert_not_called()
+    agent._request_turn_cancel.assert_not_called()
+    agent._log.assert_not_called()
+
+
 class TestHeartbeatTickConstant:
 
     def test_heartbeat_loop_uses_kernel_tick_constant(self, monkeypatch):
@@ -377,4 +467,110 @@ class TestHeartbeatTickConstant:
         lifecycle._heartbeat_loop(_FakeAgent())
 
         assert waits == [config.HEARTBEAT_TICK_SECONDS]
+
+
+def test_spawned_process_sigterm_and_sigint_persist_one_suspended_transition(tmp_path):
+    """External POSIX stop signals reach the real handler and heartbeat gate.
+
+    The child uses the production CLI handler, BaseAgent state writer, and
+    lifecycle heartbeat. It keeps runtime startup gated so only the pending
+    `.suspend` consume runs after the signal, making ordering deterministic
+    without a provider or network.
+    """
+    import json
+    import os
+    import signal
+    import subprocess
+    import sys
+
+    import pytest
+
+    if os.name == "nt":
+        pytest.skip("POSIX SIGTERM/SIGINT process contract")
+
+    repo_root = __file__
+    for _ in range(2):
+        repo_root = os.path.dirname(repo_root)
+    child = r'''
+import json
+import sys
+import threading
+import time
+from pathlib import Path
+
+from lingtai.cli import _install_signal_handlers
+from lingtai.kernel import BaseAgent, AgentState
+from lingtai.kernel.base_agent import lifecycle
+from lingtai.tools.registry import INTRINSICS
+from lingtai.adapters.lifecycle_clock import SystemLifecycleClockAdapter
+from lingtai.adapters.posix.agent_presence import PosixAgentPresenceStoreAdapter
+from tests._notification_store_helpers import notification_store_for
+from tests._service_helpers import make_tool_result_mock_service
+from tests._snapshot_helpers import make_test_snapshot_port, make_test_source_revision_port
+from tests._workdir_lease_helpers import make_test_lease
+
+workdir = Path(sys.argv[1])
+agent = BaseAgent(
+    intrinsics=INTRINSICS,
+    service=make_tool_result_mock_service(),
+    agent_name="signal-child",
+    working_dir=workdir,
+    workdir_lease=make_test_lease(),
+    agent_presence=PosixAgentPresenceStoreAdapter(workdir),
+    lifecycle_clock=SystemLifecycleClockAdapter(),
+    snapshot_port=make_test_snapshot_port(),
+    source_revision_port=make_test_source_revision_port(),
+    notification_store=notification_store_for(workdir),
+)
+lifecycle.HEARTBEAT_TICK_SECONDS = 0.01
+agent._heartbeat_runtime_ready = False
+_install_signal_handlers(workdir, agent)
+heartbeat = threading.Thread(target=lifecycle._heartbeat_loop, args=(agent,), daemon=True)
+agent._heartbeat_thread = heartbeat
+heartbeat.start()
+print("READY", flush=True)
+
+deadline = time.monotonic() + 5
+while agent._state is not AgentState.SUSPENDED and time.monotonic() < deadline:
+    time.sleep(0.01)
+if agent._state is not AgentState.SUSPENDED:
+    raise SystemExit("signal did not persist SUSPENDED")
+manifest = json.loads((workdir / ".agent.json").read_text(encoding="utf-8"))
+if manifest.get("state") != AgentState.SUSPENDED.value:
+    raise SystemExit(f"manifest state was {manifest.get('state')!r}")
+(workdir / "signal-result.json").write_text(
+    json.dumps({"state": manifest["state"], "marker_exists": (workdir / ".suspend").exists()}),
+    encoding="utf-8",
+)
+# Normal final teardown must not create another SUSPENDED transition.
+agent.stop(timeout=2.0)
+'''
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(
+        [os.path.join(repo_root, "src"), repo_root, env.get("PYTHONPATH", "")]
+    )
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        workdir = tmp_path / signum.name
+        workdir.mkdir()
+        process = subprocess.Popen(
+            [sys.executable, "-c", child, str(workdir)],
+            cwd=repo_root,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert process.stdout.readline().strip() == "READY"
+            os.kill(process.pid, signum)
+            stdout, stderr = process.communicate(timeout=10)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate(timeout=5)
+        assert process.returncode == 0, (stdout, stderr)
+        result = json.loads((workdir / "signal-result.json").read_text())
+        assert result == {"state": "suspended", "marker_exists": False}
+        manifest = json.loads((workdir / ".agent.json").read_text())
+        assert manifest["state"] == "suspended"
 

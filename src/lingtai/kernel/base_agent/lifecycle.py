@@ -650,6 +650,39 @@ def _stop_heartbeat(agent) -> None:
     agent._log("heartbeat_stop", heartbeat=agent._heartbeat)
 
 
+def _consume_suspend_signal(agent) -> bool:
+    """Consume one pending ``.suspend`` marker and publish SUSPENDED once.
+
+    Signal handlers intentionally set ``_shutdown`` before the heartbeat can
+    observe the marker. The shutdown gate therefore calls this helper while
+    continuing to suppress all other signal-file work. A process-local claim
+    prevents a failed unlink or repeated heartbeat tick from publishing the
+    lifecycle transition more than once.
+    """
+    if getattr(agent, "_suspend_signal_consumed", False):
+        return False
+    working_dir = getattr(agent, "_working_dir", None)
+    if working_dir is None:
+        return False
+    suspend_file = working_dir / ".suspend"
+    if not suspend_file.is_file():
+        return False
+    agent._suspend_signal_consumed = True
+    try:
+        suspend_file.unlink()
+    except OSError:
+        # The marker may be read-only or concurrently removed; lifecycle
+        # handling remains one-shot and the durable state transition is still
+        # authoritative.
+        pass
+    agent._request_turn_cancel()
+    from ..state import AgentState
+    agent._set_state(AgentState.SUSPENDED, reason="suspend signal")
+    agent._shutdown.set()
+    agent._log("suspend_received", source="signal_file")
+    return True
+
+
 def _heartbeat_loop(agent) -> None:
     """Beat every HEARTBEAT_TICK_SECONDS (kernel-fixed cadence). AED if agent is STUCK.
 
@@ -681,6 +714,12 @@ def _heartbeat_loop(agent) -> None:
             # consuming signal files — the run loop is exiting and reprocessing
             # `.suspend`/`.refresh` here would emit spurious state-change events.
             if agent._shutdown.is_set() or not getattr(agent, "_heartbeat_runtime_ready", True):
+                # A signal handler creates `.suspend` and sets `_shutdown` as
+                # one operation. Keep the shutdown gate for every other
+                # marker, but consume this pending marker so SUSPENDED is
+                # persisted before the process exits.
+                if agent._shutdown.is_set():
+                    _consume_suspend_signal(agent)
                 # _shutdown keeps beating; only final heartbeat stop wakes the wait.
                 agent._heartbeat_stop.wait(HEARTBEAT_TICK_SECONDS)
                 continue
@@ -713,16 +752,7 @@ def _heartbeat_loop(agent) -> None:
                 agent._shutdown.set()
 
             # .suspend = SUSPENDED (full process death, external only)
-            suspend_file = agent._working_dir / ".suspend"
-            if suspend_file.is_file():
-                try:
-                    suspend_file.unlink()
-                except OSError:
-                    pass
-                agent._request_turn_cancel()
-                agent._set_state(AgentState.SUSPENDED, reason="suspend signal")
-                agent._shutdown.set()
-                agent._log("suspend_received", source="signal_file")
+            _consume_suspend_signal(agent)
 
             # .sleep = ASLEEP (sleep, listeners stay alive)
             sleep_file = agent._working_dir / ".sleep"
